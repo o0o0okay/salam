@@ -1,13 +1,13 @@
-/* Testable weather presets: rain, fog, wet pavement and their visual/physics state. */
+/* Testable weather presets: rain, snow, fog, wet pavement and their visual/physics state. */
 import * as THREE from 'three';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 
 const PRESETS = {
-  clear: { rain: 0, fog: 0, wet: 0 },
-  rain:  { rain: 1, fog: 0.14, wet: 1 },
-  fog:   { rain: 0, fog: 1, wet: 0 },
-  wet:   { rain: 0, fog: 0, wet: 1 },
+  clear: { rain: 0, snow: 0, fog: 0, wet: 0 },
+  rain:  { rain: 1, snow: 0, fog: 0.14, wet: 1 },
+  fog:   { rain: 0, snow: 0, fog: 1, wet: 0 },
+  snow:  { rain: 0, snow: 1, fog: 0.22, wet: 0 },
 };
 
 const clamp01 = value => Math.max(0, Math.min(1, value));
@@ -25,9 +25,11 @@ export class WeatherSystem {
   constructor() {
     this.mode = 'clear';
     this.rain = 0;
+    this.snow = 0;
     this.fog = 0;
     this.wet = 0;
     this.targetRain = 0;
+    this.targetSnow = 0;
     this.targetFog = 0;
     this.targetWet = 0;
 
@@ -64,6 +66,50 @@ export class WeatherSystem {
       this._resetDrop(drop, true);
     }
 
+    this.snowCount = 650;
+    this.snowRadius = 42;
+    this.snowTime = 0;
+    this.snowGeometry = new THREE.BufferGeometry();
+    this.snowPositions = new Float32Array(this.snowCount * 3);
+    this.snowAttribute = new THREE.BufferAttribute(this.snowPositions, 3);
+    this.snowAttribute.setUsage(THREE.DynamicDrawUsage);
+    this.snowGeometry.setAttribute('position', this.snowAttribute);
+
+    const snowCanvas = document.createElement('canvas');
+    snowCanvas.width = snowCanvas.height = 32;
+    const snowContext = snowCanvas.getContext('2d');
+    const snowGradient = snowContext.createRadialGradient(16, 16, 0, 16, 16, 16);
+    snowGradient.addColorStop(0, 'rgba(255,255,255,1)');
+    snowGradient.addColorStop(0.45, 'rgba(255,255,255,0.9)');
+    snowGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    snowContext.fillStyle = snowGradient;
+    snowContext.fillRect(0, 0, 32, 32);
+
+    this.snowTexture = new THREE.CanvasTexture(snowCanvas);
+    this.snowTexture.colorSpace = THREE.SRGBColorSpace;
+    this.snowMaterial = new THREE.PointsMaterial({
+      color: 0xf2f8ff,
+      map: this.snowTexture,
+      size: 0.24,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    this.snowMesh = new THREE.Points(this.snowGeometry, this.snowMaterial);
+    this.snowMesh.frustumCulled = false;
+    this.snowMesh.visible = false;
+    scene.add(this.snowMesh);
+
+    this.snowflakes = Array.from(
+      { length: this.snowCount },
+      () => ({ x: 0, y: 0, z: 0, speed: 0, phase: 0 })
+    );
+
+    for (const flake of this.snowflakes) {
+      this._resetSnowflake(flake, true);
+    }
+
     this._updateSurfaceMaterials();
   }
 
@@ -73,28 +119,31 @@ export class WeatherSystem {
 
     this.mode = mode;
     this.targetRain = preset.rain;
+    this.targetSnow = preset.snow;
     this.targetFog = preset.fog;
     this.targetWet = preset.wet;
     return true;
   }
 
   get visibilityFog() {
-    return clamp01(Math.max(this.fog, this.rain * 0.12));
+    return clamp01(Math.max(this.fog, this.rain * 0.12, this.snow * 0.18));
   }
 
   get skyTint() {
-    return clamp01(this.fog * 0.62 + this.rain * 0.11) * 0.72;
+    return clamp01(this.fog * 0.62 + this.rain * 0.11 + this.snow * 0.16) * 0.72;
   }
 
   get lightDimming() {
-    return this.rain * 0.16 + this.fog * 0.08;
+    return this.rain * 0.16 + this.fog * 0.08 + this.snow * 0.1;
   }
 
   update(dt, playerX = 0, playerZ = 0) {
     dt = Math.max(0, dt || 0);
 
     this.rain = smoothToward(this.rain, this.targetRain, dt, 2.6);
+    this.snow = smoothToward(this.snow, this.targetSnow, dt, 1.5);
     this.fog = smoothToward(this.fog, this.targetFog, dt, 1.15);
+    this.snowTime += dt;
 
     // Pavement gets wet quickly and dries gradually after rain stops.
     const wetRate = this.targetWet > this.wet ? 0.75 : 0.075;
@@ -102,6 +151,7 @@ export class WeatherSystem {
 
     this._updateSurfaceMaterials();
     this._updateRain(dt, playerX, playerZ);
+    this._updateSnow(dt, playerX, playerZ);
   }
 
   _resetDrop(drop, initial = false) {
@@ -150,6 +200,49 @@ export class WeatherSystem {
     this.rainAttribute.needsUpdate = true;
   }
 
+  _resetSnowflake(flake, initial = false) {
+    flake.x = (Math.random() * 2 - 1) * this.snowRadius;
+    flake.y = initial
+      ? 2 + Math.random() * 29
+      : 22 + Math.random() * 12;
+    flake.z = (Math.random() * 2 - 1) * this.snowRadius;
+    flake.speed = 2 + Math.random() * 2.5;
+    flake.phase = Math.random() * Math.PI * 2;
+  }
+
+  _updateSnow(dt, playerX, playerZ) {
+    this.snowMesh.position.set(playerX, 0, playerZ);
+    this.snowMesh.visible = this.snow > 0.01;
+    this.snowMaterial.opacity = this.snow * 0.9;
+
+    if (!this.snowMesh.visible) return;
+
+    const windX = 0.55 * this.snow;
+    const windZ = 0.2 * this.snow;
+
+    for (let i = 0; i < this.snowCount; i++) {
+      const flake = this.snowflakes[i];
+      flake.y -= flake.speed * dt;
+      flake.x += (windX + Math.sin(this.snowTime * 0.9 + flake.phase) * 0.32) * dt;
+      flake.z += (windZ + Math.cos(this.snowTime * 0.7 + flake.phase) * 0.18) * dt;
+
+      if (
+        flake.y < -0.5 ||
+        Math.abs(flake.x) > this.snowRadius ||
+        Math.abs(flake.z) > this.snowRadius
+      ) {
+        this._resetSnowflake(flake);
+      }
+
+      const j = i * 3;
+      this.snowPositions[j] = flake.x;
+      this.snowPositions[j + 1] = flake.y;
+      this.snowPositions[j + 2] = flake.z;
+    }
+
+    this.snowAttribute.needsUpdate = true;
+  }
+
   _tintMaterial(material, wet, isRoad) {
     material.color
       .copy(WHITE)
@@ -186,7 +279,7 @@ export class WeatherSystem {
       style.textContent = `
         #weatherTestPanel {
           position: fixed;
-          top: 12px;
+          bottom: 12px;
           left: 12px;
           z-index: 99999;
           width: 224px;
@@ -252,7 +345,7 @@ export class WeatherSystem {
         }
         @media (max-width: 520px) {
           #weatherTestPanel {
-            top: 8px;
+            bottom: 154px;
             left: 8px;
             width: 204px;
           }
@@ -292,7 +385,7 @@ export class WeatherSystem {
       { id: 'clear', label: '☀ Clear' },
       { id: 'rain', label: '🌧 Rain' },
       { id: 'fog', label: '🌫 Fog' },
-      { id: 'wet', label: '💧 Wet road' },
+      { id: 'snow', label: '❄ Snow' },
     ];
 
     const buttonNodes = new Map();
@@ -341,4 +434,3 @@ export class WeatherSystem {
 }
 
 export const weatherSystem = new WeatherSystem();
-"}
