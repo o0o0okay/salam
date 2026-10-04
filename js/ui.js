@@ -2,7 +2,8 @@
 import { $, PI, CHUNK, clamp, fmtTime } from './utils.js';
 import { game, player, sight, police, civs, spikes, calcScore } from './state.js';
 import { DIFF, POLICE_TIERS } from './config.js';
-import { env, weather, setWeather } from './environment.js';
+import { env } from './environment.js';
+import { weatherSystem } from './weather.js';
 import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
 export function toast(text) {
@@ -84,85 +85,5 @@ export function updateHUD() {
 }
 
 export function initWeatherControls() {
-  if ($('weatherTestPanel')) return;
-
-  const style = document.createElement('style');
-  style.id = 'weatherTestStyles';
-  style.textContent = `
-    #weatherTestPanel { position: fixed; top: 12px; left: 12px; z-index: 99999; width: 224px; box-sizing: border-box; padding: 10px; color: #eef5fb; background: rgba(8, 15, 24, .9); border: 1px solid rgba(180, 210, 230, .35); border-radius: 12px; box-shadow: 0 8px 26px rgba(0,0,0,.35); backdrop-filter: blur(8px); font: 12px/1.35 system-ui, sans-serif; }
-    #weatherTestPanel * { box-sizing: border-box; }
-    #weatherTestPanel .weatherTestHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 800; letter-spacing: .08em; }
-    #weatherTestPanel .weatherTestToggle { width: 26px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.22); border-radius: 7px; color: #fff; background: rgba(255,255,255,.08); font: inherit; cursor: pointer; }
-    #weatherTestPanel .weatherTestStatus { margin: 7px 0; color: #a9c2d5; font-size: 10px; letter-spacing: .08em; }
-    #weatherTestPanel .weatherTestButtons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    #weatherTestPanel .weatherTestButton { min-height: 32px; padding: 5px 7px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; color: #e9f0f5; background: rgba(255,255,255,.07); font: 600 11px/1.2 system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
-    #weatherTestPanel .weatherTestButton:hover { background: rgba(255,255,255,.16); }
-    #weatherTestPanel .weatherTestButton.active { color: #fff; border-color: #69d6c0; background: rgba(35,142,119,.62); }
-    @media (max-width: 520px) { #weatherTestPanel { top: 8px; left: 8px; width: 204px; } }
-  `;
-  document.head.appendChild(style);
-
-  const panel = document.createElement('aside');
-  panel.id = 'weatherTestPanel';
-  panel.setAttribute('aria-label', 'Weather testing controls');
-
-  const head = document.createElement('div');
-  head.className = 'weatherTestHead';
-  const title = document.createElement('span');
-  title.textContent = 'WEATHER TEST';
-  const toggle = document.createElement('button');
-  toggle.className = 'weatherTestToggle';
-  toggle.type = 'button';
-  toggle.textContent = '−';
-  toggle.setAttribute('aria-label', 'Collapse weather controls');
-  toggle.setAttribute('aria-expanded', 'true');
-  head.append(title, toggle);
-
-  const body = document.createElement('div');
-  const status = document.createElement('div');
-  status.className = 'weatherTestStatus';
-  const buttons = document.createElement('div');
-  buttons.className = 'weatherTestButtons';
-  body.append(status, buttons);
-
-  const options = [
-    { id: 'clear', label: '☀ Clear' },
-    { id: 'rain', label: '🌧 Rain' },
-    { id: 'fog', label: '🌫 Fog' },
-    { id: 'wet', label: '💧 Wet road' },
-  ];
-  const buttonNodes = new Map();
-  for (const option of options) {
-    const button = document.createElement('button');
-    button.className = 'weatherTestButton';
-    button.type = 'button';
-    button.textContent = option.label;
-    button.addEventListener('click', () => {
-      setWeather(option.id);
-      syncWeatherControls();
-      toast('WEATHER: ' + option.id.toUpperCase());
-    });
-    buttons.appendChild(button);
-    buttonNodes.set(option.id, button);
-  }
-
-  function syncWeatherControls() {
-    status.textContent = 'SELECTED: ' + weather.mode.toUpperCase();
-    for (const [id, button] of buttonNodes) {
-      const active = id === weather.mode;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
-    }
-  }
-
-  toggle.addEventListener('click', () => {
-    body.hidden = !body.hidden;
-    toggle.textContent = body.hidden ? '+' : '−';
-    toggle.setAttribute('aria-expanded', String(!body.hidden));
-    toggle.setAttribute('aria-label', body.hidden ? 'Expand weather controls' : 'Collapse weather controls');
-  });
-
-  panel.append(head, body);
-  document.body.appendChild(panel);
-  syncWeatherControls();
+  weatherSystem.mountTestControls(toast);
 }

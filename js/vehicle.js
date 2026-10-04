@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { clamp, lerp } from './utils.js';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
-import { weather } from './environment.js';
+import { weatherSystem } from './weather.js';
 import { CAR_DIMS, buildCar, isPoliceKind } from './carModels.js';
 import { cars, police, civs } from './state.js';
 
@@ -49,7 +49,7 @@ export function carBox(c) {
 
 export function driveCar(c, inp, dt) {
   const p = c.params, boost = c.boost || 0, fl = c.flatT > 0 ? 1 : 0;
-  const wet = clamp(weather.wet, 0, 1);
+  const wet = clamp(weatherSystem.wet, 0, 1);
   const maxS = p.maxSpeed * (1 + 0.35 * boost) * (1 - 0.34 * fl);
   const accel = p.accel * (1 + 1.0 * boost) * (1 - 0.12 * wet) * (1 - 0.2 * fl);
   const brakeForce = p.brake * (1 - 0.32 * wet);
