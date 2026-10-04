@@ -20,6 +20,8 @@ const WET_SIDEWALK_TINT = new THREE.Color(0xb5bbb8);
 const DRY_SPECULAR = new THREE.Color(0x101419);
 const WET_ROAD_SPECULAR = new THREE.Color(0x9ab8c8);
 const WET_SIDEWALK_SPECULAR = new THREE.Color(0x71858e);
+const SNOW_ROAD_TINT = new THREE.Color(0xb7c2c9);
+const SNOW_ROAD_SPECULAR = new THREE.Color(0xaec2cb);
 
 export class WeatherSystem {
   constructor() {
@@ -28,6 +30,7 @@ export class WeatherSystem {
     this.snow = 0;
     this.fog = 0;
     this.wet = 0;
+    this.snowCover = 0;
     this.targetRain = 0;
     this.targetSnow = 0;
     this.targetFog = 0;
@@ -149,6 +152,11 @@ export class WeatherSystem {
     const wetRate = this.targetWet > this.wet ? 0.75 : 0.075;
     this.wet = smoothToward(this.wet, this.targetWet, dt, wetRate);
 
+    // A light snowpack builds while it snows and lingers, then melts gradually; rain clears it faster.
+    const snowGain = this.snow * 0.045;
+    const snowMelt = this.targetRain > 0.01 ? 0.045 : 0.0045;
+    this.snowCover = clamp01(this.snowCover + (snowGain - snowMelt) * dt);
+
     this._updateSurfaceMaterials();
     this._updateRain(dt, playerX, playerZ);
     this._updateSnow(dt, playerX, playerZ);
@@ -243,10 +251,14 @@ export class WeatherSystem {
     this.snowAttribute.needsUpdate = true;
   }
 
-  _tintMaterial(material, wet, isRoad) {
+  _tintMaterial(material, wet, isRoad, snow = 0) {
     material.color
       .copy(WHITE)
       .lerp(isRoad ? WET_ROAD_TINT : WET_SIDEWALK_TINT, wet);
+
+    if (isRoad && snow > 0) {
+      material.color.lerp(SNOW_ROAD_TINT, snow * 0.16);
+    }
 
     if (material.specular) {
       material.specular
@@ -256,17 +268,26 @@ export class WeatherSystem {
           wet
         );
 
+      if (isRoad && snow > 0) {
+        material.specular.lerp(SNOW_ROAD_SPECULAR, snow * 0.18);
+      }
+
       material.shininess =
-        (isRoad ? 5 : 3) + wet * (isRoad ? 72 : 42);
+        (isRoad ? 5 : 3) + wet * (isRoad ? 72 : 42) +
+        (isRoad ? snow * 14 : 0);
     }
   }
 
   _updateSurfaceMaterials() {
-    this._tintMaterial(ASSET.roadMat, this.wet, true);
+    const roadSnow = clamp01(this.snow * 0.22 + this.snowCover * 0.78);
+    this._tintMaterial(ASSET.roadMat, this.wet, true, roadSnow);
 
     for (const material of ASSET.sidewalkMats) {
       this._tintMaterial(material, this.wet, false);
     }
+
+    ASSET.puddleMat.opacity = this.wet * 0.58;
+    ASSET.snowSurfaceMat.opacity = this.snowCover * 0.88;
   }
 
   mountTestControls(onToast = () => {}) {
