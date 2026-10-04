@@ -1,4 +1,4 @@
-/* Rain and snow particle effects, with a lightweight wet-road response. */
+/* Lightweight rain and snow precipitation with wet-road response. */
 import * as THREE from 'three';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
@@ -29,8 +29,10 @@ export class WeatherSystem {
     this.targetRain = 0;
     this.targetSnow = 0;
     this.targetWet = 0;
+    this._surfaceWet = -1;
+    this._puddlesVisible = false;
 
-    this.rainCount = 500;
+    this.rainCount = 480;
     this.rainRadius = 42;
     this.rainLength = 0.8;
     this.rainGeometry = new THREE.BufferGeometry();
@@ -63,7 +65,7 @@ export class WeatherSystem {
       this._resetDrop(drop, true);
     }
 
-    this.snowCount = 360;
+    this.snowCount = 220;
     this.snowRadius = 42;
     this.snowTime = 0;
     this.snowGeometry = new THREE.BufferGeometry();
@@ -87,7 +89,7 @@ export class WeatherSystem {
     this.snowMaterial = new THREE.PointsMaterial({
       color: 0xf2f8ff,
       map: this.snowTexture,
-      size: 0.24,
+      size: 0.22,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -100,7 +102,7 @@ export class WeatherSystem {
 
     this.snowflakes = Array.from(
       { length: this.snowCount },
-      () => ({ x: 0, y: 0, z: 0, speed: 0, phase: 0 })
+      () => ({ x: 0, y: 0, z: 0, speed: 0 })
     );
 
     for (const flake of this.snowflakes) {
@@ -121,10 +123,6 @@ export class WeatherSystem {
     return true;
   }
 
-  get visibilityFog() {
-    return clamp01(Math.max(this.rain * 0.12, this.snow * 0.18));
-  }
-
   get skyTint() {
     return clamp01(this.rain * 0.11 + this.snow * 0.16) * 0.72;
   }
@@ -140,11 +138,10 @@ export class WeatherSystem {
     this.snow = smoothToward(this.snow, this.targetSnow, dt, 1.5);
     this.snowTime += dt;
 
-    // Pavement gets wet quickly and dries gradually after rain stops.
+    // Wet road response fades in with rain and dries slowly after it stops.
     const wetRate = this.targetWet > this.wet ? 0.75 : 0.075;
     this.wet = smoothToward(this.wet, this.targetWet, dt, wetRate);
-
-    this._updateSurfaceMaterials();
+    if (Math.abs(this.wet - this._surfaceWet) > 0.003) this._updateSurfaceMaterials();
     this._updateRain(dt, playerX, playerZ);
     this._updateSnow(dt, playerX, playerZ);
   }
@@ -202,7 +199,6 @@ export class WeatherSystem {
       : 22 + Math.random() * 12;
     flake.z = (Math.random() * 2 - 1) * this.snowRadius;
     flake.speed = 2 + Math.random() * 2.5;
-    flake.phase = Math.random() * Math.PI * 2;
   }
 
   _updateSnow(dt, playerX, playerZ) {
@@ -212,14 +208,15 @@ export class WeatherSystem {
 
     if (!this.snowMesh.visible) return;
 
-    const windX = 0.55 * this.snow;
-    const windZ = 0.2 * this.snow;
+    // Shared breeze keeps flakes drifting without per-flake trigonometry.
+    const windX = 0.18 * this.snow + Math.sin(this.snowTime * 0.55) * 0.08;
+    const windZ = 0.07 * this.snow + Math.cos(this.snowTime * 0.42) * 0.05;
 
     for (let i = 0; i < this.snowCount; i++) {
       const flake = this.snowflakes[i];
       flake.y -= flake.speed * dt;
-      flake.x += (windX + Math.sin(this.snowTime * 0.9 + flake.phase) * 0.32) * dt;
-      flake.z += (windZ + Math.cos(this.snowTime * 0.7 + flake.phase) * 0.18) * dt;
+      flake.x += windX * dt;
+      flake.z += windZ * dt;
 
       if (
         flake.y < -0.5 ||
@@ -250,7 +247,6 @@ export class WeatherSystem {
           isRoad ? WET_ROAD_SPECULAR : WET_SIDEWALK_SPECULAR,
           wet
         );
-
       material.shininess = (isRoad ? 5 : 3) + wet * (isRoad ? 72 : 42);
     }
   }
@@ -263,7 +259,14 @@ export class WeatherSystem {
     }
 
     ASSET.puddleMat.opacity = this.wet * 0.58;
-    ASSET.puddleMat.visible = this.wet > 0.02;
+    const puddlesVisible = this.wet > 0.01;
+    if (puddlesVisible !== this._puddlesVisible) {
+      this._puddlesVisible = puddlesVisible;
+      if (ASSET.puddleMeshes) {
+        for (const mesh of ASSET.puddleMeshes) mesh.visible = puddlesVisible;
+      }
+    }
+    this._surfaceWet = this.wet;
   }
 
   mountTestControls(onToast = () => {}) {

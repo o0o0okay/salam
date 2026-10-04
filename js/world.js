@@ -22,7 +22,20 @@ function finishChunk(ch) {
   }
   for (const [m, geos] of byMat) {
     const merged = mergeGeometries(geos, false); geos.forEach(g => g.dispose());
-    if (merged) { const mesh = new THREE.Mesh(merged, m); mesh.castShadow = true; mesh.receiveShadow = true; ch.group.add(mesh); ch.geos.push(merged); }
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, m);
+      const isPuddle = m === ASSET.puddleMat;
+      mesh.castShadow = !isPuddle;
+      mesh.receiveShadow = !isPuddle;
+      if (isPuddle) {
+        mesh.visible = ASSET.puddleMat.opacity > 0.01;
+        ASSET.puddleMeshes ||= new Set();
+        ASSET.puddleMeshes.add(mesh);
+        ch.puddleMeshes.push(mesh);
+      }
+      ch.group.add(mesh);
+      ch.geos.push(merged);
+    }
   }
   ch.bakeList = null;
 }
@@ -140,7 +153,7 @@ function generateChunk(cx, cz) {
   const wr = (a = 0, b = 1) => a + (b - a) * weatherRng();
   const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
   const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], geos: [], bakeList: [], trees: [], insts: [] };
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], geos: [], bakeList: [], trees: [], insts: [], puddleMeshes: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
   const addRoadPuddle = (x, z, width, depth, rotation = 0) => {
@@ -207,7 +220,7 @@ function generateChunk(cx, cz) {
 
   // Sparse, shallow pools sit in the road gutters. Their shared material fades in with rain and
   // dries slowly with the pavement, while this seeded layout stays stable as chunks stream.
-  const puddleCount = 2 + Math.floor(weatherRng() * 3);
+  const puddleCount = 2 + Math.floor(weatherRng() * 2);
   for (let i = 0; i < puddleCount; i++) {
     const edge = Math.floor(weatherRng() * 4);
     const along = wr(12, CHUNK - 12);
@@ -425,6 +438,7 @@ function addPickup(ch, kind, x, z) {
 }
 export function disposeChunk(ch) {
   scene.remove(ch.group); ch.geos.forEach(g => g.dispose()); ch.insts.forEach(m => m.dispose());
+  if (ASSET.puddleMeshes) for (const mesh of ch.puddleMeshes) ASSET.puddleMeshes.delete(mesh);
   removeIntersection(ch.cx * CHUNK, ch.cz * CHUNK);
 }
 export function updateChunks(px, pz, budget) {

@@ -27,9 +27,9 @@ export function updateEnvironment(dt = 0, playerX = 0, playerZ = 0) {
   _sky.lerp(C_WEATHER, weatherSystem.skyTint);
   scene.background.copy(_sky); scene.fog.color.copy(_sky);
 
-  const baseNear = lerp(50, 95, day), baseFar = lerp(170, 215, day);
-  scene.fog.near = lerp(baseNear, 8, weatherSystem.visibilityFog);
-  scene.fog.far = lerp(baseFar, 48, weatherSystem.visibilityFog);
+  // Keep only the game's normal distance fog; weather adds precipitation, not a fog preset.
+  scene.fog.near = lerp(50, 95, day);
+  scene.fog.far = lerp(170, 215, day);
 
   const weatherDim = 1 - weatherSystem.lightDimming;
   hemi.intensity = lerp(0.6, 1.9, day) * weatherDim;
