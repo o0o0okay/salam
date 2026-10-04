@@ -51,18 +51,18 @@ export function driveCar(c, inp, dt) {
   const p = c.params, boost = c.boost || 0, fl = c.flatT > 0 ? 1 : 0;
   const wet = clamp(weatherSystem.wet, 0, 1);
   const snow = clamp(weatherSystem.snow, 0, 1);
-  const snowCover = clamp(weatherSystem.snowCover || 0, 0, 1);
-  const slick = clamp(wet + snow * 0.62 + snowCover * 0.38, 0, 1);
-  const maxS = p.maxSpeed * (1 + 0.35 * boost) * (1 - 0.34 * fl) * (1 - 0.04 * slick);
-  const accel = p.accel * (1 + 1.0 * boost) * (1 - 0.12 * wet) * (1 - 0.08 * snow) * (1 - 0.2 * fl);
-  const brakeForce = p.brake * (1 - 0.36 * slick);
+  // Rain gives a light loss of grip; snow is noticeably slicker without making cars sluggish.
+  const slick = clamp(wet * 0.24 + snow * 0.4, 0, 0.5);
+  const maxS = p.maxSpeed * (1 + 0.35 * boost) * (1 - 0.34 * fl) * (1 - 0.02 * slick);
+  const accel = p.accel * (1 + 1.0 * boost) * (1 - 0.025 * wet - 0.045 * snow) * (1 - 0.2 * fl);
+  const brakeForce = p.brake * (1 - 0.18 * slick);
   let s = Math.sin(c.h), co = Math.cos(c.h);
   let vf = c.vx * s + c.vz * co, vl = c.vx * co - c.vz * s; const oldVf = vf;
   if (inp.throttle > 0) {
     if (vf < -0.5) vf += brakeForce * dt;
     else vf += accel * inp.throttle * Math.max(0, 1 - Math.pow(Math.max(0, vf) / maxS, 3)) * dt;
   } else if (inp.throttle < 0) {
-    if (vf > 0.8) vf -= brakeForce * dt; else vf -= p.accel * 0.55 * (1 - 0.12 * wet) * (1 - 0.08 * snow) * dt;
+    if (vf > 0.8) vf -= brakeForce * dt; else vf -= p.accel * 0.55 * (1 - 0.025 * wet - 0.045 * snow) * dt;
   } else vf *= Math.exp(-0.3 * dt);
   if (vf > maxS) vf *= Math.exp(-1.2 * dt);
   if (vf < -p.maxReverse) vf = -p.maxReverse;
@@ -70,12 +70,12 @@ export function driveCar(c, inp, dt) {
   c.vx = vf * s + vl * co; c.vz = vf * co - vl * s;
   const sp = Math.abs(vf);
   const sf = Math.min(1, sp / 6) / (1 + sp / p.turnFalloff);
-  let yaw = c.steer * p.turn * sf * (vf >= 0 ? 1 : -1) * (inp.hand ? 1.35 : 1) * (1 - 0.18 * boost) * (1 - 0.12 * slick);
+  let yaw = c.steer * p.turn * sf * (vf >= 0 ? 1 : -1) * (inp.hand ? 1.35 : 1) * (1 - 0.18 * boost) * (1 - 0.15 * slick);
   yaw += fl * c.flatSide * 0.5 * Math.min(1, sp / 10); // flat tires pull the car sideways
   c.h += yaw * dt; c.yaw = yaw;
   s = Math.sin(c.h); co = Math.cos(c.h);
   vf = c.vx * s + c.vz * co; vl = c.vx * co - c.vz * s;
-  const grip = p.grip * (1 - 0.64 * slick) * (inp.hand ? 0.16 : 1) * (1 - 0.5 * fl) * (1 - 0.35 * Math.min(1, sp / maxS));
+  const grip = p.grip * (1 - 0.42 * slick) * (inp.hand ? 0.16 : 1) * (1 - 0.5 * fl) * (1 - 0.35 * Math.min(1, sp / maxS));
   const k = Math.exp(-grip * dt), lost = vl * (1 - k); vl *= k; vf += Math.sign(vf || 1) * Math.abs(lost) * 0.3;
   c.vx = vf * s + vl * co; c.vz = vf * co - vl * s;
   c.x += c.vx * dt; c.z += c.vz * dt;

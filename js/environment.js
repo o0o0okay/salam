@@ -37,7 +37,7 @@ export function updateEnvironment(dt = 0, playerX = 0, playerZ = 0) {
   hemi.groundColor.copy(G_NIGHT).lerp(G_DAY, day);
 
   sun.intensity = lerp(0.45, 2.0, day) *
-    (1 - weatherSystem.rain * 0.22 - weatherSystem.fog * 0.12 - weatherSystem.snow * 0.08);
+    (1 - weatherSystem.rain * 0.22 - weatherSystem.snow * 0.08);
   sun.color.copy(S_NIGHT).lerp(S_DAY, day).lerp(S_DUSK, dusk * 0.5);
 
   env.sx = se >= 0 ? Math.cos(a) : -Math.cos(a);

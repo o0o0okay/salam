@@ -1,13 +1,12 @@
-/* Testable weather presets: rain, snow, fog, wet pavement and their visual/physics state. */
+/* Rain and snow particle effects, with a lightweight wet-road response. */
 import * as THREE from 'three';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 
 const PRESETS = {
-  clear: { rain: 0, snow: 0, fog: 0, wet: 0 },
-  rain:  { rain: 1, snow: 0, fog: 0.14, wet: 1 },
-  fog:   { rain: 0, snow: 0, fog: 1, wet: 0 },
-  snow:  { rain: 0, snow: 1, fog: 0.22, wet: 0 },
+  clear: { rain: 0, snow: 0, wet: 0 },
+  rain:  { rain: 1, snow: 0, wet: 1 },
+  snow:  { rain: 0, snow: 1, wet: 0 },
 };
 
 const clamp01 = value => Math.max(0, Math.min(1, value));
@@ -20,23 +19,18 @@ const WET_SIDEWALK_TINT = new THREE.Color(0xb5bbb8);
 const DRY_SPECULAR = new THREE.Color(0x101419);
 const WET_ROAD_SPECULAR = new THREE.Color(0x9ab8c8);
 const WET_SIDEWALK_SPECULAR = new THREE.Color(0x71858e);
-const SNOW_ROAD_TINT = new THREE.Color(0xb7c2c9);
-const SNOW_ROAD_SPECULAR = new THREE.Color(0xaec2cb);
 
 export class WeatherSystem {
   constructor() {
     this.mode = 'clear';
     this.rain = 0;
     this.snow = 0;
-    this.fog = 0;
     this.wet = 0;
-    this.snowCover = 0;
     this.targetRain = 0;
     this.targetSnow = 0;
-    this.targetFog = 0;
     this.targetWet = 0;
 
-    this.rainCount = 850;
+    this.rainCount = 500;
     this.rainRadius = 42;
     this.rainLength = 0.8;
     this.rainGeometry = new THREE.BufferGeometry();
@@ -69,7 +63,7 @@ export class WeatherSystem {
       this._resetDrop(drop, true);
     }
 
-    this.snowCount = 650;
+    this.snowCount = 360;
     this.snowRadius = 42;
     this.snowTime = 0;
     this.snowGeometry = new THREE.BufferGeometry();
@@ -123,21 +117,20 @@ export class WeatherSystem {
     this.mode = mode;
     this.targetRain = preset.rain;
     this.targetSnow = preset.snow;
-    this.targetFog = preset.fog;
     this.targetWet = preset.wet;
     return true;
   }
 
   get visibilityFog() {
-    return clamp01(Math.max(this.fog, this.rain * 0.12, this.snow * 0.18));
+    return clamp01(Math.max(this.rain * 0.12, this.snow * 0.18));
   }
 
   get skyTint() {
-    return clamp01(this.fog * 0.62 + this.rain * 0.11 + this.snow * 0.16) * 0.72;
+    return clamp01(this.rain * 0.11 + this.snow * 0.16) * 0.72;
   }
 
   get lightDimming() {
-    return this.rain * 0.16 + this.fog * 0.08 + this.snow * 0.1;
+    return this.rain * 0.16 + this.snow * 0.1;
   }
 
   update(dt, playerX = 0, playerZ = 0) {
@@ -145,21 +138,11 @@ export class WeatherSystem {
 
     this.rain = smoothToward(this.rain, this.targetRain, dt, 2.6);
     this.snow = smoothToward(this.snow, this.targetSnow, dt, 1.5);
-    this.fog = smoothToward(this.fog, this.targetFog, dt, 1.15);
     this.snowTime += dt;
 
     // Pavement gets wet quickly and dries gradually after rain stops.
     const wetRate = this.targetWet > this.wet ? 0.75 : 0.075;
     this.wet = smoothToward(this.wet, this.targetWet, dt, wetRate);
-
-    // Snow gathers while snow is selected. Rain melts it quickly; clear weather lets it fade gradually.
-    if (this.targetRain > 0.01) {
-      this.snowCover = smoothToward(this.snowCover, 0, dt, 2.0);
-    } else {
-      const snowGain = this.targetSnow > 0.01 ? this.snow * 0.045 : 0;
-      const snowMelt = this.targetSnow > 0.01 ? 0 : 0.0045;
-      this.snowCover = clamp01(this.snowCover + (snowGain - snowMelt) * dt);
-    }
 
     this._updateSurfaceMaterials();
     this._updateRain(dt, playerX, playerZ);
@@ -255,14 +238,10 @@ export class WeatherSystem {
     this.snowAttribute.needsUpdate = true;
   }
 
-  _tintMaterial(material, wet, isRoad, snow = 0) {
+  _tintMaterial(material, wet, isRoad) {
     material.color
       .copy(WHITE)
       .lerp(isRoad ? WET_ROAD_TINT : WET_SIDEWALK_TINT, wet);
-
-    if (isRoad && snow > 0) {
-      material.color.lerp(SNOW_ROAD_TINT, snow * 0.16);
-    }
 
     if (material.specular) {
       material.specular
@@ -272,26 +251,19 @@ export class WeatherSystem {
           wet
         );
 
-      if (isRoad && snow > 0) {
-        material.specular.lerp(SNOW_ROAD_SPECULAR, snow * 0.18);
-      }
-
-      material.shininess =
-        (isRoad ? 5 : 3) + wet * (isRoad ? 72 : 42) +
-        (isRoad ? snow * 14 : 0);
+      material.shininess = (isRoad ? 5 : 3) + wet * (isRoad ? 72 : 42);
     }
   }
 
   _updateSurfaceMaterials() {
-    const roadSnow = clamp01(this.snow * 0.22 + this.snowCover * 0.78);
-    this._tintMaterial(ASSET.roadMat, this.wet, true, roadSnow);
+    this._tintMaterial(ASSET.roadMat, this.wet, true);
 
     for (const material of ASSET.sidewalkMats) {
       this._tintMaterial(material, this.wet, false);
     }
 
     ASSET.puddleMat.opacity = this.wet * 0.58;
-    ASSET.snowSurfaceMat.opacity = this.snowCover * 0.88;
+    ASSET.puddleMat.visible = this.wet > 0.02;
   }
 
   mountTestControls(onToast = () => {}) {
@@ -409,7 +381,6 @@ export class WeatherSystem {
     const options = [
       { id: 'clear', label: '☀ Clear' },
       { id: 'rain', label: '🌧 Rain' },
-      { id: 'fog', label: '🌫 Fog' },
       { id: 'snow', label: '❄ Snow' },
     ];
 

@@ -1,7 +1,7 @@
 /* Traffic lights — spawned at every 4-way intersection (chunk corner) */
 import * as THREE from 'three';
 import { rnd } from './utils.js';
-import { mat, box, ASSET } from './assets.js';
+import { mat, box } from './assets.js';
 
 const GREEN = 7, YELLOW = 1.6;
 const poleMat = mat(0x2d2f33);
@@ -24,10 +24,6 @@ function bulb(onColor, offColor, y, parent) {
 function buildHead() {
   const head = new THREE.Group();
   head.add(box(0.46, 1.3, 0.36, housingMat, 0, 0, 0, false));
-  const snowCap = new THREE.Mesh(ASSET.snowPlaneGeo, ASSET.snowSurfaceMat);
-  snowCap.scale.set(0.5, 0.4, 1);
-  snowCap.position.set(0, 0.67, 0);
-  head.add(snowCap);
   const r = bulb(RED, RED_OFF, 0.42, head);
   const y = bulb(YEL, YEL_OFF, 0, head);
   const g = bulb(GRN, GRN_OFF, -0.42, head);

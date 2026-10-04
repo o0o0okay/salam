@@ -9,47 +9,6 @@ import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
 
-const TREE_SNOW_GEOMETRIES = Array.from({ length: TREE_VARIANTS.length }, (_, variant) => {
-  const caps = variant < 4
-    ? [
-        { width: 3.0, depth: 3.0, height: 4.815 },
-        { width: 1.9, depth: 1.9, height: 6.215 },
-      ]
-    : [{ width: 1.5, depth: 1.5, height: 5.015 }];
-  const parts = caps.map(({ width, depth, height }) => {
-    const geo = new THREE.PlaneGeometry(width, depth);
-    geo.rotateX(-PI / 2);
-    geo.translate(0, height, 0);
-    return geo;
-  });
-  const merged = mergeGeometries(parts, false);
-  parts.forEach(geo => geo.dispose());
-  return merged;
-});
-
-const PROP_SNOW_CAPS = {
-  streetlight: [{ x: 0.8, y: 7.085, z: 0, width: 1.55, depth: 0.12 }],
-  bench: [
-    { x: 0, y: 0.63, z: 0, width: 1.9, depth: 0.58 },
-    { x: 0, y: 1.205, z: -0.3, width: 1.9, depth: 0.1 },
-  ],
-  fence: [{ x: 0, y: 1.17, z: 0, width: 3.8, depth: 0.16 }],
-};
-
-function addPropSnowCaps(mesh, kind) {
-  const caps = PROP_SNOW_CAPS[kind];
-  if (!caps) return;
-
-  for (const cap of caps) {
-    const snow = new THREE.Mesh(ASSET.snowPlaneGeo, ASSET.snowSurfaceMat);
-    snow.scale.set(cap.width, cap.depth, 1);
-    snow.position.set(cap.x, cap.y, cap.z);
-    snow.castShadow = false;
-    snow.receiveShadow = false;
-    mesh.add(snow);
-  }
-}
-
 export const chunks = new Map();
 function bake(ch, obj) {
   obj.updateMatrixWorld(true);
@@ -72,13 +31,10 @@ function buildTreeInstances(ch) {
   for (const t of ch.trees) { if (!byV.has(t.v)) byV.set(t.v, []); byV.get(t.v).push(t); }
   for (const [v, list] of byV) {
     const im = new THREE.InstancedMesh(TREE_VARIANTS[v], ASSET.treeMat, list.length);
-    const snowIm = new THREE.InstancedMesh(TREE_SNOW_GEOMETRIES[v], ASSET.snowSurfaceMat, list.length);
     im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
-    snowIm.castShadow = false; snowIm.receiveShadow = false; snowIm.frustumCulled = false;
-    list.forEach((t, i) => { t.im = im; t.snowIm = snowIm; t.i = i; setTreeMatrix(t, 1); });
+    list.forEach((t, i) => { t.im = im; t.i = i; setTreeMatrix(t, 1); });
     im.instanceMatrix.needsUpdate = true;
-    snowIm.instanceMatrix.needsUpdate = true;
-    ch.group.add(im, snowIm); ch.insts.push(im, snowIm);
+    ch.group.add(im); ch.insts.push(im);
   }
 }
 // Merges all child meshes of a standalone (non-chunk-baked) group into a handful of meshes grouped by
@@ -97,12 +53,6 @@ function mergeStandalone(g) {
 }
 // ---- Bus stop shelter (several color liveries) ----
 const BUSSTOP_W = 4.4, BUSSTOP_D = 1.8;
-const PARKED_CAR_SNOW_CAPS = {
-  civ: { width: 1.38, depth: 1.62, y: 1.68, z: -0.2 },
-  hatchback: { width: 1.32, depth: 1.72, y: 1.6, z: -0.35 },
-  suv: { width: 1.72, depth: 2.58, y: 2.25, z: -0.1 },
-  oldclassic: { width: 1.38, depth: 1.72, y: 1.72, z: -0.1 },
-};
 const BUS_LIVERIES = [
   { roof: 0x2f6fb0, ad: 0x163a63, frame: 0x707782 },
   { roof: 0xd64545, ad: 0x5a1414, frame: 0x5c5f66 },
@@ -120,10 +70,6 @@ function buildBusStopMesh(v) {
   g.add(box(1.6, 1.1, 0.07, adMat, -W / 2 + 1.0, 0.75, -D / 2 + 0.1, false)); // ad panel
   g.add(box(0.06, 1.9, D - 0.3, glass, W / 2 - 0.05, 1.05, 0, false)); // side glass wall
   g.add(box(W + 0.5, 0.14, D + 0.6, roofMat, 0, postH + 0.07, -0.05, false)); // roof
-  const snowCap = new THREE.Mesh(ASSET.snowPlaneGeo, ASSET.snowSurfaceMat);
-  snowCap.scale.set(W + 0.36, D + 0.38, 1);
-  snowCap.position.set(0, postH + 0.155, -0.05);
-  g.add(snowCap);
   g.add(box(W + 0.5, 0.2, 0.06, frame, 0, postH - 0.02, D / 2 + 0.28, false)); // front fascia
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(0.1, postH, 0.1, frame, sx * (W / 2 - 0.1), postH / 2, sz * (D / 2 - 0.1), false));
   g.add(box(W - 0.1, 0.07, 0.07, frame, 0, postH, -D / 2 + 0.1, false)); g.add(box(W - 0.1, 0.07, 0.07, frame, 0, postH, D / 2 - 0.1, false));
@@ -197,13 +143,6 @@ function generateChunk(cx, cz) {
   const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], geos: [], bakeList: [], trees: [], insts: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
-  const addSnowPatch = (x, y, z, width, depth, rotation = 0) => {
-    const patch = new THREE.Mesh(ASSET.snowPlaneGeo, ASSET.snowSurfaceMat);
-    patch.scale.set(width, depth, 1);
-    patch.position.set(x, y, z);
-    patch.rotation.y = rotation;
-    add(patch);
-  };
   const addRoadPuddle = (x, z, width, depth, rotation = 0) => {
     const puddle = new THREE.Mesh(ASSET.puddleGeo, ASSET.puddleMat);
     puddle.scale.set(width, depth, 1);
@@ -213,13 +152,13 @@ function generateChunk(cx, cz) {
   };
   const solid = (x, z, hx, hz, kind) => ch.solids.push({ x, z, hx, hz, kind, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    const d = PROP_DEFS[kind], m = d.make(); m.position.set(x, y, z); m.rotation.y = rotY; addPropSnowCaps(m, kind); group.add(m);
+    const d = PROP_DEFS[kind], m = d.make(); m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
     ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false });
   };
   const tree = (x, z, y = 0.2) => {
     const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
     solid(x, z, 0.65, 0.65, 'tree');
-    const t = { x, y, z, v, rot, broken: false, im: null, snowIm: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
+    const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
     t.solid.tree = t; ch.trees.push(t);
   };
   // Parked car at the curb — registered as a solid, but linked to a destructible record (s.parked).
@@ -228,13 +167,6 @@ function generateChunk(cx, cz) {
     const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
     const m = buildCar(kind, color, false);
     m.position.set(x, 0.1, z); m.rotation.y = rotY;
-    const cap = PARKED_CAR_SNOW_CAPS[kind];
-    if (cap) {
-      const snowCap = new THREE.Mesh(ASSET.snowPlaneGeo, ASSET.snowSurfaceMat);
-      snowCap.scale.set(cap.width, cap.depth, 1);
-      snowCap.position.set(0, cap.y, cap.z);
-      m.add(snowCap);
-    }
     group.add(m);
     solid(x, z, hx, hz, 'parkedcar');
     const sEntry = ch.solids[ch.solids.length - 1];
@@ -275,7 +207,7 @@ function generateChunk(cx, cz) {
 
   // Sparse, shallow pools sit in the road gutters. Their shared material fades in with rain and
   // dries slowly with the pavement, while this seeded layout stays stable as chunks stream.
-  const puddleCount = 3 + Math.floor(weatherRng() * 4);
+  const puddleCount = 2 + Math.floor(weatherRng() * 3);
   for (let i = 0; i < puddleCount; i++) {
     const edge = Math.floor(weatherRng() * 4);
     const along = wr(12, CHUNK - 12);
@@ -286,21 +218,6 @@ function generateChunk(cx, cz) {
     else if (edge === 1) addRoadPuddle(x0 + CHUNK - gutter, z0 + along, width, depth);
     else if (edge === 2) addRoadPuddle(x0 + along, z0 + gutter, width, depth, PI / 2);
     else addRoadPuddle(x0 + along, z0 + CHUNK - gutter, width, depth, PI / 2);
-  }
-
-  // A few loose drifts collect along the paved block edges rather than covering every sidewalk tile.
-  const sidewalkSnowCount = 2 + Math.floor(weatherRng() * 4);
-  for (let i = 0; i < sidewalkSnowCount; i++) {
-    const side = Math.floor(weatherRng() * 4);
-    const along = wr(14, CHUNK - 14);
-    const edge = wr(8.6, 11.2);
-    const width = wr(0.55, 1.15);
-    const depth = wr(0.7, 1.45);
-    const rotation = wr(0, PI * 2);
-    if (side === 0) addSnowPatch(x0 + edge, 0.178, z0 + along, width, depth, rotation);
-    else if (side === 1) addSnowPatch(x0 + CHUNK - edge, 0.178, z0 + along, width, depth, rotation);
-    else if (side === 2) addSnowPatch(x0 + along, 0.178, z0 + edge, width, depth, rotation);
-    else addSnowPatch(x0 + along, 0.178, z0 + CHUNK - edge, width, depth, rotation);
   }
 
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
@@ -323,14 +240,6 @@ function generateChunk(cx, cz) {
       // rooftop details
       if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), lx, h + 2.65, lz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), lx, h + 8.6, lz)); }
       else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), lx + r(-4, 4), h + 1.05, lz + r(-4, 4)));
-      const roofSnowPatches = h > 30 ? 2 : 1;
-      for (let p = 0; p < roofSnowPatches; p++) {
-        addSnowPatch(
-          lx + wr(-w * 0.24, w * 0.24), h + 0.17,
-          lz + wr(-d * 0.24, d * 0.24),
-          w * wr(0.22, 0.38), d * wr(0.22, 0.38), wr(0, PI * 2)
-        );
-      }
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
       // reflective warning cones placed along the sidewalk line in front of it.
       if (h > 20 && rng() < 0.3) {
@@ -363,11 +272,6 @@ function generateChunk(cx, cz) {
       const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
       add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
       const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
-      const snowRoof = new THREE.Mesh(ASSET.roofGeo, ASSET.snowSurfaceMat);
-      snowRoof.scale.copy(roof.scale).multiplyScalar(1.006);
-      snowRoof.position.copy(roof.position);
-      snowRoof.position.y += 0.012;
-      add(snowRoof);
       add(box(1.2, 2.1, 0.12, mat(0x5a3a22), hx, 1.3, hz + d / 2 + 0.05, false));
       for (const sx of [-1, 1]) { add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz + d / 2 + 0.04, false)); add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz - d / 2 - 0.04, false)); }
       add(box(1.1, 2.2, 1.1, mat(0x8a5a44), hx + w * 0.3, h + 1.3, hz - d * 0.2));
@@ -398,9 +302,6 @@ function generateChunk(cx, cz) {
     for (let i = 0; i < 2; i++) {
       const x = bx0 + 15 + i * 27, z = bz0 + 17, h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
       add(box(26, h, 30, mat(col), x, h / 2 + 0.25, z)); add(box(26.6, 0.8, 30.6, mat(0x5a5f68), x, h + 0.65, z));
-      for (let p = 0; p < 2; p++) {
-        addSnowPatch(x + wr(-7, 7), h + 1.07, z + wr(-8, 8), wr(5, 9), wr(5, 10), wr(0, PI * 2));
-      }
       for (let k = -1; k <= 1; k++) add(box(6, 4.2, 0.2, mat(0x30343b), x + k * 8, 2.35, z + 15.1, false));
       add(cyl(0.6, 0.6, 3, 8, mat(0x888d96), x + r(-8, 8), h + 2.4, z + r(-8, 8)));
       solid(x, z, 13, 15, 'building');
