@@ -29,4 +29,8 @@ const _td = new THREE.Object3D();
 export function setTreeMatrix(t, s) {
   _td.position.set(t.x, t.y, t.z); _td.rotation.set(0, t.rot, 0); _td.scale.setScalar(s); _td.updateMatrix();
   t.im.setMatrixAt(t.i, _td.matrix);
+  if (t.snowIm) {
+    t.snowIm.setMatrixAt(t.i, _td.matrix);
+    t.snowIm.instanceMatrix.needsUpdate = true;
+  }
 }

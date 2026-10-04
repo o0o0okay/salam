@@ -152,10 +152,14 @@ export class WeatherSystem {
     const wetRate = this.targetWet > this.wet ? 0.75 : 0.075;
     this.wet = smoothToward(this.wet, this.targetWet, dt, wetRate);
 
-    // A light snowpack builds while it snows and lingers, then melts gradually; rain clears it faster.
-    const snowGain = this.snow * 0.045;
-    const snowMelt = this.targetRain > 0.01 ? 0.045 : 0.0045;
-    this.snowCover = clamp01(this.snowCover + (snowGain - snowMelt) * dt);
+    // Snow gathers while snow is selected. Rain melts it quickly; clear weather lets it fade gradually.
+    if (this.targetRain > 0.01) {
+      this.snowCover = smoothToward(this.snowCover, 0, dt, 2.0);
+    } else {
+      const snowGain = this.targetSnow > 0.01 ? this.snow * 0.045 : 0;
+      const snowMelt = this.targetSnow > 0.01 ? 0 : 0.0045;
+      this.snowCover = clamp01(this.snowCover + (snowGain - snowMelt) * dt);
+    }
 
     this._updateSurfaceMaterials();
     this._updateRain(dt, playerX, playerZ);
