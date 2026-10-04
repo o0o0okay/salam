@@ -32,7 +32,8 @@ export function updateEnvironment(dt = 0, playerX = 0, playerZ = 0) {
 
   const weatherDim = 1 - weatherSystem.lightDimming;
   hemi.intensity = lerp(0.6, 1.9, day) * weatherDim; hemi.color.copy(H_NIGHT).lerp(H_DAY, day); hemi.groundColor.copy(G_NIGHT).lerp(G_DAY, day);
-  sun.intensity = lerp(0.45, 2.0, day) * (1 - weatherSystem.rain * 0.22 - weatherSystem.fog * 0.12);
+  sun.intensity = lerp(0.45, 2.0, day) *
+    (1 - weatherSystem.rain * 0.22 - weatherSystem.fog * 0.12 - weatherSystem.snow * 0.08);
   sun.color.copy(S_NIGHT).lerp(S_DAY, day).lerp(S_DUSK, dusk * 0.5);
   env.sx = se >= 0 ? Math.cos(a) : -Math.cos(a); env.sy = Math.max(0.32, Math.abs(se)); // moon takes over the light at night
   _sv.set(Math.cos(a) * 0.85, se, 0.5).normalize().multiplyScalar(320);
