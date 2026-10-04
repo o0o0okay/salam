@@ -154,54 +154,6 @@ export const ASSET = {};
     polygonOffsetFactor: -1,
   });
 
-  // Snow is a thin, patchy translucent overlay shared by roofs, bus shelters, signals, and parked cars.
-  const snowCanvas = document.createElement('canvas');
-  snowCanvas.width = snowCanvas.height = 128;
-  const snowCtx = snowCanvas.getContext('2d');
-  const snowRng = mulberry32(0x5A0F);
-  for (let i = 0; i < 13; i++) {
-    const cx = 8 + snowRng() * 112;
-    const cy = 8 + snowRng() * 112;
-    const rx = 8 + snowRng() * 16;
-    const ry = 5 + snowRng() * 12;
-    const points = 10;
-    const rotation = snowRng() * PI * 2;
-    snowCtx.beginPath();
-    for (let j = 0; j < points; j++) {
-      const a = rotation + j / points * PI * 2;
-      const wobble = 0.76 + snowRng() * 0.24;
-      const x = cx + Math.cos(a) * rx * wobble;
-      const y = cy + Math.sin(a) * ry * wobble;
-      if (j === 0) snowCtx.moveTo(x, y);
-      else snowCtx.lineTo(x, y);
-    }
-    snowCtx.closePath();
-    snowCtx.fillStyle = `rgba(255,255,255,${0.62 + snowRng() * 0.34})`;
-    snowCtx.fill();
-  }
-  // Fine specks soften the edges so the overlay reads as a light dusting, not a solid white plate.
-  for (let i = 0; i < 90; i++) {
-    snowCtx.fillStyle = `rgba(255,255,255,${0.12 + snowRng() * 0.24})`;
-    snowCtx.beginPath();
-    snowCtx.arc(snowRng() * 128, snowRng() * 128, 0.5 + snowRng() * 1.3, 0, PI * 2);
-    snowCtx.fill();
-  }
-  const snowTexture = new THREE.CanvasTexture(snowCanvas);
-  snowTexture.colorSpace = THREE.SRGBColorSpace;
-  snowTexture.anisotropy = 4;
-  ASSET.snowPlaneGeo = new THREE.PlaneGeometry(1, 1);
-  ASSET.snowPlaneGeo.rotateX(-PI / 2);
-  ASSET.snowSurfaceMat = new THREE.MeshLambertMaterial({
-    map: snowTexture,
-    color: 0xf4f8ff,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-  });
-
   ASSET.groundGeo = new THREE.PlaneGeometry(CHUNK, CHUNK);
   ASSET.groundGeo.rotateX(-PI / 2);
 
