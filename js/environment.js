@@ -26,22 +26,37 @@ export function updateEnvironment(dt = 0, playerX = 0, playerZ = 0) {
   _sky.copy(C_NIGHT).lerp(C_DAY, day).lerp(C_DUSK, dusk * 0.6);
   _sky.lerp(C_WEATHER, weatherSystem.skyTint);
   scene.background.copy(_sky); scene.fog.color.copy(_sky);
+
   const baseNear = lerp(50, 95, day), baseFar = lerp(170, 215, day);
   scene.fog.near = lerp(baseNear, 8, weatherSystem.visibilityFog);
   scene.fog.far = lerp(baseFar, 48, weatherSystem.visibilityFog);
 
   const weatherDim = 1 - weatherSystem.lightDimming;
-  hemi.intensity = lerp(0.6, 1.9, day) * weatherDim; hemi.color.copy(H_NIGHT).lerp(H_DAY, day); hemi.groundColor.copy(G_NIGHT).lerp(G_DAY, day);
+  hemi.intensity = lerp(0.6, 1.9, day) * weatherDim;
+  hemi.color.copy(H_NIGHT).lerp(H_DAY, day);
+  hemi.groundColor.copy(G_NIGHT).lerp(G_DAY, day);
+
   sun.intensity = lerp(0.45, 2.0, day) *
     (1 - weatherSystem.rain * 0.22 - weatherSystem.fog * 0.12 - weatherSystem.snow * 0.08);
   sun.color.copy(S_NIGHT).lerp(S_DAY, day).lerp(S_DUSK, dusk * 0.5);
-  env.sx = se >= 0 ? Math.cos(a) : -Math.cos(a); env.sy = Math.max(0.32, Math.abs(se)); // moon takes over the light at night
+
+  env.sx = se >= 0 ? Math.cos(a) : -Math.cos(a);
+  env.sy = Math.max(0.32, Math.abs(se));
+
   _sv.set(Math.cos(a) * 0.85, se, 0.5).normalize().multiplyScalar(320);
-  sunDisc.position.copy(_sv); sunDisc.visible = _sv.y > 8; sunDisc.material.color.copy(S_DAY).lerp(S_DUSK, dusk);
-  moonDisc.position.set(-_sv.x, -_sv.y, -_sv.z); moonDisc.visible = -_sv.y > 8;
+  sunDisc.position.copy(_sv);
+  sunDisc.visible = _sv.y > 8;
+  sunDisc.material.color.copy(S_DAY).lerp(S_DUSK, dusk);
+
+  moonDisc.position.set(-_sv.x, -_sv.y, -_sv.z);
+  moonDisc.visible = -_sv.y > 8;
+
   starMat.opacity = env.night * env.night;
   for (const m of ASSET.windowMats) m.emissiveIntensity = env.night * 0.95;
-  ASSET.beamMat.opacity = env.night * 0.55; ASSET.beamMat.visible = env.night > 0.04;
+
+  ASSET.beamMat.opacity = env.night * 0.55;
+  ASSET.beamMat.visible = env.night > 0.04;
+
   pMesh.material.color.setScalar(lerp(0.5, 1, day));
   skyGroup.position.copy(camera.position);
 }
