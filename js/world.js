@@ -189,6 +189,10 @@ function generateChunk(cx, cz) {
   const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   add(box(64, 0.15, 64, mat(0xb8bcc4), bx, 0.075, bz, false));
+  // Raised block apron doubles as the sidewalk; keep its textured mesh separate from the static merge
+  // so its tiled UVs stay intact, and choose the paving deterministically per chunk.
+  const sidewalk = new THREE.Mesh(ASSET.sidewalkGeo, ASSET.sidewalkMats[hash2(cx, cz) % ASSET.sidewalkMats.length]);
+  sidewalk.position.set(bx, 0.16, bz); sidewalk.receiveShadow = true; group.add(sidewalk);
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group);
   const t = rng();
