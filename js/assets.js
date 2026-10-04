@@ -1,6 +1,6 @@
 /* Shared materials, geometries and textures */
 import * as THREE from 'three';
-import { CHUNK, PI, mulberry32 } from './utils.js';
+import { CHUNK, PI, mulberry32, hash2 } from './utils.js';
 
 
 const matCache = new Map();
@@ -41,6 +41,98 @@ export const ASSET = {};
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   ASSET.roadMat = new THREE.MeshLambertMaterial({ map: tex });
   ASSET.groundGeo = new THREE.PlaneGeometry(CHUNK, CHUNK); ASSET.groundGeo.rotateX(-PI / 2);
+
+  // Seamless procedural paving patterns shared by all streamed city chunks.
+  const PAVE_SIZE = 256;
+  const paveStyles = [
+    { kind: 'running', grout: '#5f6662', palette: ['#b9bbb5', '#aeb3af', '#c4c1b8', '#a5ada9', '#c2c3bd'] },
+    { kind: 'slabs', grout: '#626966', palette: ['#c5c5bd', '#b3b9b5', '#d0cbbf', '#aeb6b2', '#c0c1bb'] },
+    { kind: 'diamond', grout: '#5d6561', palette: ['#adb5b1', '#c0c2bc', '#a4aeaa', '#c9c5ba', '#b3bbb6'] },
+    { kind: 'cobble', grout: '#555e5a', palette: ['#929a96', '#a9ada6', '#858f8a', '#b4b2a8', '#969f9a'] },
+  ];
+  const mod = (n, m) => ((n % m) + m) % m;
+  function paintPaver(ctx, x, y, w, h, color, rounded = false, fleck = 0) {
+    const inset = rounded ? 3.2 : 2.6;
+    const px = x + inset, py = y + inset, pw = w - inset * 2, ph = h - inset * 2;
+    ctx.fillStyle = color;
+    if (rounded) {
+      const r = Math.min(4, pw / 4, ph / 4);
+      ctx.beginPath(); ctx.moveTo(px + r, py); ctx.lineTo(px + pw - r, py);
+      ctx.quadraticCurveTo(px + pw, py, px + pw, py + r); ctx.lineTo(px + pw, py + ph - r);
+      ctx.quadraticCurveTo(px + pw, py + ph, px + pw - r, py + ph); ctx.lineTo(px + r, py + ph);
+      ctx.quadraticCurveTo(px, py + ph, px, py + ph - r); ctx.lineTo(px, py + r);
+      ctx.quadraticCurveTo(px, py, px + r, py); ctx.closePath(); ctx.fill();
+    } else ctx.fillRect(px, py, pw, ph);
+    // A fine light edge and a darker lower edge give each stone a subtle real-world bevel.
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(px + 1, py + 1, Math.max(1, pw - 2), 1);
+    ctx.fillRect(px + 1, py + 1, 1, Math.max(1, ph - 2));
+    ctx.fillStyle = 'rgba(35,40,38,0.16)';
+    ctx.fillRect(px + 1, py + ph - 2, Math.max(1, pw - 2), 1);
+    ctx.fillRect(px + pw - 2, py + 1, 1, Math.max(1, ph - 2));
+    // Small deterministic surface marks add variation without creating a visible texture seam.
+    ctx.fillStyle = 'rgba(45,48,45,0.09)';
+    ctx.fillRect(px + 5 + (fleck % Math.max(1, Math.floor(pw - 12))), py + 5 + ((fleck >>> 5) % Math.max(1, Math.floor(ph - 12))), 2, 1);
+  }
+  function makePavingTexture(style, styleIndex) {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = PAVE_SIZE;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = style.grout; ctx.fillRect(0, 0, PAVE_SIZE, PAVE_SIZE);
+    const tile = (x, y, w, h, row, col, rounded = false) => {
+      const rows = Math.round(PAVE_SIZE / h), cols = Math.round(PAVE_SIZE / w);
+      const rr = mod(row, rows), cc = mod(col, cols);
+      const seed = hash2(cc + styleIndex * 31, rr + styleIndex * 73);
+      paintPaver(ctx, x, y, w, h, style.palette[seed % style.palette.length], rounded, seed);
+    };
+
+    if (style.kind === 'running') {
+      const w = 64, h = 32;
+      for (let row = -1; row <= PAVE_SIZE / h; row++) {
+        const offset = row % 2 ? w / 2 : 0;
+        for (let col = -2; col <= PAVE_SIZE / w + 1; col++) tile(col * w + offset, row * h, w, h, row, col);
+      }
+    } else if (style.kind === 'slabs') {
+      const w = 64, h = 64;
+      for (let row = -1; row <= PAVE_SIZE / h; row++)
+        for (let col = -1; col <= PAVE_SIZE / w; col++) tile(col * w, row * h, w, h, row, col);
+    } else if (style.kind === 'cobble') {
+      const w = 32, h = 32;
+      for (let row = -1; row <= PAVE_SIZE / h; row++) {
+        const offset = row % 2 ? w / 2 : 0;
+        for (let col = -2; col <= PAVE_SIZE / w + 1; col++) tile(col * w + offset, row * h, w, h, row, col, true);
+      }
+    } else {
+      // Square slabs laid diagonally: two periodic diagonal joint families form diamond pavers.
+      const d = 32;
+      for (let row = -10; row <= 10; row++) for (let col = -2; col <= 18; col++) {
+        const i = row, j = col;
+        const x1 = (i + j) * d / 2, y1 = (j - i) * d / 2;
+        const x2 = (i + j + 1) * d / 2, y2 = (j - i + 1) * d / 2;
+        const x3 = (i + j + 2) * d / 2, y3 = (j - i) * d / 2;
+        const x4 = (i + j + 1) * d / 2, y4 = (j - i - 1) * d / 2;
+        const seed = hash2(mod(col, 8) + styleIndex * 31, mod(row, 8) + styleIndex * 73);
+        ctx.fillStyle = style.palette[seed % style.palette.length];
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.lineTo(x4, y4); ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(43,49,46,0.42)'; ctx.lineWidth = 2;
+      for (let k = -16; k <= 16; k++) {
+        const p = k * d;
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p + PAVE_SIZE, PAVE_SIZE); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p - PAVE_SIZE, PAVE_SIZE); ctx.stroke();
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(16, 16); // 64 px slabs are about 1 m wide on the 64 m block
+    texture.anisotropy = 4;
+    return texture;
+  }
+  ASSET.sidewalkGeo = new THREE.PlaneGeometry(CHUNK - 16, CHUNK - 16);
+  ASSET.sidewalkGeo.rotateX(-PI / 2);
+  ASSET.sidewalkMats = paveStyles.map((style, i) => new THREE.MeshLambertMaterial({ map: makePavingTexture(style, i) }));
+
   // Window texture (4x4 windows) + emissive map (lit windows at night)
   const w = document.createElement('canvas'); w.width = w.height = 128; const wg = w.getContext('2d');
   wg.fillStyle = '#ffffff'; wg.fillRect(0, 0, 128, 128);
