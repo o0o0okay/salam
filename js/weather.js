@@ -147,7 +147,7 @@ export class WeatherSystem {
       const style = document.createElement('style');
       style.id = 'weatherTestStyles';
       style.textContent = `
-        #weatherTestPanel { position: fixed; top: 12px; left: 12px; z-index: 99999; width: 224px; box-sizing: border-box; padding: 10px; color: #eef5fb; background: rgba(8, 15, 24, .9); border: 1px solid rgba(180, 210, 230, .35); border-radius: 12px; box-shadow: 0 8px 26px rgba(0,0,0,.35); backdrop-filter: blur(8px); font: 12px/1.35 system-ui, sans-serif; }
+        #weatherTestPanel { position: fixed; bottom: 12px; left: 12px; z-index: 99999; width: 224px; box-sizing: border-box; padding: 10px; color: #eef5fb; background: rgba(8, 15, 24, .9); border: 1px solid rgba(180, 210, 230, .35); border-radius: 12px; box-shadow: 0 8px 26px rgba(0,0,0,.35); backdrop-filter: blur(8px); font: 12px/1.35 system-ui, sans-serif; }
         #weatherTestPanel * { box-sizing: border-box; }
         #weatherTestPanel .weatherTestHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 800; letter-spacing: .08em; }
         #weatherTestPanel .weatherTestToggle { width: 26px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.22); border-radius: 7px; color: #fff; background: rgba(255,255,255,.08); font: inherit; cursor: pointer; }
@@ -156,7 +156,7 @@ export class WeatherSystem {
         #weatherTestPanel .weatherTestButton { min-height: 32px; padding: 5px 7px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; color: #e9f0f5; background: rgba(255,255,255,.07); font: 600 11px/1.2 system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
         #weatherTestPanel .weatherTestButton:hover { background: rgba(255,255,255,.16); }
         #weatherTestPanel .weatherTestButton.active { color: #fff; border-color: #69d6c0; background: rgba(35,142,119,.62); }
-        @media (max-width: 520px) { #weatherTestPanel { top: 8px; left: 8px; width: 204px; } }
+        @media (max-width: 520px) { #weatherTestPanel { bottom: 154px; left: 8px; width: 204px; } }
       `;
       document.head.appendChild(style);
     }
