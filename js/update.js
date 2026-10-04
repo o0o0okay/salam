@@ -34,7 +34,7 @@ function wreckTick(c, sdt) {
 }
 export function update(dt) {
   game.t += dt;
-  if (game.paused) return;
+  if (game.paused) { updateEnvironment(dt, player.x, player.z); return; }
   game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
@@ -226,7 +226,7 @@ export function update(dt) {
   updateParticles(dt);
   updateCamera(dt);
   /* --- day / night + lights --- */
-  updateEnvironment();
+  updateEnvironment(dt, player.x, player.z);
   if (playing) {
     const isN = env.day < 0.3;
     if (isN !== game.isNight) { game.isNight = isN; toast(isN ? 'NIGHT FALLS 🌙' : 'SUNRISE ☀'); }

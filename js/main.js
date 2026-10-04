@@ -6,12 +6,14 @@ import { cfg, setDiff } from './config.js';
 import { initInput } from './input.js';
 import { resetWorld, startGame, togglePause } from './flow.js';
 import { update } from './update.js';
+import { initWeatherControls } from './ui.js';
 
 $('menuBest').textContent = game.best;
 
 // Difficulty buttons
 document.querySelectorAll('#diffPick button').forEach(b => b.addEventListener('click', () => { setDiff(b.dataset.d); b.blur(); }));
 setDiff(cfg.diffKey);
+initWeatherControls();
 
 // Start / restart / auto-pause
 $('startBtn').addEventListener('click', startGame);
