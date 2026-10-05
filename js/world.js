@@ -193,8 +193,9 @@ function generateChunk(cx, cz) {
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group);
   const t = rng();
-  // Keep a shopping center near the fixed spawn so the new district is visible immediately.
-  const type = cx === 0 && cz === 0 ? 'commercial' : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.88 ? 'commercial' : 'industrial';
+  // Keep shopping centers near the fixed spawn so the new district is visible immediately.
+  const nearSpawn = (cx === 0 && cz === 0) || (cx === 1 && cz === 0);
+  const type = nearSpawn ? 'commercial' : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.88 ? 'commercial' : 'industrial';
   if (type === 'downtown') {
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
       const lx = bx0 + 14 + i * 28, lz = bz0 + 14 + j * 28;
