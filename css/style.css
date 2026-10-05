@@ -3,7 +3,7 @@ html, body { margin:0; height:100%; overflow:hidden; background:#9ad5ff; font-fa
 #game { position:fixed; inset:0; }
 canvas { display:block; }
 .display { font-family:'Bungee', 'Arial Black', Impact, sans-serif; }
-#hud { position:fixed; inset:0; pointer-events:none; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,.5); display:none; }
+#hud { position:fixed; inset:0; z-index:16; pointer-events:none; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,.5); display:none; }
 #hud.on { display:block; }
 .panel { position:absolute; }
 #tl { top:12px; left:14px; }
@@ -30,6 +30,14 @@ canvas { display:block; }
 @keyframes toastPop { 0%{transform:scale(.5);opacity:0} 15%{transform:scale(1.15);opacity:1} 30%{transform:scale(1)} 80%{opacity:1} 100%{transform:translateY(-30px);opacity:0} }
 #flash { position:fixed; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(255,20,20,.75) 100%); }
 #boostFx { position:fixed; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, rgba(80,170,255,0) 45%, rgba(90,190,255,.55) 100%); }
+#lightning { position:fixed; inset:0; z-index:14; pointer-events:none; opacity:0; background:rgba(222,240,255,.9); mix-blend-mode:screen; }
+.storm-bolt { position:fixed; z-index:15; display:block; pointer-events:none; overflow:visible; opacity:0; mix-blend-mode:screen; filter:drop-shadow(0 0 5px rgba(255,255,255,.95)) drop-shadow(0 0 18px rgba(75,190,255,.95)); }
+.storm-bolt .bolt-glow, .storm-bolt .bolt-branch-glow { fill:none; stroke:#6bcaff; stroke-linecap:round; stroke-linejoin:round; }
+.storm-bolt .bolt-glow { stroke-width:14; opacity:.7; }
+.storm-bolt .bolt-branch-glow { stroke-width:8; opacity:.58; }
+.storm-bolt .bolt-core, .storm-bolt .bolt-branch-core { fill:none; stroke:#fff; stroke-linecap:round; stroke-linejoin:round; }
+.storm-bolt .bolt-core { stroke-width:3.5; }
+.storm-bolt .bolt-branch-core { stroke-width:2.1; }
 .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; color:#fff; z-index:20;
   background:radial-gradient(ellipse at center, rgba(10,20,40,.35), rgba(5,10,25,.85)); backdrop-filter:blur(3px); padding:20px; }
 .overlay.hide { display:none; }

@@ -2,6 +2,8 @@
 import { $ } from './utils.js';
 import { game } from './state.js';
 import { sfx } from './audio.js';
+import { weatherSystem } from './weather.js';
+import { toast } from './ui.js';
 import { startGame, togglePause } from './flow.js';
 
 const keys = {};
@@ -22,6 +24,13 @@ export function initInput() {
     keys[e.code] = true;
     if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
     if (e.code === 'KeyM') sfx.toggle();
+    if (e.code === 'Tab' && game.state === 'playing' && !game.paused) {
+      e.preventDefault();
+      if (!e.repeat) {
+        weatherSystem.cycleMode();
+        toast('WEATHER: ' + weatherSystem.label);
+      }
+    }
     // DEBUG: هر بار T = یک ستاره بالاتر (قبل از انتشار حذف شود)
     if (e.code === 'KeyT' && !e.repeat && game.state === 'playing' && !game.paused && game.wanted < 5) {
       game.debugWanted = game.wanted + 1;

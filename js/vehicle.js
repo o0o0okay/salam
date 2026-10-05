@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { clamp, lerp } from './utils.js';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
+import { weatherSystem } from './weather.js';
 import { CAR_DIMS, buildCar, isPoliceKind } from './carModels.js';
 import { cars, police, civs } from './state.js';
 
@@ -47,15 +48,17 @@ export function carBox(c) {
 
 
 export function driveCar(c, inp, dt) {
-  const p = c.params, boost = c.boost || 0, fl = c.flatT > 0 ? 1 : 0;
-  const maxS = p.maxSpeed * (1 + 0.35 * boost) * (1 - 0.34 * fl), accel = p.accel * (1 + 1.0 * boost) * (1 - 0.2 * fl);
+  const p = c.params, boost = c.boost || 0, fl = c.flatT > 0 ? 1 : 0, slick = weatherSystem.slickness;
+  const maxS = p.maxSpeed * (1 + 0.35 * boost) * (1 - 0.34 * fl) * (1 - 0.035 * slick);
+  const accel = p.accel * (1 + 1.0 * boost) * (1 - 0.2 * fl) * (1 - 0.08 * slick);
+  const brakeForce = p.brake * (1 - 0.3 * slick);
   let s = Math.sin(c.h), co = Math.cos(c.h);
   let vf = c.vx * s + c.vz * co, vl = c.vx * co - c.vz * s; const oldVf = vf;
   if (inp.throttle > 0) {
-    if (vf < -0.5) vf += p.brake * dt;
+    if (vf < -0.5) vf += brakeForce * dt;
     else vf += accel * inp.throttle * Math.max(0, 1 - Math.pow(Math.max(0, vf) / maxS, 3)) * dt;
   } else if (inp.throttle < 0) {
-    if (vf > 0.8) vf -= p.brake * dt; else vf -= p.accel * 0.55 * dt;
+    if (vf > 0.8) vf -= brakeForce * dt; else vf -= p.accel * 0.55 * (1 - 0.08 * slick) * dt;
   } else vf *= Math.exp(-0.3 * dt);
   if (vf > maxS) vf *= Math.exp(-1.2 * dt);
   if (vf < -p.maxReverse) vf = -p.maxReverse;
@@ -63,12 +66,12 @@ export function driveCar(c, inp, dt) {
   c.vx = vf * s + vl * co; c.vz = vf * co - vl * s;
   const sp = Math.abs(vf);
   const sf = Math.min(1, sp / 6) / (1 + sp / p.turnFalloff);
-  let yaw = c.steer * p.turn * sf * (vf >= 0 ? 1 : -1) * (inp.hand ? 1.35 : 1) * (1 - 0.18 * boost);
+  let yaw = c.steer * p.turn * sf * (vf >= 0 ? 1 : -1) * (inp.hand ? 1.35 : 1) * (1 - 0.18 * boost) * (1 - 0.14 * slick);
   yaw += fl * c.flatSide * 0.5 * Math.min(1, sp / 10); // flat tires pull the car sideways
   c.h += yaw * dt; c.yaw = yaw;
   s = Math.sin(c.h); co = Math.cos(c.h);
   vf = c.vx * s + c.vz * co; vl = c.vx * co - c.vz * s;
-  const grip = p.grip * (inp.hand ? 0.16 : 1) * (1 - 0.5 * fl) * (1 - 0.35 * Math.min(1, sp / maxS));
+  const grip = p.grip * (1 - 0.58 * slick) * (inp.hand ? 0.16 : 1) * (1 - 0.5 * fl) * (1 - 0.35 * Math.min(1, sp / maxS));
   const k = Math.exp(-grip * dt), lost = vl * (1 - k); vl *= k; vf += Math.sign(vf || 1) * Math.abs(lost) * 0.3;
   c.vx = vf * s + vl * co; c.vz = vf * co - vl * s;
   c.x += c.vx * dt; c.z += c.vz * dt;

@@ -25,6 +25,14 @@ export const sfx = {
       this.heliHum.connect(hhlp); hhlp.connect(this.heliHumGain); this.heliHumGain.connect(this.master); this.heliHum.start();
       const len = Math.floor(c.sampleRate * 0.4); this.noise = c.createBuffer(1, len, c.sampleRate); const d = this.noise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      const thunderLen = Math.floor(c.sampleRate * 4.2);
+      this.thunderNoise = c.createBuffer(1, thunderLen, c.sampleRate);
+      const thunderData = this.thunderNoise.getChannelData(0);
+      for (let i = 0; i < thunderLen; i++) {
+        const t = i / c.sampleRate, decay = Math.exp(-t * 0.9);
+        const rumble = Math.sin(t * 42 + Math.sin(t * 6) * 2.5) * 0.28;
+        thunderData[i] = ((Math.random() * 2 - 1) * 0.72 + rumble) * decay;
+      }
       // nitro whoosh: looping band-passed noise
       const nl = Math.floor(c.sampleRate), nb = c.createBuffer(1, nl, c.sampleRate), nd = nb.getChannelData(0);
       for (let i = 0; i < nl; i++) nd[i] = Math.random() * 2 - 1;
@@ -58,6 +66,18 @@ export const sfx = {
   blip(freq) {
     if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15); o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + 0.16);
+  },
+  thunder(power = 1) {
+    if (!this.ctx || !this.thunderNoise) return;
+    const c = this.ctx, now = c.currentTime, source = c.createBufferSource();
+    const lowpass = c.createBiquadFilter(), gain = c.createGain();
+    source.buffer = this.thunderNoise;
+    lowpass.type = 'lowpass'; lowpass.frequency.value = 420; lowpass.Q.value = 0.7;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.48 * clamp(power, 0.5, 1.4), now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 4.05);
+    source.connect(lowpass); lowpass.connect(gain); gain.connect(this.master);
+    source.start(now); source.stop(now + 4.2);
   },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.6; }
 };

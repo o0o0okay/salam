@@ -151,12 +151,12 @@ function generateChunk(cx, cz) {
     const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
     t.solid.tree = t; ch.trees.push(t);
   };
-  // Parked car at the curb — registered as a solid, but linked to a destructible record (s.parked).
-  // Light taps behave like a static obstacle; a hard enough hit wrecks it (see collisions.js breakParkedCar).
-  const parkedCar = (x, z, hx, hz, rotY, kind, color) => {
+  // Parked cars are registered as solids and linked to a destructible record (s.parked).
+  // Light taps behave like a static obstacle; a hard enough hit wrecks one (see collisions.js breakParkedCar).
+  const parkedCar = (x, z, hx, hz, rotY, kind, color, y = 0.1) => {
     const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
     const m = buildCar(kind, color, false);
-    m.position.set(x, 0.1, z); m.rotation.y = rotY; group.add(m);
+    m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
     solid(x, z, hx, hz, 'parkedcar');
     const sEntry = ch.solids[ch.solids.length - 1];
     sEntry.parked = { mesh: m, x, z, mass: dims.mass, color, broken: false, solid: sEntry };
@@ -188,11 +188,13 @@ function generateChunk(cx, cz) {
   };
   const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
+  const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   add(box(64, 0.15, 64, mat(0xb8bcc4), bx, 0.075, bz, false));
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group);
   const t = rng();
-  const type = t < 0.4 ? 'downtown' : t < 0.68 ? 'suburb' : t < 0.82 ? 'park' : 'industrial';
+  // Keep a shopping center near the fixed spawn so the new district is visible immediately.
+  const type = cx === 0 && cz === 0 ? 'commercial' : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.88 ? 'commercial' : 'industrial';
   if (type === 'downtown') {
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
       const lx = bx0 + 14 + i * 28, lz = bz0 + 14 + j * 28;
@@ -265,6 +267,100 @@ function generateChunk(cx, cz) {
     }
     prop('bench', bx - 8, bz - 2.5, 0, 0.3); prop('bench', bx + 9, bz + 2.5, PI, 0.3); prop('bench', bx - 2.5, bz + 10, PI / 2, 0.3);
     for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), bx + r(-26, 26), 0.4, bz + r(-26, 26), false));
+  } else if (type === 'commercial') {
+    // A neighborhood shopping center with a glass landmark, retail wing and marked parking rows.
+    const lotSurfaceY = 0.25;
+    const asphalt = mat(0x4b5058), concrete = mat(0xc6c9c8), parkingPaint = mat(0xe9e8df);
+    const aqua = mat(0x19b9ca), mallWhite = mat(0xe5e8e9), mallYellow = mat(0xf4c928);
+    add(box(58, 0.1, 58, asphalt, bx, 0.2, bz, false));
+    // Raised pedestrian walkways frame the lot and connect the entrance to the parking area.
+    const walkY = lotSurfaceY + 0.07;
+    add(box(58, 0.12, 1.5, concrete, bx, walkY, bz - 28.25, false));
+    add(box(58, 0.12, 1.5, concrete, bx, walkY, bz + 28.25, false));
+    add(box(1.5, 0.12, 58, concrete, bx - 28.25, walkY, bz, false));
+    add(box(1.5, 0.12, 58, concrete, bx + 28.25, walkY, bz, false));
+
+    const mallZ = bz - 7, baseW = 29, baseD = 22, baseH = 4.8;
+    const frontZ = mallZ + baseD / 2;
+    add(box(baseW, baseH, baseD, mallWhite, bx, lotSurfaceY + baseH / 2, mallZ));
+    // Bright retail frontage, broad glass storefront and a projecting entrance canopy.
+    add(box(baseW + 0.12, 0.85, 0.22, aqua, bx, lotSurfaceY + 0.95, frontZ + 0.12, false));
+    add(box(17, 2, 0.14, mat(0x263e4a), bx, 3.3, frontZ + 0.14, false));
+    add(box(4.2, 2.8, 0.18, mat(0x172a35), bx, 1.65, frontZ + 0.2, false));
+    add(box(14, 0.38, 2.8, aqua, bx, lotSurfaceY + baseH + 0.18, frontZ + 1.15, false));
+    for (const side of [-1, 1]) add(box(0.5, 4.75, 0.5, mat(0xdce1e2), bx + side * 6.2, lotSurfaceY + baseH / 2, frontZ + 2.05, false));
+
+    // Upper glazed floors, pale roof cap and the yellow crown visible in the reference.
+    const towerW = 21.5, towerD = 17.5, towerH = 14.2;
+    const towerGeo = makeBuildingGeo(towerW, towerH, towerD), glassMat = ASSET.windowMats[2];
+    const tower = new THREE.Mesh(towerGeo, [glassMat, glassMat, ASSET.roofMat, ASSET.roofMat, glassMat, glassMat]);
+    tower.position.set(bx, lotSurfaceY + baseH + towerH / 2, mallZ);
+    tower.castShadow = true; tower.receiveShadow = true; group.add(tower); ch.geos.push(towerGeo);
+    for (let floor = 1; floor < 4; floor++) {
+      add(box(towerW + 0.22, 0.18, towerD + 0.22, mat(0xb9c2c7), bx, lotSurfaceY + baseH + floor * 3.45, mallZ, false));
+    }
+    const towerTop = lotSurfaceY + baseH + towerH;
+    add(box(towerW + 1.1, 0.45, towerD + 1.1, mat(0xf1f2ee), bx, towerTop + 0.225, mallZ, false));
+    add(box(towerW + 1.25, 0.24, 0.28, mallYellow, bx, towerTop + 0.36, mallZ + towerD / 2 + 0.62, false));
+    add(box(0.28, 0.24, towerD + 1.25, mallYellow, bx + towerW / 2 + 0.62, towerTop + 0.36, mallZ, false));
+    add(box(3.4, 1.1, 2.6, mat(0x969da1), bx - 4, towerTop + 0.95, mallZ - 1, false));
+    add(box(2.2, 0.8, 2.1, mat(0xaeb4b7), bx + 5, towerTop + 0.8, mallZ + 2, false));
+    solid(bx, mallZ, baseW / 2, baseD / 2, 'building');
+
+    // Low supermarket wing to one side gives the center a stepped, multi-building silhouette.
+    const wingW = 10.5, wingD = 20.5, wingH = 4.1, wingX = bx + 19.5, wingZ = mallZ + 0.3;
+    const wingFrontZ = wingZ + wingD / 2;
+    add(box(wingW, wingH, wingD, mat(0xd8dcdd), wingX, lotSurfaceY + wingH / 2, wingZ));
+    add(box(wingW + 0.4, 0.34, wingD + 0.4, mat(0xf3f2ed), wingX, lotSurfaceY + wingH + 0.17, wingZ, false));
+    add(box(wingW + 0.1, 0.68, 0.2, aqua, wingX, 1.05, wingFrontZ + 0.11, false));
+    add(box(7.5, 1.8, 0.14, mat(0x243d49), wingX, 2.35, wingFrontZ + 0.13, false));
+    add(box(wingW + 0.2, 0.24, 0.18, mallYellow, wingX, 3.65, wingFrontZ + 0.12, false));
+    solid(wingX, wingZ, wingW / 2, wingD / 2, 'building');
+
+    // Pedestrian approaches and small planted islands at the front corners.
+    add(box(36, 0.08, 3.2, concrete, bx, lotSurfaceY + 0.06, bz + 7.8, false));
+    add(box(34, 0.08, 2, concrete, bx, lotSurfaceY + 0.06, bz - 20, false));
+    for (const side of [-1, 1]) {
+      const px = bx + side * 25, pz = bz + 8.5;
+      add(box(3.8, 0.1, 3.8, mat(0x79b86d), px, lotSurfaceY + 0.05, pz, false));
+      tree(px, pz, lotSurfaceY);
+    }
+
+    // Painted bays on three sides; cars use the same destructible parked-car system as curbside vehicles.
+    const stallCount = 6, stallW = 8.8, startX = bx - stallCount * stallW / 2;
+    const parkingRows = [
+      { z: bz + 15.2, rotY: PI },
+      { z: bz + 24.2, rotY: 0 },
+      { z: bz - 24.3, rotY: 0 },
+    ];
+    const parkedColors = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
+    const parkedKinds = ['sedan', 'hatchback', 'suv', 'oldclassic'];
+    const prioritySpots = new Set([0, 2, 4, 7, 9, 11, 13, 16]);
+    for (let row = 0; row < parkingRows.length; row++) {
+      const { z, rotY } = parkingRows[row];
+      for (let i = 0; i <= stallCount; i++) {
+        add(box(0.12, 0.035, 6.2, parkingPaint, startX + i * stallW, lotSurfaceY + 0.0275, z, false));
+      }
+      for (let i = 0; i < stallCount; i++) {
+        if (!prioritySpots.has(row * stallCount + i) && rng() >= 0.3) continue;
+        const x = startX + (i + 0.5) * stallW;
+        const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
+        const color = parkedColors[Math.floor(rng() * parkedColors.length)];
+        parkedCar(x, z, 1.15, 2.35, rotY, kind, color, lotSurfaceY - 0.05);
+      }
+    }
+    // Extra perpendicular bays along the open west side of the mall.
+    const sideParkingX = bx - 23.5, sideStartZ = bz - 16;
+    for (let i = 0; i <= 3; i++) {
+      add(box(5.8, 0.035, 0.12, parkingPaint, sideParkingX, lotSurfaceY + 0.0275, sideStartZ + i * 8, false));
+    }
+    for (let i = 0; i < 3; i++) {
+      if (rng() >= 0.72) continue;
+      const z = sideStartZ + (i + 0.5) * 8;
+      const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
+      const color = parkedColors[Math.floor(rng() * parkedColors.length)];
+      parkedCar(sideParkingX, z, 2.35, 1.15, PI / 2, kind, color, lotSurfaceY - 0.05);
+    }
   } else { // industrial
     add(box(56, 0.1, 56, mat(0x9b9da4), bx, 0.2, bz, false));
     const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];

@@ -39,8 +39,21 @@ export const ASSET = {};
     for (const yy of [53, 451]) { g.fillRect(yy, x, 8, 6); g.fillRect(yy, 506 - x, 8, 6); }
   }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-  ASSET.roadMat = new THREE.MeshLambertMaterial({ map: tex });
+  ASSET.roadMat = new THREE.MeshPhongMaterial({
+    map: tex,
+    color: 0xffffff,
+    specular: 0x101419,
+    shininess: 5,
+  });
   ASSET.groundGeo = new THREE.PlaneGeometry(CHUNK, CHUNK); ASSET.groundGeo.rotateX(-PI / 2);
+  ASSET.snowRoadMat = new THREE.MeshBasicMaterial({
+    color: 0xeaf5ff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
   // Window texture (4x4 windows) + emissive map (lit windows at night)
   const w = document.createElement('canvas'); w.width = w.height = 128; const wg = w.getContext('2d');
   wg.fillStyle = '#ffffff'; wg.fillRect(0, 0, 128, 128);

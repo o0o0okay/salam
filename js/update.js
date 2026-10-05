@@ -226,7 +226,7 @@ export function update(dt) {
   updateParticles(dt);
   updateCamera(dt);
   /* --- day / night + lights --- */
-  updateEnvironment();
+  updateEnvironment(dt, player.x, player.z, playing);
   if (playing) {
     const isN = env.day < 0.3;
     if (isN !== game.isNight) { game.isNight = isN; toast(isN ? 'NIGHT FALLS 🌙' : 'SUNRISE ☀'); }

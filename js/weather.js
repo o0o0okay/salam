@@ -32,14 +32,25 @@ const RAIN_TINT = new THREE.Color(0x9baab4);
 const SNOW_TINT = new THREE.Color(0xe0e9ef);
 const DRY_SPECULAR = new THREE.Color(0x101419);
 const WET_SPECULAR = new THREE.Color(0x9ab8c8);
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const LIGHTNING_PATTERNS = [
+  {
+    main: 'M 66 0 L 50 39 L 69 35 L 39 88 L 58 81 L 24 139 L 49 128 L 33 183 L 65 161 L 53 215 L 81 196 L 73 280',
+    branches: 'M 40 88 L 17 97 L 8 117 M 49 128 L 22 136 L 12 155 M 64 162 L 92 169 L 111 190',
+  },
+  {
+    main: 'M 53 0 L 72 40 L 53 37 L 79 82 L 60 78 L 93 128 L 68 120 L 99 174 L 72 158 L 87 211 L 59 193 L 64 280',
+    branches: 'M 79 82 L 103 88 L 116 106 M 92 128 L 112 135 L 120 151 M 72 158 L 49 171 L 36 193',
+  },
+  {
+    main: 'M 63 0 L 44 35 L 63 32 L 37 80 L 57 76 L 27 126 L 48 117 L 19 172 L 49 157 L 35 210 L 68 190 L 57 240 L 81 222 L 76 280',
+    branches: 'M 38 80 L 15 88 L 6 107 M 48 117 L 23 126 L 11 146 M 49 157 L 78 164 L 96 182',
+  },
+];
 
 export class WeatherSystem {
   constructor() {
     this.mode = 'sunny';
-    try {
-      const saved = localStorage.getItem('escape_road_weather');
-      if (WEATHER_MODES[saved]) this.mode = saved;
-    } catch (_) {}
 
     this.rain = 0;
     this.snow = 0;
@@ -107,6 +118,32 @@ export class WeatherSystem {
     for (const flake of this.snowflakes) this._resetSnow(flake, true);
 
     this.lightningElement = document.getElementById('lightning');
+    if (!this.lightningElement) {
+      this.lightningElement = document.createElement('div');
+      this.lightningElement.id = 'lightning';
+      this.lightningElement.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(this.lightningElement);
+    }
+
+    this.lightningBoltOpacity = 0;
+    this.lightningBoltElement = document.createElementNS(SVG_NS, 'svg');
+    this.lightningBoltElement.setAttribute('viewBox', '0 0 120 280');
+    this.lightningBoltElement.setAttribute('preserveAspectRatio', 'none');
+    this.lightningBoltElement.setAttribute('aria-hidden', 'true');
+    this.lightningBoltElement.setAttribute('class', 'storm-bolt');
+    this.lightningBoltPaths = {};
+    for (const [name, className] of [
+      ['mainGlow', 'bolt-glow'],
+      ['branchGlow', 'bolt-branch-glow'],
+      ['mainCore', 'bolt-core'],
+      ['branchCore', 'bolt-branch-core'],
+    ]) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('class', className);
+      this.lightningBoltElement.appendChild(path);
+      this.lightningBoltPaths[name] = path;
+    }
+    document.body.appendChild(this.lightningBoltElement);
   }
 
   get label() {
@@ -118,15 +155,25 @@ export class WeatherSystem {
   }
 
   get slickness() {
-    return clamp01(this.wet * 0.68 + this.snowCover * 0.72) * 0.9;
+    // Keep normal rain subtle; storm rain adds a little more, while snow has less grip.
+    const rainGrip = this.wet * (0.12 + this.rain * 0.18);
+    const snowGrip = this.snowCover * 0.58;
+    return clamp01(rainGrip + snowGrip);
   }
 
   setMode(mode) {
     if (!WEATHER_MODES[mode]) return false;
     this.mode = mode;
     this._setTargets();
-    try { localStorage.setItem('escape_road_weather', mode); } catch (_) {}
     return true;
+  }
+
+  cycleMode() {
+    const modes = Object.keys(WEATHER_MODES);
+    const currentIndex = modes.indexOf(this.mode);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+    this.setMode(nextMode);
+    return this.mode;
   }
 
   _setTargets() {
@@ -240,11 +287,34 @@ export class WeatherSystem {
     this.snowAttribute.needsUpdate = true;
   }
 
+  _showLightningBolt() {
+    const pattern = LIGHTNING_PATTERNS[Math.floor(Math.random() * LIGHTNING_PATTERNS.length)];
+    this.lightningBoltPaths.mainGlow.setAttribute('d', pattern.main);
+    this.lightningBoltPaths.mainCore.setAttribute('d', pattern.main);
+    this.lightningBoltPaths.branchGlow.setAttribute('d', pattern.branches);
+    this.lightningBoltPaths.branchCore.setAttribute('d', pattern.branches);
+
+    const width = Math.min(175, Math.max(96, window.innerWidth * 0.14));
+    const height = Math.min(330, Math.max(200, window.innerHeight * 0.38));
+    const left = clamp(
+      window.innerWidth * (0.15 + Math.random() * 0.7) - width / 2,
+      8,
+      Math.max(8, window.innerWidth - width - 8),
+    );
+    const top = Math.max(18, window.innerHeight * (0.1 + Math.random() * 0.12));
+    this.lightningBoltElement.style.width = `${width}px`;
+    this.lightningBoltElement.style.height = `${height}px`;
+    this.lightningBoltElement.style.left = `${left}px`;
+    this.lightningBoltElement.style.top = `${top}px`;
+    this.lightningBoltOpacity = 1;
+  }
+
   _updateLightning(dt, audioEnabled) {
     if (this.mode === 'storm') {
       this.thunderTimer -= dt;
       if (this.thunderTimer <= 0) {
         this.lightningFlash = 1;
+        this._showLightningBolt();
         this.thunderDelay = 0.25 + Math.random() * 0.45;
         this.thunderPending = true;
         this.thunderPower = 0.7 + Math.random() * 0.55;
@@ -262,7 +332,9 @@ export class WeatherSystem {
     }
 
     this.lightningFlash = Math.max(0, this.lightningFlash - dt * 5.8);
+    this.lightningBoltOpacity = Math.max(0, this.lightningBoltOpacity - dt * 2.6);
     if (this.lightningElement) this.lightningElement.style.opacity = String(this.lightningFlash);
+    if (this.lightningBoltElement) this.lightningBoltElement.style.opacity = String(this.lightningBoltOpacity);
   }
 }
 
