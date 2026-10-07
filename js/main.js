@@ -24,10 +24,19 @@ initInput();
 resetWorld();
 game.state = 'menu';
 let lastT = performance.now();
+let loopFaults = 0;
+// The frame loop must survive a bad frame: an uncaught error used to end the requestAnimationFrame chain and
+// freeze the whole game mid-run (the browser console keeps the stack, the run keeps going).
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
-  update(dt);
-  renderer.render(scene, camera);
+  try {
+    update(dt);
+    renderer.render(scene, camera);
+  } catch (err) {
+    loopFaults++;
+    if (loopFaults <= 5) console.error('[ESCAPE ROAD] frame error (continuing)', err);
+    game.frameFaults = loopFaults;
+  }
 }
 requestAnimationFrame(frame);

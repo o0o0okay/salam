@@ -42,3 +42,6 @@ export const POLICE_TIERS = [
 ];
 // Stars rise slower and scale with difficulty
 export const WANTED_AT = [0, 30, 70, 115, 165];
+// A burnt-out hull has no driver: it coasts on the handbrake and skids, so it only needs a top speed it can
+// never reach and a grip that lets it slide when the player shoves it (see js/wrecks.js and js/collisions.js).
+export const HULK_PARAMS = { maxSpeed: 46, maxReverse: 8, accel: 0, brake: 34, turn: 1.5, turnFalloff: 40, grip: 9.4 };

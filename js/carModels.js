@@ -26,13 +26,17 @@ export const CAR_DIMS = {
   limo:       { e1: 3.4,  e2: 0.95, mass: 1.8,  hp: 55 },
   cementtruck:{ e1: 4.5,  e2: 1.35, mass: 5.0,  hp: 170 },
   fueltanker: { e1: 5.6,  e2: 1.35, mass: 5.6,  hp: 45 },
+  ambulance:  { e1: 2.75, e2: 1.2,  mass: 3.4,  hp: 180 },
+  firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
+  firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
 };
 
 
-export const isPoliceKind = kind => kind.startsWith('police');
+export const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 
 
 export function buildCar(kind, color, detail = true) {
+  if (!CAR_DIMS[kind]) kind = 'civ';                            // never throw on an unknown vehicle type
   const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);
   const glass = mat(0x18222f), dark = mat(0x1c1d22);
   const lights = {};
@@ -52,6 +56,86 @@ export function buildCar(kind, color, detail = true) {
     inner.add(box(0.06, 1.7, 1.0, dark, -1.22, 1.15, 2.6, false));
     inner.add(box(2.42, 0.24, 9.02, mat(0x25282f), 0, 0.5, 0, false));
 
+
+  } else if (kind === 'ambulance') {
+    // White box ambulance with the red livery band, red crosses and a blue roof beacon — the reference art
+    // parked in the hospital car park.
+    wheelZ = [-1.8, 1.8]; wheelX = 1.16; frontZ = 2.74; backZ = -2.74; lightY = 0.95;
+    const white = mat(0xf4f6f8), red = mat(0xd42b2b), steel = mat(0x9aa1a8);
+    lights.blue = new THREE.MeshBasicMaterial({ color: 0x2a6cff });
+    lights.red = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+    inner.add(box(2.34, 1.05, 5.4, white, 0, 0.98, 0));                  // main body
+    inner.add(box(2.3, 1.2, 3.7, white, 0, 2.05, -0.78));                // raised treatment box
+    inner.add(box(2.24, 0.95, 1.6, white, 0, 1.6, 1.65));                // cab
+    inner.add(box(2.08, 0.52, 0.12, glass, 0, 1.78, 2.45));              // windshield
+    for (const sx of [-1, 1]) inner.add(box(0.08, 0.46, 1.05, glass, sx * 1.14, 1.66, 1.55, false));
+    for (const sx of [-1, 1]) inner.add(box(0.06, 0.6, 1.5, glass, sx * 1.17, 2.16, -0.7, false));
+    inner.add(box(2.4, 0.36, 5.44, red, 0, 1.28, 0));                    // livery band
+    inner.add(box(2.4, 0.1, 5.44, red, 0, 0.62, 0));                     // lower stripe
+    inner.add(box(1.9, 0.8, 0.1, white, 0, 2.05, -2.62, false));         // rear doors
+    inner.add(box(0.9, 0.24, 0.06, red, 0, 2.1, -2.68, false));          // red cross on the rear doors
+    inner.add(box(0.24, 0.8, 0.06, red, 0, 2.1, -2.68, false));
+    for (const sx of [-1, 1]) {                                          // red crosses on the flanks
+      inner.add(box(0.06, 0.26, 0.86, red, sx * 1.2, 2.06, -1.5, false));
+      inner.add(box(0.06, 0.86, 0.26, red, sx * 1.2, 2.06, -1.5, false));
+    }
+    inner.add(box(1.7, 0.2, 0.42, steel, 0, 2.75, 0.5, false));          // roof beacon bar
+    inner.add(box(1.3, 0.16, 0.36, lights.blue, 0, 2.75, 0.5, false));
+    inner.add(box(0.34, 0.14, 0.3, lights.red, -0.9, 2.72, -0.5, false));
+    inner.add(box(0.34, 0.14, 0.3, lights.red, 0.9, 2.72, -0.5, false));
+
+  } else if (kind === 'firetruck') {
+    // Big red pump/ladder engine: cab with a chrome grille and chevron bumper, white livery stripe,
+    // equipment lockers down the flanks, a ladder rack on the roof and a red/amber beacon bar.
+    wheelZ = [-2.1, 2.0]; wheelX = 1.2; frontZ = 3.75; backZ = -3.75; lightY = 0.95; wheelScale = 1.3;
+    const red = mat(0xc8342e), darkRed = mat(0xa52620), white = mat(0xf1f2f0), chrome = mat(0xc9cdd2), steel = mat(0x7c8288);
+    lights.red = new THREE.MeshBasicMaterial({ color: 0xff2d2d });
+    lights.amber = new THREE.MeshBasicMaterial({ color: 0xffa41f });
+    inner.add(box(2.34, 0.5, 7.3, mat(0x2a2d33), 0, 0.62, -0.1));            // chassis rail
+    inner.add(box(2.5, 1.75, 5.4, red, 0, 1.68, -1.0));                      // body
+    inner.add(box(2.54, 0.3, 5.44, white, 0, 1.2, -1.0, false));             // white livery stripe
+    inner.add(box(2.56, 0.1, 5.44, white, 0, 2.35, -1.0, false));            // roof edge trim
+    inner.add(box(2.42, 1.5, 2.2, red, 0, 1.9, 1.9));                        // cab
+    inner.add(box(2.2, 0.72, 0.14, glass, 0, 2.16, 2.98));                   // windshield
+    for (const sx of [-1, 1]) inner.add(box(0.08, 0.6, 1.2, glass, sx * 1.2, 2.14, 1.75, false));
+    inner.add(box(2.34, 0.8, 0.12, chrome, 0, 1.05, 3.05, false));           // grille
+    inner.add(box(1.9, 0.16, 0.2, dark, 0, 1.62, 3.06, false));              // grille bar
+    inner.add(box(2.6, 0.42, 0.34, red, 0, 0.55, 3.2, false));               // bumper
+    for (let i = -2; i <= 2; i++) inner.add(box(0.34, 0.4, 0.1, i % 2 ? mat(0xf4c020) : red, i * 0.5, 0.55, 3.38, false));   // chevrons
+    for (const sx of [-1, 1]) {                                              // locker outlines
+      inner.add(box(0.06, 1.1, 0.1, white, sx * 1.26, 1.75, 0.6, false));
+      inner.add(box(0.06, 1.1, 0.1, white, sx * 1.26, 1.75, -0.8, false));
+      inner.add(box(0.06, 0.1, 5.0, white, sx * 1.26, 2.2, -1.0, false));
+    }
+    inner.add(box(2.3, 1.5, 0.16, darkRed, 0, 1.68, -3.72, false));          // rear panel
+    for (const sx of [-1, 1]) inner.add(box(0.3, 0.3, 0.1, lights.red, sx * 0.95, 1.05, -3.8, false));
+    // roof: ladder rack with rails, cross bars and a two-rail extension ladder
+    for (const sx of [-1, 1]) inner.add(box(0.12, 0.14, 5.5, steel, sx * 0.95, 2.62, -1.1, false));
+    for (const sz of [-3.4, -1.6, 0.2, 1.3]) inner.add(box(2.0, 0.1, 0.12, steel, 0, 2.62, sz, false));
+    for (const sx of [-0.36, 0.36]) inner.add(box(0.1, 0.1, 5.9, chrome, sx, 2.78, -1.3, false));
+    for (let i = 0; i < 7; i++) inner.add(box(0.8, 0.07, 0.09, chrome, 0, 2.78, -4.0 + i * 0.86, false));
+    inner.add(box(0.14, 0.14, 5.9, steel, 1.0, 2.6, -1.3, false));           // hose bed rail
+    inner.add(box(1.7, 0.22, 0.4, dark, 0, 2.72, 2.1, false));               // beacon bar base
+    inner.add(box(0.7, 0.16, 0.32, lights.red, -0.42, 2.72, 2.1, false));
+    inner.add(box(0.7, 0.16, 0.32, lights.amber, 0.42, 2.72, 2.1, false));
+    inner.add(box(0.4, 0.2, 0.16, ASSET.headMat, 0, 0.95, 3.42, false));     // headlight
+
+  } else if (kind === 'firesmall') {
+    // Small squad/pickup: the quick-response unit, red with a white stripe and a low beacon bar.
+    wheelZ = [-1.55, 1.6]; frontZ = 2.65; backZ = -2.65; lightY = 0.8;
+    const red = mat(0xc8342e), white = mat(0xf1f2f0);
+    lights.red = new THREE.MeshBasicMaterial({ color: 0xff2d2d });
+    inner.add(box(2.0, 0.62, 4.9, red, 0, 0.78, 0));                        // body
+    inner.add(box(2.04, 0.24, 4.92, white, 0, 0.62, 0, false));              // stripe
+    inner.add(box(1.86, 0.7, 1.5, red, 0, 1.44, 0.55));                      // cab
+    inner.add(box(1.72, 0.42, 0.12, glass, 0, 1.5, 1.34));                   // windshield
+    for (const sx of [-1, 1]) inner.add(box(0.07, 0.4, 0.9, glass, sx * 0.94, 1.48, 0.5, false));
+    inner.add(box(1.7, 0.5, 2.0, red, 0, 1.1, -1.35));                       // rear equipment box
+    inner.add(box(1.74, 0.18, 2.02, white, 0, 0.86, -1.35, false));
+    for (const sx of [-1, 1]) inner.add(box(0.06, 0.9, 0.08, white, sx * 1.0, 1.15, -0.5, false));
+    inner.add(box(0.9, 0.16, 0.3, lights.red, 0, 1.86, 0.55, false));        // beacon bar
+    for (const sx of [-1, 1]) inner.add(box(0.28, 0.24, 0.1, lights.red, sx * 0.7, 0.72, -2.5, false));
+    inner.add(box(0.36, 0.18, 0.14, ASSET.headMat, 0, 0.8, 2.42, false));
 
   } else if (kind === 'pickup') {
     wheelZ = [-1.5, 1.6]; frontZ = 2.32; backZ = -2.32;

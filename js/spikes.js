@@ -13,9 +13,9 @@ import { civPanic } from './civilians.js';
 
 function makeSpikeMesh(axisZ) {
   const g = new THREE.Group(), dark = mat(0x2a2d33);
-  g.add(box(11, 0.12, 1.5, dark, 0, 0.08, 0, false));
-  for (let i = 0; i < 11; i++) { const sp = new THREE.Mesh(ASSET.spikeGeo, ASSET.spikeMat); sp.position.set(-5 + i, 0.42, 0); g.add(sp); }
-  for (const sx of [-1, 1]) { g.add(box(0.25, 2.4, 0.25, dark, sx * 6.1, 1.2, 0, false)); g.add(box(0.55, 0.55, 0.55, ASSET.spikeLit, sx * 6.1, 2.6, 0, false)); }
+  g.add(box(14, 0.12, 1.5, dark, 0, 0.08, 0, false));
+  for (let i = 0; i < 14; i++) { const sp = new THREE.Mesh(ASSET.spikeGeo, ASSET.spikeMat); sp.position.set(-6.5 + i, 0.42, 0); g.add(sp); }
+  for (const sx of [-1, 1]) { g.add(box(0.25, 2.4, 0.25, dark, sx * 7.6, 1.2, 0, false)); g.add(box(0.55, 0.55, 0.55, ASSET.spikeLit, sx * 7.6, 2.6, 0, false)); }
   g.rotation.y = axisZ ? 0 : PI / 2;
   return g;
 }
@@ -32,7 +32,7 @@ export function deploySpike() {
     let along = pAlong + ahead * rnd(95, 125);
     const node = Math.round(along / CHUNK) * CHUNK;
     if (Math.abs(along - node) < 20) along = node + (along >= node ? 22 : -22); // never inside an intersection
-    const lat = rc + (Math.random() < 0.5 ? -2.5 : 2.5); // leaves a gap on one side of the road
+    const lat = rc + (Math.random() < 0.5 ? -4 : 4);     // 14 m strip on a 16 m road: a gap stays open on one side
     const x = axisZ ? lat : along, z = axisZ ? along : lat;
     if (Math.hypot(x - player.x, z - player.z) < 70 || solidAt(x, z, 7)) continue;
     if (spikes.some(o => Math.hypot(o.x - x, o.z - z) < 30)) continue;
@@ -67,7 +67,7 @@ export function updateSpikes(dt) {
     for (const c of cars) {
       if (c.dead || c.wrecked || c.y > 0.5 || c.flatT > 0.3) continue;
       const dx = c.x - sp.x, dz = c.z - sp.z, lx = sp.axisZ ? dx : dz, lz = sp.axisZ ? dz : dx;
-      if (Math.abs(lx) < 6.2 && Math.abs(lz) < 0.8 + c.box.e1 * 0.55) popTires(c);
+      if (Math.abs(lx) < 7.8 && Math.abs(lz) < 0.8 + c.box.e1 * 0.55) popTires(c);
     }
   }
 }

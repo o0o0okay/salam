@@ -5,18 +5,27 @@ import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
-import { DIFF } from './config.js';
-import { game, cars, flying, fallingTrees, geysers } from './state.js';
-import { nearChunks } from './world.js';
-import { carBox } from './vehicle.js';
+import { DIFF, HULK_PARAMS } from './config.js';
+import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
+import { nearChunks, isHeavyParked, parkedShove, parkedDamage } from './world.js';
+import { carBox, createCar } from './vehicle.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
 import { hurtPlayer, hurtCar, impactFx } from './damage.js';
+import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
 const BUSSTOP_BREAK_V = 7;  // bus shelters are flimsy — break easily
 const SCAFFOLD_BREAK_V = 8; // scaffolding — a bit sturdier, still breaks on a real hit
 export const hit = { nx: 0, nz: 0, depth: 0 };
+// One damage tick per quarter second per vehicle pair: without this a single crash inside the SAT overlap
+// would apply the damage on every frame the boxes still touch.
+function pcHitCool(pc, c, vn) {
+  if (vn < 1.5) return false;
+  if (pc.lastHitBy === c && game.time - (pc.lastHit || -99) < 0.25) return false;
+  pc.lastHitBy = c;
+  return true;
+}
 export function sat(A, B) {
   const dx = B.x - A.x, dz = B.z - A.z; let minO = Infinity, nx = 0, nz = 0;
   for (let i = 0; i < 4; i++) {
@@ -47,7 +56,11 @@ export function collideSolids(c) {
     }
     if (s.parked && !s.parked.broken) {
       const vnP = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards parked car
-      if (vnP > PARK_BREAK_V / Math.sqrt(c.mass)) { breakParkedCar(s.parked, c, vnP); continue; }
+      if (isHeavyParked(s.parked.mass)) {
+        // Heavy: absorb the impact with a cooldown so one crash cannot tick damage every frame, then fall
+        // through so the car still stops against it like the wall it is (this is what "weight" feels like).
+        if (pcHitCool(s.parked, c, vnP)) hitParkedHeavy(s.parked, c, vnP);
+      } else if (vnP > PARK_BREAK_V / Math.sqrt(c.mass)) { breakParkedCar(s.parked, c, vnP); continue; }
     }
     if (s.busstop && !s.busstop.broken) {
       const vnB = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards bus stop shelter
@@ -61,7 +74,11 @@ export function collideSolids(c) {
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
     const vn = c.vx * nx + c.vz * nz;
     if (vn > 0) {
-      c.vx -= 1.28 * vn * nx; c.vz -= 1.28 * vn * nz; c.vx *= 0.99; c.vz *= 0.99;
+      const heavyWall = s.parked && isHeavyParked(s.parked.mass);          // very little bounce off something heavy
+      const rebound = heavyWall ? 1.02 : 1.28;
+      c.vx -= rebound * vn * nx; c.vz -= rebound * vn * nz;
+      const keep = heavyWall ? 0.86 : 0.99;                                // and a real chunk of speed gone
+      c.vx *= keep; c.vz *= keep;
       impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer);
       if (c.isPlayer) hurtPlayer(Math.max(0, vn - 8) * 0.6); else hurtCar(c, Math.max(0, vn - 8) * 0.8);
     }
@@ -79,11 +96,95 @@ function breakTree(t, c, vn) {
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 14) * 0.2); }
   else hurtCar(c, Math.max(0, vn - 14) * 0.3);
 }
+// A heavy parked vehicle takes the hit instead of flying: it shifts, dents, smokes, and once its hit points
+// are gone it burns where it stands. Nothing here launches the mesh, so nothing can sink into the road.
+export function hitParkedHeavy(pc, c, vn) {
+  if (pc.wrecked || vn < 1.5) return false;
+  const nx = hit.nx, nz = hit.nz;
+  if (c.isPlayer) pc.lastPlayerHit = game.time;
+  pc.mesh.rotation.y += rnd(-0.05, 0.05) * Math.min(1.4, vn / 8);         // rocks a little on its springs
+  const push = parkedShove(pc.mass, vn);
+  if (push > 0.01 && canShift(pc, nx * push, nz * push)) {
+    pc.mesh.position.x += nx * push; pc.mesh.position.z += nz * push;
+    pc.x += nx * push; pc.z += nz * push;
+    if (pc.solid) { pc.solid.x = pc.x; pc.solid.z = pc.z; pc.solid.box.x = pc.x; pc.solid.box.z = pc.z; }
+  }
+  const dmg = parkedDamage(pc.mass, vn);
+  pc.hp -= dmg; pc.lastHit = game.time;
+  const px = pc.x + nx * 1.4, pz = pc.z + nz * 1.4;
+  sparks(px, 0.9, pz, Math.min(12, 3 + Math.floor(vn * 0.4)), nx, nz, Math.min(12, vn * 0.4));
+  if (vn > 8) smoke(px, 1, pz, 1, true, 1.1);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, Math.min(1.0, vn * 0.035)); sfx.crash(Math.min(30, vn)); }
+  if (pc.hp <= 0) { wreckParkedHeavy(pc); return true; }
+  return false;
+}
+// Refuses to shove a parked vehicle into a wall or into another vehicle: if the ground it would slide onto is
+// already taken, it stays exactly where it stands — still absorbing the hit, still catching fire there.
+function canShift(pc, dx, dz) {
+  const x = pc.x + dx, z = pc.z + dz, r = Math.max(pc.len || 2, pc.wid || 1) * 0.8;
+  for (const ch of nearChunks(x, z)) for (const s of ch.solids) {
+    if (s === pc.solid || s.parked === pc) continue;
+    if (Math.abs(s.x - x) < s.hx + r && Math.abs(s.z - z) < s.hz + r) return false;
+  }
+  return true;
+}
+// Burns out where it stands and turns into a real wreck — the player can then shove it out of the way.
+function wreckParkedHeavy(pc) {
+  pc.wrecked = true; pc.broken = true;
+  pc.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
+  explosion(pc.x, pc.z);
+  smoke(pc.x, 1.4, pc.z, 4, true, 1.8);
+  debris(pc.x, 1, pc.z, pc.color, 8);
+  if (game.time - (pc.lastPlayerHit || -99) < 4 && game.state === 'playing') {   // the player did this: pay them
+    game.cash += 70; toast('CHAOS! +$70'); sfx.blip(740);
+  }
+  sfx.crash(45);
+  makeHulk(pc);
+}
+// The burnt-out hull stops being a static prop: it becomes a wrecked car entity, exactly like a police car
+// that blew up mid-chase — the game pushes it around, it keeps smoking and burning, and it is never cleaned
+// up or replaced. It is still the same parked record, with the same mesh, sitting on its own bay.
+function makeHulk(pc) {
+  for (const ch of nearChunks(pc.x, pc.z)) {                    // it is not one of the lot's parked cars any more
+    const i = ch.spill.indexOf(pc); if (i >= 0) ch.spill.splice(i, 1);
+  }
+  if (pc.solid) pc.solid.hx = pc.solid.hz = -999;                // so it is no longer a wall, just a heavy wreck
+  scene.add(pc.mesh);                                            // out of the chunk group: a rebuild cannot hide it
+  // A complete wrecked-vehicle entity, so every system that expects a car finds what it needs (flat tires,
+  // nav and boost fields, a headlight beam slot…), and then the burnt parked mesh takes the place of the
+  // fresh body: the hull that slides away is exactly the one the player set on fire.
+  const shell = createCar(pc.kind, pc.x, pc.z, pc.mesh.rotation.y, HULK_PARAMS, pc.color);
+  scene.remove(shell.mesh);
+  Object.assign(pc, shell, {
+    mesh: pc.mesh, inner: pc.mesh.userData.inner, lights: pc.mesh.userData.lights || {}, beam: null,
+    x: pc.x, z: pc.z, mass: pc.mass, lastPlayerHit: pc.lastPlayerHit,
+  });
+  pc.isCiv = false; pc.isPolice = false; pc.isPlayer = false; pc.isTanker = false; pc.tier = 0;
+  pc.h = pc.mesh.rotation.y; pc.hulkY = pc.mesh.position.y; pc.y = pc.hulkY; pc.vy = 0;   // stays on its lot
+  pc.dead = false; pc.wrecked = true; pc.wreckT = 0; pc.hulk = true; pc.hp = 0;
+  pc.fire = { x: pc.x, z: pc.z, life: 12 };                      // a burning hulk, like a tanker wreck
+  fires.push(pc.fire);                                           // (js/wrecks.js keeps it under the wreck)
+  cars.push(pc);
+}
 function breakParkedCar(pc, c, vn) {
   pc.broken = true; pc.solid.hx = pc.solid.hz = -999;          // no longer solid
-  const m = pc.mesh; scene.add(m);                              // detach from chunk group so it survives chunk unload while flying
+  const m = pc.mesh;
+  scene.add(m);                                                 // detach from chunk group so it survives chunk unload while flying
+  if (pc.faded) {                                               // cars parked at run time (mall lots) carry transparency
+    m.traverse(o => { if (o.userData.faded) o.material = o.userData.lotMat || o.material; });
+  }
   const nx = hit.nx, nz = hit.nz;
-  flying.push({ mesh: m, vx: c.vx * 0.55 + nx * rnd(5, 9), vy: rnd(5, 10), vz: c.vz * 0.55 + nz * rnd(5, 9), sx: rnd(-6, 6), sz: rnd(-6, 6), life: 2.4 });
+  // Tumble about the car's own centre, not about its wheels: a mesh that rotates around a ground-level
+  // origin swings half of its body through the road, which is what buried the launched cars. The pivot
+  // carries the car's heading and spins about the car's own axes (Euler order YXZ), and it reports its
+  // body extents so js/flying.js can hold the lowest corner above the asphalt on every frame.
+  const lift = 0.9, pivot = new THREE.Group();
+  pivot.rotation.order = 'YXZ';
+  pivot.rotation.y = m.rotation.y; m.rotation.y = 0;
+  pivot.position.set(m.position.x, Math.min(m.position.y, 0.2) + lift, m.position.z);
+  scene.add(pivot); pivot.add(m); m.position.set(0, -lift, 0);
+  const probe = { hx: (pc.wid || 0.95) + 0.1, up: 1.2, down: lift, hz: (pc.len || 2.05) + 0.15 };
+  flying.push({ mesh: pivot, vx: c.vx * 0.55 + nx * rnd(5, 9), vy: rnd(5, 10), vz: c.vz * 0.55 + nz * rnd(5, 9), sx: rnd(-6, 6), sz: rnd(-6, 6), life: 2.4, probe });
   explosion(pc.x, pc.z);
   debris(pc.x, 1, pc.z, pc.color, 10); sparks(pc.x, 1.1, pc.z, 6, nx, nz, 8);
   const f = 1 - 0.3 / c.mass; c.vx *= f; c.vz *= f;             // heavier cars plow through with less slowdown

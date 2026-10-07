@@ -1,7 +1,7 @@
 /* Game flow: reset / start / end / pause */
 import { $, fmtTime } from './utils.js';
 import { scene } from './renderer.js';
-import { game, police, civs, cars, spikes, flying, fallingTrees, geysers, fires, player, sight, calcScore } from './state.js';
+import { game, cars, spikes, flying, fallingTrees, geysers, fires, player, sight, calcScore } from './state.js';
 import { PLAYER_PARAMS } from './config.js';
 import { createCar, removeCar } from './vehicle.js';
 import { chunks, disposeChunk, updateChunks } from './world.js';
@@ -12,8 +12,7 @@ import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
 export function resetWorld() {
-  for (const p of police.slice()) removeCar(p);
-  for (const c of civs.slice()) removeCar(c);
+  for (const c of cars.slice()) if (c !== player) removeCar(c);   // cops, traffic, and any burnt hull left over
   for (const f of flying) scene.remove(f.mesh); flying.length = 0; geysers.length = 0; fires.length = 0;
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;

@@ -199,10 +199,10 @@ export function spawnCiv() {
     let axis, road;
     if (Math.abs(x - rx) < Math.abs(z - rz)) { axis = 'z'; road = rx; }
     else { axis = 'x'; road = rz; }
-    const dir = Math.random() < 0.5 ? 1 : -1, off = Math.random() < 0.5 ? 2.5 : 6;
+    const dir = Math.random() < 0.5 ? 1 : -1, off = Math.random() < 0.5 ? 2.5 : 5.0;   // inner lane / outer lane beside the parking
     if (axis === 'z') x = road - dir * off; else z = road + dir * off;
     const along = axis === 'z' ? z : x;
-    if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 16) continue;
+    if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) continue;   // keep clear of the wide junctions
     if (Math.hypot(x - player.x, z - player.z) < 55) continue;
     const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
     const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };

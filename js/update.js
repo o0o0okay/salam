@@ -19,6 +19,9 @@ import { updateHelicopter, helicopter } from './helicopter.js';
 import { civAI, spawnCiv } from './civilians.js';
 import { updateTrafficLights } from './trafficLights.js';
 import { updateWanted, nearMissAward } from './rules.js';
+import { updateParking, updateRooftops } from './traffic.js';
+import { wreckTick, tickHulks } from './wrecks.js';
+import { updateFlying } from './flying.js';
 import { updateCamera } from './camera.js';
 import { updateHUD, drawRadar, toast } from './ui.js';
 import { endGame, showOver } from './flow.js';
@@ -26,11 +29,6 @@ function spinPickups(t) {
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
     if (pk.taken) continue; pk.mesh.rotation.y = t * 2.6 + pk.ph; pk.mesh.position.y = 1.4 + Math.sin(t * 3 + pk.ph) * 0.2;
   }
-}
-function wreckTick(c, sdt) {
-  driveCar(c, { throttle: 0, hand: true }, sdt); c.vx *= Math.exp(-1.2 * sdt); c.vz *= Math.exp(-1.2 * sdt);
-  c.wreckT += sdt; c.smokeT -= sdt;
-  if (c.smokeT <= 0) { c.smokeT = 0.08; smoke(c.x, 1.3, c.z, 1, true, 1.2); if (Math.random() < 0.5) emit(c.x + rnd(-.6, .6), 1, c.z + rnd(-.6, .6), 0, rnd(2, 4), 0, 0xff8a1a, 0.4, 0.5, 0, 0); }
 }
 export function update(dt) {
   game.t += dt;
@@ -135,6 +133,8 @@ export function update(dt) {
       if (dp > 190) removeCar(c);
     }
   }
+  /* --- burning hulls (parked appliances that burned out): they roll, they burn, they never go away --- */
+  tickHulks(sdt);
   /* --- flat tires countdown + sparks, spike strips --- */
   for (const c of cars) {
     if (c.flatT > 0) {
@@ -165,13 +165,7 @@ export function update(dt) {
   }
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
-  /* --- flying props --- */
-  for (let i = flying.length - 1; i >= 0; i--) {
-    const f = flying[i]; f.life -= sdt; f.vy -= 28 * sdt; const m = f.mesh;
-    m.position.x += f.vx * sdt; m.position.y += f.vy * sdt; m.position.z += f.vz * sdt; m.rotation.x += f.sx * sdt; m.rotation.z += f.sz * sdt;
-    if (m.position.y < 0.2) { m.position.y = 0.2; f.vy *= -0.3; f.vx *= 0.8; f.vz *= 0.8; f.sx *= 0.6; f.sz *= 0.6; }
-    if (f.life <= 0) { scene.remove(m); flying.splice(i, 1); }
-  }
+  updateFlying(sdt);
   /* --- falling trees --- */
   for (let i = fallingTrees.length - 1; i >= 0; i--) {
     const f = fallingTrees[i]; f.life -= sdt;
@@ -221,6 +215,8 @@ export function update(dt) {
   }
   /* --- world streaming --- */
   updateChunks(player.x, player.z, playing ? 2 : 1);
+  updateParking(dt);       // mall and hospital carparks follow the time of day
+  updateRooftops(dt);       // hospital rooftop air ambulance keeps its rotors turning
   updateTrafficLights(dt);
   spinPickups(game.t);
   updateParticles(dt);

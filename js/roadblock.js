@@ -28,7 +28,7 @@ export function deployRoadblock() {
     const tier = Math.max(3, Math.min(5, game.wanted));          // SWAT-tier or better — fits the roadblock tactic
     const info = POLICE_TIERS[tier - 1], kindPool = info.kinds || [info.kind];
     const h = axisZ ? PI / 2 : 0;                                // cars laid sideways: their length spans the road
-    const n = 3, spacing = 4.6, slots = [];
+    const n = 4, spacing = 4.4, slots = [];   // four cruisers cover the full 16 m street
     let ok = true;
     for (let i = 0; i < n; i++) {
       const off = (i - (n - 1) / 2) * spacing;

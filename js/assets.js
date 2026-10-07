@@ -23,6 +23,137 @@ export function cyl(rt, rb, h, seg, material, x = 0, y = 0, z = 0, cast = true) 
 }
 
 
+// Repeating stone-slab texture: a grid of slabs with mortar joints, bevel shading (lit top/left edge, shaded
+// bottom/right), a per-slab tint nudge and wrapped grime, so the tile is seamless and reads as real paving.
+function stoneSlabs(px, cols, rows, palette, jointColor, seed, opts = {}) {
+  const c = document.createElement('canvas'); c.width = c.height = px;
+  const g = c.getContext('2d'), rr = mulberry32(seed);
+  const gw = px / cols, gh = px / rows, j = opts.joint === undefined ? Math.max(1, Math.round(px / 150)) : opts.joint;
+  const bevel = opts.bevel === undefined ? 0.22 : opts.bevel;
+  const col = new THREE.Color();
+  g.fillStyle = jointColor; g.fillRect(0, 0, px, px);
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    col.setHex(palette[Math.floor(rr() * palette.length)]);
+    col.offsetHSL((rr() - 0.5) * 0.02, (rr() - 0.5) * 0.05, (rr() - 0.5) * 0.05);
+    const x = q * gw, y = r * gh;
+    g.fillStyle = '#' + col.getHexString(); g.fillRect(x + j, y + j, gw - j * 2, gh - j * 2);
+    g.fillStyle = `rgba(255,255,255,${bevel})`;
+    g.fillRect(x + j, y + j, gw - j * 2, j); g.fillRect(x + j, y + j, j, gh - j * 2);
+    g.fillStyle = `rgba(0,0,0,${bevel * 0.9})`;
+    g.fillRect(x + j, y + gh - j * 2, gw - j * 2, j); g.fillRect(x + gw - j * 2, y + j, j, gh - j * 2);
+  }
+  for (let i = 0; i < px / 4; i++) {                      // grime blotches, drawn wrapped on all sides
+    const x = rr() * px, y = rr() * px, rad = 1 + rr() * (px / 55);
+    g.fillStyle = `rgba(0,0,0,${rr() * 0.07})`;
+    for (const ox of [-px, 0, px]) for (const oy of [-px, 0, px]) {
+      const bx = x + ox, by = y + oy;
+      if (bx + rad < 0 || bx - rad > px || by + rad < 0 || by - rad > px) continue;
+      g.beginPath(); g.arc(bx, by, rad, 0, PI * 2); g.fill();
+    }
+  }
+  for (let i = 0; i < px * 6; i++) {                      // fine speckle
+    g.fillStyle = rr() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.05)';
+    g.fillRect(rr() * px, rr() * px, 1.6, 1.6);
+  }
+  for (let k = 0; k < (opts.cracks || 0); k++) {           // hairline cracks
+    const x0 = rr() * px, y0 = rr() * px, len = px * (0.35 + rr() * 0.5);
+    let x = x0, y = y0, ang = rr() * PI * 2;
+    g.strokeStyle = `rgba(30,30,32,${0.18 + rr() * 0.2})`; g.lineWidth = Math.max(1, px / 220);
+    g.beginPath(); g.moveTo(x, y);
+    for (let seg = 0; seg < 9; seg++) { ang += (rr() - 0.5) * 0.9; x += Math.cos(ang) * len / 9; y += Math.sin(ang) * len / 9; g.lineTo(x, y); }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+// Running-bond brick paving for shopping streets: staggered courses with mortar joints, per-brick tint
+// variation and relief, plus grime. Half-shifted courses are drawn three times so the tile wraps seamlessly.
+function brickBond(px, cols, rows, palette, mortar, seed) {
+  const c = document.createElement('canvas'); c.width = c.height = px;
+  const g = c.getContext('2d'), rr = mulberry32(seed);
+  const bw = px / cols, bh = px / rows, j = Math.max(1, Math.round(px / 170));
+  const col = new THREE.Color();
+  g.fillStyle = mortar; g.fillRect(0, 0, px, px);
+  const draw = (x, y, fill) => {
+    g.fillStyle = fill; g.fillRect(x + j / 2, y + j / 2, bw - j, bh - j);
+    g.fillStyle = 'rgba(255,255,255,0.13)'; g.fillRect(x + j / 2, y + j / 2, bw - j, j);
+    g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(x + j / 2, y + bh - j * 1.5, bw - j, j);
+  };
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * bw / 2;
+    for (let q = -1; q <= cols; q++) {
+      const x = q * bw + off, y = r * bh;
+      col.setHex(palette[Math.floor(rr() * palette.length)]);
+      col.offsetHSL((rr() - 0.5) * 0.03, (rr() - 0.5) * 0.09, (rr() - 0.5) * 0.08);
+      const fill = '#' + col.getHexString();
+      if (x >= 0 && x + bw <= px) draw(x, y, fill);
+      else { draw(x, y, fill); draw(x - px, y, fill); draw(x + px, y, fill); }
+    }
+  }
+  for (let i = 0; i < px / 4; i++) {                       // grime
+    const x = rr() * px, y = rr() * px, rad = 1 + rr() * (px / 60);
+    g.fillStyle = `rgba(0,0,0,${rr() * 0.06})`;
+    for (const ox of [-px, 0, px]) for (const oy of [-px, 0, px]) { g.beginPath(); g.arc(x + ox, y + oy, rad, 0, PI * 2); g.fill(); }
+  }
+  for (let i = 0; i < px * 5; i++) {
+    g.fillStyle = rr() < 0.5 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+    g.fillRect(rr() * px, rr() * px, 1.6, 1.6);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+// Flat-colour noise texture: grass on the verges, and worn yellow paint on kerbs.
+function noiseTex(hex, seed, opts = {}) {
+  const px = opts.px || 128;
+  const c = document.createElement('canvas'); c.width = c.height = px;
+  const g = c.getContext('2d'), rr = mulberry32(seed);
+  const col = new THREE.Color(hex);
+  g.fillStyle = '#' + col.getHexString(); g.fillRect(0, 0, px, px);
+  const wfill = (x, y, w, h) => {                          // wrap draws across the tile edge
+    const xs = [x], ys = [y];
+    if (x + w > px) xs.push(x - px); if (y + h > px) ys.push(y - px);
+    for (const X of xs) for (const Y of ys) g.fillRect(X, Y, w, h);
+  };
+  for (let i = 0; i < (opts.blotch || 0); i++) {           // soft tonal patches
+    const t = col.clone().offsetHSL(0, (rr() - 0.5) * 0.1, (rr() - 0.5) * 0.16);
+    g.fillStyle = '#' + t.getHexString(); g.globalAlpha = 0.5;
+    g.beginPath(); g.arc(rr() * px, rr() * px, px * (0.05 + rr() * 0.13), 0, PI * 2); g.fill();
+    g.globalAlpha = 1;
+  }
+  for (let i = 0; i < (opts.blades || 0) * px; i++) {      // grass blades
+    g.fillStyle = rr() < 0.5 ? `rgba(255,255,255,${0.06 + rr() * 0.08})` : `rgba(0,0,0,${0.07 + rr() * 0.1})`;
+    wfill(rr() * px, rr() * px, 1.5, 3 + rr() * 5);
+  }
+  const grain = opts.grain === undefined ? 0.1 : opts.grain;
+  for (let i = 0; i < px * px * 0.3; i++) {
+    g.fillStyle = rr() < 0.5 ? `rgba(255,255,255,${grain * 0.5})` : `rgba(0,0,0,${grain})`;
+    wfill(rr() * px, rr() * px, 1.8, 1.8);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+// Damp earth for tree pits: dark soil speckled with grit and a few small stones.
+function soilTex(px, seed) {
+  const c = document.createElement('canvas'); c.width = c.height = px;
+  const g = c.getContext('2d'), rr = mulberry32(seed);
+  g.fillStyle = '#4a3a29'; g.fillRect(0, 0, px, px);
+  for (let i = 0; i < px * px; i++) {
+    const v = rr();
+    g.fillStyle = v < 0.45 ? `rgba(0,0,0,${0.1 + rr() * 0.3})`
+      : v < 0.85 ? `rgba(120,90,60,${0.15 + rr() * 0.3})`
+        : `rgba(150,140,125,${0.2 + rr() * 0.35})`;
+    g.fillRect(rr() * px, rr() * px, 2, 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2);
+  t.anisotropy = 4;
+  return t;
+}
+
+
 export const ASSET = {};
 (function buildAssets() {
   // Road texture (shared across every chunk). Lines are drawn half-width on edges so neighbours join seamlessly.
@@ -54,6 +185,29 @@ export const ASSET = {};
     polygonOffset: true,
     polygonOffsetFactor: -1,
   });
+  // ---- Sidewalk surfaces ----
+  // Stone paving for the sidewalk field: 0.6 m slabs, 8x8 per tile = one 4.8 m tile (see PAVE_TILE in world.js).
+  ASSET.pavingMat = new THREE.MeshLambertMaterial({ map: stoneSlabs(512, 8, 8, [0xb6afa1, 0xaea797, 0xbfb8aa, 0xb1aa9b], '#6e6a5e', 21) });
+  // Border course laid along the curb: same slabs, lighter and cooler so the band reads as a separate line.
+  ASSET.borderMat = new THREE.MeshLambertMaterial({ map: stoneSlabs(256, 2, 2, [0xc6c9cd, 0xbfc3c7, 0xcdd0d4], '#8a8e93', 33) });
+  // Curb stone top (1 m per tile, see CURB_TILE): offset slightly so it never fights with the curb body below.
+  ASSET.curbTopMat = new THREE.MeshLambertMaterial({
+    map: stoneSlabs(128, 1, 1, [0xc8cbcf], '#8f9398', 47, { bevel: 0.3 }),
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  // Heavy concrete panels for industrial / modern blocks: three big panels per tile, weathered with cracks.
+  ASSET.pavePanelMat = new THREE.MeshLambertMaterial({ map: stoneSlabs(512, 3, 3, [0x9ea2a5, 0x97999c, 0xa8acaf], '#7b7e81', 61, { bevel: 0.12, joint: 3, cracks: 3 }) });
+  // Red brick paving, laid in running bond, for shopping streets.
+  ASSET.paveBrickMat = new THREE.MeshLambertMaterial({ map: brickBond(512, 10, 20, [0x9c4a35, 0xa8543c, 0x8e4530, 0xb05c42, 0x96503a], '#cfc7bb', 77) });
+  // Grass verge between kerb and walkway — the suburban sidewalk treatment.
+  ASSET.grassMat = new THREE.MeshLambertMaterial({ map: noiseTex(0x5d9a45, 88, { blotch: 24, blades: 9, grain: 0.06 }) });
+  // Yellow-painted kerb top, worn by traffic.
+  ASSET.curbPaintMat = new THREE.MeshLambertMaterial({
+    map: noiseTex(0xd6bf4c, 44, { blotch: 14, grain: 0.09 }),
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  ASSET.curbMat = mat(0xb7bbc0);      // curb bodies and the low kerb against the building line
+  ASSET.soilMat = new THREE.MeshLambertMaterial({ map: soilTex(64, 55) });
   // Window texture (4x4 windows) + emissive map (lit windows at night)
   const w = document.createElement('canvas'); w.width = w.height = 128; const wg = w.getContext('2d');
   wg.fillStyle = '#ffffff'; wg.fillRect(0, 0, 128, 128);
