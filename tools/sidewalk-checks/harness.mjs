@@ -47,7 +47,14 @@ const THREE={Group:Obj3D,Mesh,InstancedMesh,BoxGeometry,Matrix4:M4,
   MeshBasicMaterial:class{constructor(o){Object.assign(this,o||{});}},MeshLambertMaterial:class{constructor(o){Object.assign(this,o||{});}},
   CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry};
 const scene=new THREE.Group();
-function mergeGeometries(geos){ if(!geos||!geos.length) return null; for(const g of geos){ if(!g.origin||g.origin.some(v=>!Number.isFinite(v))) checked.nan++; } return {dispose(){}, geos}; }
+// the merged result has to behave like a BufferGeometry: js/world.js shares merged text geometries between
+// signs and the chunk/prop mergers clone them, exactly as three.js would
+const __merge = { geos: 0, calls: 0 };
+function mergeGeometries(geos){ if(!geos||!geos.length) return null; __merge.geos += geos.length; __merge.calls++; for(const g of geos){ if(!g.origin||g.origin.some(v=>!Number.isFinite(v))) checked.nan++; }
+  const out = { dispose(){}, geos, origin:[0,0,0] };
+  out.clone = () => { const c = { dispose(){}, geos: out.geos, origin: out.origin.slice() }; c.clone = out.clone; c.applyMatrix4 = m => { c.origin = [m.t[0], m.t[1], m.t[2]]; return c; }; c.translate = () => c; return c; };
+  out.applyMatrix4 = m => { out.origin = [m.t[0], m.t[1], m.t[2]]; return out; };
+  return out; }
 const mat=(c,o)=>({c,o,clone(){return {...this};},dispose(){}});
 const box=(w,h,d,m,x,y,z,cast)=>{const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);g.castShadow=cast;g.pos=[x||0,y||0,z||0];return g;};
 const cyl=(rt,rb,h,s,m,x,y,z)=>{const r=((rt||1)+(rb||1))/2;const g=new THREE.Mesh(new THREE.BoxGeometry(r*2,h,r*2),m);g.castShadow=true;g.pos=[x||0,y||0,z||0];g.round=true;return g;};
@@ -73,8 +80,8 @@ const ck=(cx,cz)=>cx*100003+cz;
 
   src = src.replace('  bakeRing(sw.curb', '  swCapture.set(ch, sw);\n  bakeRing(sw.curb');
   const out = stubs + '\n' + src +
-    '\nexport { chunks, updateChunks, nearChunks, solidAt, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildHospitalMesh, buildFireStationMesh, buildAirAmbulance, FONT3D, textBlocks };\n' +
-    'export const __checked = checked;\nexport { swCapture };\n';
+    '\nexport { chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildAirAmbulance, FONT3D, textBlocks };\n' +
+    'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\n';
   const file = path.join(os.tmpdir(), 'salam-world.test.mjs');
   fs.writeFileSync(file, out);
   return file;

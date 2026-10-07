@@ -68,7 +68,16 @@ const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris')
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => { fx.crash++; } });
 const hurtPlayer = () => { fx.hurtPlayer++; };
-const hurtCar = () => { fx.hurtCar++; };
+// hurtCar mirrors js/damage.js: police carry armor by tier, anything at 0 hp is a wreck. The pump-blast test
+// needs the real numbers so "the blast kills a police car" is measured, not assumed.
+const ARMOR = [1, .82, .62, .42, .28];
+const hurtCar = (c, amt) => {
+  fx.hurtCar++;
+  if (c.wrecked || !(amt > 0)) return;
+  const armor = c.isPolice ? ARMOR[Math.min(4, Math.max(0, (c.tier || 1) - 1))] : (c.isTanker ? 2.2 : 1);
+  c.hp -= amt * armor;
+  if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; c.lastPlayerHit = game.time; }
+};
 const civPanic = () => {};
 const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
@@ -78,7 +87,7 @@ const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, 
 const CAR_DIMS = __world.CAR_DIMS;
 const env = { phase: 0.8, day: 0, night: 1, dusk: 0 };
 ${carBoxSrc}
-export { updateParking, collideSolids, carCar, tickHulks, wreckTick, syncCarMesh, driveCar, sat, updateFlying, flyingFloor, hit, env, game, player, scene, flying, fires, cars };
+export { updateParking, collideSolids, carCar, tickHulks, wreckTick, tickPumpFuses, syncCarMesh, driveCar, sat, updateFlying, flyingFloor, hit, env, game, player, scene, flying, fires, cars };
 `;
 const file = path.join(os.tmpdir(), 'salam-heavyhit.test.mjs');
 fs.writeFileSync(file, stubs + '\n' + read('js/flying.js') + '\n' + read('js/wrecks.js') + '\n' + read('js/traffic.js') + '\n' + read('js/collisions.js') + '\n' + createSrc + '\n' + driveSrc + '\n' + syncSrc);
@@ -304,6 +313,134 @@ let hulkRef = null;
         else ok('the debris is cleaned up when its flight ends');
       }
     }
+  }
+}
+
+// ==== 4) a fuel dispenser: a solid hit shears it off its island and the spill burns ====
+{
+  const fuel = [...world.chunks.values()].find(ch => ch.pumps && ch.pumps.length);
+  if (!fuel) bad('no filling station with dispensers in the lattice');
+  else {
+    // the two dispensers on an island stand 6.8 m apart, so every run-up is measured from the pump it is
+    // aimed at and stays inside that gap
+    const gentle = fuel.pumps.find(p => !p.broken);
+    const c = {
+      x: gentle.x, z: gentle.z + 3.2, h: 0, vx: 0, vz: -4,
+      box: { x: 0, z: 0, ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+      mass: 1.0, kind: 'sedan', isPlayer: false, hp: 40, wrecked: false,
+    };
+    for (let i = 0; i < 60 && !gentle.broken; i += 1) { c.x += c.vx / 60; c.z += c.vz / 60; M.collideSolids(c); }
+    if (gentle.broken) bad('a 4 m/s nudge knocked a fuel dispenser over - it should shrug that off');
+    else ok('a slow nudge leaves the dispenser standing, and the car stops against it');
+
+    const pump = fuel.pumps.find(p => !p.broken) || fuel.pumps[1];
+    const firesBefore = M.fires.length, flyingBefore = M.flying.length;
+    const fast = {
+      x: pump.x, z: pump.z + 4, h: 0, vx: 0, vz: -20,
+      box: { x: 0, z: 0, ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+      mass: 1.0, kind: 'sedan', isPlayer: false, hp: 40, wrecked: false,
+    };
+    for (let i = 0; i < 60 && !pump.broken; i += 1) { fast.x += fast.vx / 60; fast.z += fast.vz / 60; M.collideSolids(fast); }
+    if (!pump.broken) bad('a 20 m/s hit did not shear the dispenser off its island');
+    else ok('a 20 m/s hit shears the dispenser off its island');
+    if (pump.broken && !(pump.solid.hx < 0)) bad('the broken dispenser is still a solid wall');
+    if (pump.broken && M.fires.length !== firesBefore + 1) bad(`the fuel spill left ${M.fires.length - firesBefore} fire(s), want 1`);
+    else if (pump.broken) ok('the spilled fuel burns where the pump stood');
+    if (pump.broken && M.flying.length !== flyingBefore + 1) bad('the dispenser did not tumble off its island');
+    else if (pump.broken) ok('the dispenser itself tumbles away with the wreckage');
+    if (pump.broken && M.fx.explosion === 0) bad('no blast on the pump hit');
+  }
+}
+
+// ==== 5) a dispenser blast is strong enough to destroy a police car standing beside it ====
+{
+  const station = [...world.chunks.values()].find(ch => ch.pumps && ch.pumps.length === 4 && ch.pumps.every(p => !p.broken));
+  if (!station) bad('no intact filling station left to blow up');
+  else {
+    const pumpA = station.pumps[0];                       // the island pair runs along z, so the run-up is along x
+    const nearby = station.pumps[1];
+    const police = [
+      { name: 'a tier 1 cruiser 6.5 m away', d: 6.5, tier: 1, hp: 55, mass: 1.0, armor: 1, want: 'dead' },
+      { name: 'a tier 3 SWAT roadblock 2 m away', d: 2.0, tier: 3, hp: 190, mass: 3.2, armor: .62, want: 'dead' },
+      { name: 'an armoured bearcat sitting on the pump', d: 0.6, tier: 4, hp: 330, mass: 5.4, armor: .42, want: 'dead' },
+      { name: 'an armoured bearcat 9 m away', d: 9.0, tier: 4, hp: 330, mass: 5.4, armor: .42, want: 'alive' },
+    ].map(o => {
+      const rec = Object.assign({ x: pumpA.x + o.d, z: pumpA.z, h: 0, vx: 0, vz: 0, isPolice: true, wrecked: false,
+        box: { x: 0, z: 0, ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.police2.e1, e2: CAR_DIMS.police2.e2 } }, o);
+      M.cars.push(rec);
+      return rec;
+    });
+    for (const o of police) { o.hp0 = o.hp; o.need = o.hp / o.armor; }   // raw damage each one needs, for the report
+    const ram = {
+      x: pumpA.x + 5, z: pumpA.z, h: 0, vx: -20, vz: 0,
+      box: { x: 0, z: 0, ux: 0, uz: 1, vx: -1, vz: 0, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+      mass: 1.0, kind: 'sedan', isPlayer: true, hp: 100, wrecked: false,
+    };
+    const firesBefore = M.fires.length;
+    for (let i = 0; i < 90 && !pumpA.broken; i += 1) { ram.x += ram.vx / 60; ram.z += ram.vz / 60; M.collideSolids(ram); }
+    if (!pumpA.broken) bad('the ram never set the pump off');
+    else ok('ramming a dispenser sets off the whole blast');
+    for (const o of police) {
+      const took = (o.hp0 - o.hp) / o.armor;
+      if (o.want === 'dead' && !o.wrecked) bad(`${o.name} survived the blast: ${o.hp.toFixed(0)} hp left, it needed ${o.need.toFixed(0)} raw damage`);
+      else if (o.want === 'dead') ok(`the blast destroyed ${o.name} — ${took.toFixed(0)} raw damage against the ${o.need.toFixed(0)} it needed`);
+      else if (o.wrecked) bad(`${o.name} should have survived at that range`);
+      else ok(`${o.name} survived with ${o.hp.toFixed(0)} of ${o.hp0} hp (took ${took.toFixed(0)} raw at the edge of the blast)`);
+    }
+    // the shock wave throws the traffic off the pumps, and the player is hurt but their car is never destroyed
+    const close = police.find(o => o.d < 1);
+    if (!(close.vx > 0)) bad('the blast did not shove the car on top of the pump away from it');
+    else ok(`the shock wave shoves cars off the pumps (${close.vx.toFixed(1)} m/s)`);
+    if (ram.hp !== 100) bad('the player car was damaged by the blast - the game never destroys the player car');
+    else ok('the player feels the blast but their car is never destroyed');
+    // and the fire runs to the pump beside it
+    let chained = false;
+    for (let i = 0; i < 90 && !chained; i += 1) { M.tickPumpFuses(1 / 60); chained = nearby.broken; }
+    if (!chained) bad('the fire did not run to the dispenser beside it');
+    else if (M.fires.length < firesBefore + 2) bad('the chained pump exploded without leaving its own fire');
+    else ok('the fire runs along the island: the neighbouring dispenser goes up seconds later');
+  }
+}
+
+// ==== 6) a shop window: a real impact takes the pane out, a crawl leaves it in its frame ====
+{
+  const mall = [...world.chunks.values()].find(ch => (ch.shops || []).length && ch.parades.length);
+  if (!mall) bad('no shopping street to smash a window on');
+  else {
+    // the west parade of the shopping street: its windows face the court, so the run-up comes from the court
+    const centre = mall.cx * world.CHUNK + 40;
+    const west = mall.shops.filter(sp => sp.x < centre);
+    if (west.length < 2) bad('the shopping street has no row of shops to test');
+    const drive = (sp, speed) => {
+      const c = {
+        x: sp.x + 7, z: sp.z, h: 0, vx: -speed, vz: 0,
+        box: { x: 0, z: 0, ux: 0, uz: 1, vx: -1, vz: 0, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+        mass: 1.0, kind: 'sedan', isPlayer: true, hp: 100, wrecked: false,
+      };
+      for (let i = 0; i < 90 && !sp.broken; i += 1) { c.x += c.vx / 60; c.z += c.vz / 60; M.collideSolids(c); }
+      return c;
+    };
+    const target = west[0];
+    drive(target, 3);
+    if (target.broken) bad('a 3 m/s crawl shattered a shop window');
+    else if (!(target.solid.hx > 0)) bad('the shop window vanished without being hit');
+    else ok(`a 3 m/s crawl only rattles '${target.name}'`);
+    const before = west[1];
+    const firesBefore = M.fires.length, flyingBefore = M.flying.length, debrisBefore = fx.debris;
+    drive(before, 16);
+    if (!before.broken) bad('16 m/s into a shop window did not take the pane out');
+    else ok(`16 m/s takes the pane out of '${before.name}'`);
+    if (before.broken && before.solid.hx > 0) bad('the broken window is still a solid wall');
+    else if (before.broken) ok('the empty frame is no longer a wall: the car rolls on into the shop mouth');
+    if (before.broken && M.flying.length !== flyingBefore + 1) bad('the pane did not come away from the frame');
+    else if (before.broken) ok('the pane tumbles off down the street with the wreckage');
+    if (before.broken && fx.debris <= debrisBefore) bad('no glass on the ground');
+    else if (before.broken) ok('the pavement gets a scatter of glass');
+    if (before.broken && M.fires.length !== firesBefore) bad('smashing a window somehow started a fire');
+    // and the shop itself is still standing: its neighbour on the same parade is untouched
+    const neighbour = west.find(sp => sp !== before && sp !== target && !sp.broken);
+    if (!neighbour || !neighbour.mesh) bad('smashing one shop window destroyed the parade');
+    else ok('the shop behind the empty frame carries on trading, and its neighbours are untouched');
   }
 }
 

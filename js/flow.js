@@ -4,7 +4,7 @@ import { scene } from './renderer.js';
 import { game, cars, spikes, flying, fallingTrees, geysers, fires, player, sight, calcScore } from './state.js';
 import { PLAYER_PARAMS } from './config.js';
 import { createCar, removeCar } from './vehicle.js';
-import { chunks, disposeChunk, updateChunks } from './world.js';
+import { chunks, disposeChunk, updateChunks, warmTextCache } from './world.js';
 import { clearParticles, explosion } from './particles.js';
 import { sfx } from './audio.js';
 import { resetHudCache } from './ui.js';
@@ -24,6 +24,7 @@ export function resetWorld() {
   Object.assign(player, createCar('player', 3, -24, 0, PLAYER_PARAMS, 0xffc21a)); cars.push(player);
   player.lastWall = -99;
   game.debugWanted = 1;
+  warmTextCache();                                      // merge every sign string now, not mid-race
   updateChunks(player.x, player.z, 999);
   camState.h = 0; camState.pos.set(3, 9, -40); camState.look.set(3, 1.5, -10);
   game.civT = 0;

@@ -17,6 +17,15 @@ import { civPanic } from './civilians.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
 const BUSSTOP_BREAK_V = 7;  // bus shelters are flimsy — break easily
 const SCAFFOLD_BREAK_V = 8; // scaffolding — a bit sturdier, still breaks on a real hit
+const PUMP_BREAK_V = 6;     // a fuel dispenser is light: a solid nudge shears it off its island
+const SHOPFRONT_BREAK_V = 5; // shop glass: it gives way to any real impact and sprays across the pavement
+// A dispenser going up is a real blast, sized so it clears the forecourt: it takes the paint off everything
+// within PUMP_BLAST_R m (falling off with distance) and rips apart whatever is actually on top of it. At the
+// centre that is a pursuit sedan or a SWAT roadblock killed outright — the armoured bearcats only die to the
+// point-blank bonus (PUMP_POINT_BONUS) and survive a near miss. The shock wave also shoves cars off the pumps.
+const PUMP_BLAST_R = 9.5, PUMP_BLAST_DMG = 420;
+const PUMP_POINT_R = 2, PUMP_POINT_BONUS = 700;
+const PUMP_CHAIN_R = 7.5;   // the two dispensers on one island stand 6.8 m apart: hit one, both go up
 export const hit = { nx: 0, nz: 0, depth: 0 };
 // One damage tick per quarter second per vehicle pair: without this a single crash inside the SAT overlap
 // would apply the damage on every frame the boxes still touch.
@@ -65,6 +74,14 @@ export function collideSolids(c) {
     if (s.busstop && !s.busstop.broken) {
       const vnB = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards bus stop shelter
       if (vnB > BUSSTOP_BREAK_V / Math.sqrt(c.mass)) { breakBusStop(s.busstop, c, vnB); continue; }
+    }
+    if (s.shop && !s.shop.broken) {
+      const vnG = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards the shop window
+      if (vnG > SHOPFRONT_BREAK_V / Math.sqrt(c.mass)) { breakShopFront(s.shop, c, vnG, hit.nx, hit.nz); continue; }
+    }
+    if (s.pump && !s.pump.broken) {
+      const vnU = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards the fuel pump
+      if (vnU > PUMP_BREAK_V / Math.sqrt(c.mass)) { breakPump(s.pump, c, vnU, hit.nx, hit.nz); continue; }
     }
     if (s.scaffold && !s.scaffold.broken) {
       const vnS = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards scaffolding
@@ -210,6 +227,72 @@ function breakScaffold(sc, c, vn) {
   const f = 1 - 0.26 / c.mass; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.28); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 8) * 0.4); }
   else hurtCar(c, Math.max(0, vn - 8) * 0.7);
+}
+// A shop window taking a hit: the pane comes out of its frame in one piece and tumbles off down the street,
+// the shop itself carries on trading behind it. Bumping a window at a crawl just rattles it.
+function breakShopFront(sp, c, vn, nx, nz) {
+  sp.broken = true; sp.solid.hx = sp.solid.hz = -999;
+  const m = sp.mesh; scene.add(m);
+  flying.push({ mesh: m, vx: c.vx * 0.55 + nx * rnd(2, 5), vy: rnd(3.5, 7), vz: c.vz * 0.55 + nz * rnd(2, 5), sx: rnd(-7, 7), sz: rnd(-7, 7), life: 1.9, probe: { hx: sp.w / 2, up: 2.7, down: 0.6, hz: 0.5 } });
+  debris(sp.x, 1.5, sp.z, 0xcfe8f0, 16);                       // the pane, in pieces
+  sparks(sp.x, 1.6, sp.z, 6, nx, nz, 5);
+  const f = 1 - 0.04 / c.mass; c.vx *= f; c.vz *= f;
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(Math.min(22, vn + 6)); toast('SHOP WINDOW!'); }
+  else hurtCar(c, Math.max(0, vn - 4) * 0.4);
+}
+// ---- Fuel: a dispenser going up ----
+const pumpFuses = [];                                        // dispensers that caught the fire and are about to go
+// Chained dispensers explode on a short fuse, so hitting one pump still reads as a chain reaction. The fuse
+// only counts down for a dispenser that is still standing in the world: disposeChunk() marks the pumps of a
+// dismantled block (or of a run that was reset) as gone, and a forecourt that no longer exists must not blow.
+export function tickPumpFuses(dt) {
+  for (let i = pumpFuses.length - 1; i >= 0; i--) {
+    const f = pumpFuses[i]; f.t -= dt;
+    if (f.t > 0) continue;
+    pumpFuses.splice(i, 1);
+    if (f.pu.broken || f.pu.gone) continue;
+    breakPump(f.pu, null, 0, 0, 0);
+  }
+}
+// The fireball, the area damage and the shove. Everything inside the radius is hit, the player feels less
+// than the traffic does (the same rule the fuel tanker blast follows in damage.js).
+function pumpBlast(x, z) {
+  explosion(x, z);
+  explosion(x + rnd(-1.8, 1.8), z + rnd(-1.8, 1.8));          // a second fireball for weight
+  game.shake = Math.max(game.shake, 1.8);
+  sfx.crash(110);
+  for (let i = 0; i < 36; i++) emit(x, 1.4, z, rnd(-17, 17), rnd(6, 24), rnd(-17, 17), i % 2 ? 0xff5a1a : 0xffce4a, rnd(0.8, 2.1), rnd(0.7, 1.5), 13);
+  fires.push({ x, z, life: 12 });
+  for (const o of cars) {
+    if (o.dead) continue;
+    const dx = o.x - x, dz = o.z - z, d = Math.hypot(dx, dz);
+    if (d > PUMP_BLAST_R) continue;
+    const f = 1 - d / PUMP_BLAST_R;
+    const ux = d > 0.01 ? dx / d : 0, uz = d > 0.01 ? dz / d : 1;
+    const push = 30 * f / Math.max(1, o.mass || 1);
+    o.vx += ux * push; o.vz += uz * push;                      // the shock wave shoves the cars off the pump
+    if (o.isPlayer) hurtPlayer(50 * f);
+    else if (!o.wrecked) hurtCar(o, PUMP_BLAST_DMG * f + (d < PUMP_POINT_R ? PUMP_POINT_BONUS * (1 - d / PUMP_POINT_R) : 0));
+  }
+}
+// A fuel dispenser sheared off its island: it tumbles away, and everything around it goes up with it.
+function breakPump(pu, c, vn, nx, nz) {
+  pu.broken = true; pu.solid.hx = pu.solid.hz = -999;
+  const m = pu.mesh; scene.add(m);
+  flying.push({ mesh: m, vx: (c ? c.vx * 0.5 : 0) + nx * rnd(3, 6), vy: rnd(5, 9), vz: (c ? c.vz * 0.5 : 0) + nz * rnd(3, 6), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 2.2, probe: { hx: 0.6, up: 2.42, down: 0.12, hz: 0.52 } });
+  debris(pu.x, 1, pu.z, 0xd42b2b, 12); sparks(pu.x, 1.1, pu.z, 10, nx, nz, 9);
+  pumpBlast(pu.x, pu.z);
+  for (const ch of nearChunks(pu.x, pu.z)) for (const other of ch.pumps || []) {
+    if (other === pu || other.broken || other.fuse) continue;
+    if (Math.hypot(other.x - pu.x, other.z - pu.z) > PUMP_CHAIN_R) continue;
+    other.fuse = 0.4 + rnd(0, 0.4);                            // the neighbouring pump catches, then goes
+    pumpFuses.push({ pu: other, t: other.fuse });
+  }
+  if (c) {
+    const f = 1 - 0.12 / c.mass; c.vx *= f; c.vz *= f;
+    if (c.isPlayer) { sfx.crash(Math.min(34, vn + 8)); toast('PUMP DOWN!'); hurtPlayer(Math.max(0, vn - 10) * 0.25); }
+    else hurtCar(c, Math.max(0, vn - 6) * 0.8);
+  }
 }
 function breakProp(pr, c) {
   pr.broken = true; const m = pr.mesh; scene.add(m);

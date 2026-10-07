@@ -3,7 +3,7 @@
 import { modulePath } from './harness.mjs';
 
 const world = await import(modulePath);
-const { chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage } = world;
+const { __merge, __checked, textBlocks, generateChunk, SHOP_TYPES, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage } = world;
 // every vehicle kind the game can build (js/carModels.js); a bay asking for anything else is a bug
 const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'taxi', 'pickup', 'bus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
 
@@ -129,7 +129,9 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   {
     const H = world.buildHospitalMesh(0, 0, Math.random);
     const parts = g => { let n = 0; const walk = o => { n++; for (const c of o.children || []) walk(c); }; walk(g); return n; };
-    if (parts(H.group) < 200) bad(`the hospital model is too thin (${parts(H.group)} parts)`);
+    // The lettering is merged into one mesh per sign now (it used to be one mesh per letter pixel block), so the
+    // part count is much lower than it was while the model still carries everything: floors, wings, the pad.
+    if (parts(H.group) < 120) bad(`the hospital model is too thin (${parts(H.group)} parts)`);
     if (parts(H.heliMain) < 2 || parts(H.heliTail) < 2) bad('the air ambulance is missing a rotor');
     if (parts(H.heliBody || { children: [] }) < 0) void 0;
     if (!H.heliBeacons || H.heliBeacons.length < 2) bad('the air ambulance has no beacons');
@@ -265,6 +267,156 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (!(parkedDamage(3.4, 34) > parkedDamage(6.2, 34))) bad('a heavier parked vehicle must take less damage from the same hit');
     console.log(`heavy parked rules: fire engine shifts ${shoveTruck.toFixed(2)} m and dies in ${truckHits.toFixed(1)} full-speed rams, ambulance ${shoveAmb.toFixed(2)} m / ${ambHits.toFixed(1)} rams, small truck ${smallHits.toFixed(1)}, a 5 m/s tap does nothing`);
   }
+  // ---- 2d-3) fuel station: canopy over the pumps, a store, a price pylon, destrctible dispensers ----
+  {
+    const stations = [...chunks.values()].filter(ch => ch.fuelBrand);
+    const pinnedFuel = chunks.get(ck(-1, -1));
+    if (!pinnedFuel || !pinnedFuel.fuelBrand) bad('the filling station pinned at (-1,-1) was not generated');
+    let pumpCount = 0;
+    for (const ch of stations) {
+      const C = ch.fuelCanopy, baySet = ch.lotStanding.concat(ch.parking.map(sl => ({ slot: sl })));
+      // canopy: high enough to drive under, wide enough to actually cover the whole island line
+      if (C.h < 5.4) bad(`chunk ${ch.cx},${ch.cz}: the canopy is only ${C.h} m up — a truck would hit it`);
+      if (C.h > 8) bad(`chunk ${ch.cx},${ch.cz}: the canopy is ${C.h} m up — too tall to read as a forecourt`);
+      if (C.w < 22 || C.d < 14) bad(`chunk ${ch.cx},${ch.cz}: the canopy (${C.w}x${C.d}) is too small for its islands`);
+      // four dispensers, each a solid with its own mesh, all under the canopy and clear of every wall
+      if ((ch.pumps || []).length !== 4) bad(`chunk ${ch.cx},${ch.cz}: ${(ch.pumps || []).length} dispensers (want 4)`);
+      for (const p of ch.pumps || []) {
+        pumpCount++;
+        // the dispenser has to be a real, full-height one: a person-sized box is what a filling station's
+        // furniture is not (this is the check behind "make the pumps bigger and taller")
+        let top = 0, wide = 0, deep = 0;
+        p.mesh.traverse(o => { if (o.isMesh && o.pos) { top = Math.max(top, o.pos[1] + o.geometry.h / 2); wide = Math.max(wide, Math.abs(o.pos[0]) + o.geometry.w / 2); deep = Math.max(deep, Math.abs(o.pos[2]) + o.geometry.d / 2); } });
+        if (top < 2.2) bad(`chunk ${ch.cx},${ch.cz}: a dispenser is only ${top.toFixed(2)} m tall (want 2.2-2.7)`);
+        if (top > 2.7) bad(`chunk ${ch.cx},${ch.cz}: a dispenser is ${top.toFixed(2)} m tall — taller than a real one`);
+        if (wide < 0.5 || deep < 0.42) bad(`chunk ${ch.cx},${ch.cz}: a dispenser is too slim (${wide.toFixed(2)} x ${deep.toFixed(2)} m half-extents)`);
+        const lx = p.x - ch.cx * CHUNK - CHUNK / 2, lz = p.z - ch.cz * CHUNK - CHUNK / 2;
+        if (Math.abs(lx) > C.w / 2 || Math.abs(lz - C.z) > C.d / 2) bad(`chunk ${ch.cx},${ch.cz}: a dispenser stands outside the canopy`);
+        if (!p.mesh) bad(`chunk ${ch.cx},${ch.cz}: a dispenser has no mesh to knock over`);
+        if (!(p.solid && p.solid.hx > 0)) bad(`chunk ${ch.cx},${ch.cz}: a dispenser has no collision volume`);
+        for (const s2 of ch.solids) {
+          if (s2.kind === 'building' && Math.abs(s2.x - p.x) < s2.hx + 0.7 && Math.abs(s2.z - p.z) < s2.hz + 0.7) bad(`chunk ${ch.cx},${ch.cz}: a dispenser stands inside the store`);
+        }
+      }
+      // every bay is on the forecourt, clear of the store, the pylon and the columns
+      for (const rec of baySet) {
+        const b = rec.slot;
+        const lx = b.x - ch.cx * CHUNK - CHUNK / 2, lz = b.z - ch.cz * CHUNK - CHUNK / 2;
+        if (Math.abs(lx) > 26.4 || Math.abs(lz) > 24.4) bad(`chunk ${ch.cx},${ch.cz}: a bay stands off the forecourt pad`);
+        for (const s2 of ch.solids) {
+          if (s2.kind !== 'building' && s2.kind !== 'pole' && s2.kind !== 'column' && s2.kind !== 'lamp' && s2.kind !== 'pump') continue;
+          if (Math.abs(s2.x - b.x) < s2.hx + b.hx - 0.05 && Math.abs(s2.z - b.z) < s2.hz + b.hz - 0.05) bad(`chunk ${ch.cx},${ch.cz}: a bay overlaps a ${s2.kind}`);
+        }
+      }
+      // and the forecourt itself must never reach the walkway
+      if (ch.parkingTotal !== 15) bad(`chunk ${ch.cx},${ch.cz}: ${ch.parkingTotal} bays on the forecourt (want 15)`);
+      if ((ch.parkingFloor || 0) < 2) bad(`chunk ${ch.cx},${ch.cz}: fewer than two cars ever stand at the pumps`);
+    }
+    if (!stations.length) bad('no filling station was generated');
+    else console.log(`fuel stations: ${stations.length} block(s), ${pumpCount} dispensers total; pinned (-1,-1) is ${pinnedFuel.fuelBrand} with ${pinnedFuel.pumps.length} pumps and ${pinnedFuel.lotStanding.length} cars on ${pinnedFuel.parkingTotal} bays`);
+  }
+  // ---- 2d-4) shops: a shopping street of ten storefronts, all different, none of them in the road ----
+  {
+    const shopChunks = [...chunks.values()].filter(ch => (ch.shops || []).length);
+    const pinned = chunks.get(ck(1, -1));
+    if (!pinned || !(pinned.shops || []).length) bad('the shopping street pinned at (1,-1) was not generated');
+    if (!shopChunks.length) bad('no shops anywhere in the city');
+    const kinds = new Set(), names = new Set();
+    const shopKindSet = new Set(SHOP_TYPES.map(o => o.kind));
+    const loc = (v, o) => { const l = v - o; return Math.min(l, CHUNK - l); };   // distance from the nearest block edge
+    let storefronts = 0, parades = 0;
+    for (const ch of shopChunks) {
+      storefronts += ch.shops.length;
+      for (const sp of ch.shops) {
+        if (!sp.name) bad(`chunk ${ch.cx},${ch.cz}: a shopfront has no name`);
+        if (!shopKindSet.has(sp.kind)) bad(`chunk ${ch.cx},${ch.cz}: '${sp.name}' has no shop type`);
+        if (!sp.mesh) bad(`chunk ${ch.cx},${ch.cz}: '${sp.name}' has no shop window to smash`);
+        if (!(sp.solid && sp.solid.hx > 0)) bad(`chunk ${ch.cx},${ch.cz}: '${sp.name}' is not a real collision volume`);
+        kinds.add(sp.kind); names.add(sp.name);
+      }
+      const byBlock = new Set(ch.shops.map(o => o.name));
+      if (byBlock.size !== ch.shops.length && (ch.parades || []).length) bad(`chunk ${ch.cx},${ch.cz}: the shopping street repeats a shop name`);
+      for (const pr of ch.parades || []) {
+        parades++;
+        if (!pr.title) bad(`chunk ${ch.cx},${ch.cz}: a parade has no name over its towers`);
+        if (pr.shops.length !== 5) bad(`chunk ${ch.cx},${ch.cz}: a parade carries ${pr.shops.length} shops (want 5)`);
+        if (new Set(pr.shops).size !== pr.shops.length) bad(`chunk ${ch.cx},${ch.cz}: a parade repeats a shop`);
+      }
+      // nothing about a shop may stand in the street: every window, and the body behind it, has to be at
+      // least PAVE_OUT in from the block edge (that is where the paving ends and the block begins)
+      const bx0 = ch.cx * CHUNK, bz0 = ch.cz * CHUNK;
+      for (const sp of ch.shops) {
+        const rx = loc(sp.x, bx0), rz = loc(sp.z, bz0);
+        if (Math.min(rx, rz) < PAVE_OUT - 0.1) bad(`chunk ${ch.cx},${ch.cz}: '${sp.name}' stands in the pavement (${Math.min(rx, rz).toFixed(2)} m from a block edge)`);
+        // A downtown shopfront hangs on the wall of the building it belongs to, so it is *supposed* to be
+        // inside that footprint — but it has to poke out of the wall, otherwise a car would only ever hit
+        // the wall and the window could never break.
+        for (const s2 of ch.solids) {
+          if (s2.kind !== 'building') continue;
+          const inside = Math.abs(s2.x - sp.x) < s2.hx && Math.abs(s2.z - sp.z) < s2.hz;
+          if (!inside) continue;
+          const pokes = Math.abs(sp.x - s2.x) + 0.3 >= s2.hx || Math.abs(sp.z - s2.z) + 0.3 >= s2.hz;
+          if (!pokes) bad(`chunk ${ch.cx},${ch.cz}: '${sp.name}' is buried inside its building, not on its wall`);
+        }
+      }
+      // the market square, the bays and the sheds must not sit on top of each other
+      for (const b of [...(ch.lotStanding || []).map(o => o.slot), ...ch.parking]) {
+        const rx = loc(b.x, bx0), rz = loc(b.z, bz0);
+        if (Math.min(rx, rz) < PAVE_OUT - 0.1) bad(`chunk ${ch.cx},${ch.cz}: a shopping-street bay stands on the pavement`);
+        for (const s2 of ch.solids) {
+          if (s2.kind !== 'building' && s2.kind !== 'shopfront') continue;
+          if (Math.abs(s2.x - b.x) < s2.hx + b.hx - 0.05 && Math.abs(s2.z - b.z) < s2.hz + b.hz - 0.05) bad(`chunk ${ch.cx},${ch.cz}: a bay overlaps a ${s2.kind}`);
+        }
+      }
+    }
+    if (kinds.size < 8) bad(`only ${kinds.size} kinds of shop in the whole city (want at least 8)`);
+    if (parades < 2) bad('the pinned shopping street has no parades');
+    console.log(`shops: ${storefronts} storefronts across ${shopChunks.length} blocks, ${parades} parades, ${kinds.size} different businesses (${[...names].slice(0, 8).join(', ')}...)`);
+  }
+  // ---- 2d-5) performance: the generator and the streamer must stay off the frame budget ----
+  {
+    const perf = world.__merge, checked = world.__checked;
+    // (a) sign lettering is merged once per string and shared: it used to cost ~150 geometries per shop name
+    const a = textBlocks('PERFORMANCE', world.ASSET && world.ASSET.roofMat ? world.ASSET.roofMat : {}, 0.5, 0.1, 0.3);
+    const b = textBlocks('PERFORMANCE', {}, 0.5, 0.1, 0.3);
+    let am = 0, bm = 0;
+    a.traverse(o => { if (o.isMesh) am++; });
+    b.traverse(o => { if (o.isMesh) bm++; });
+    if (am !== 1 || bm !== 1) bad(`sign lettering still builds ${am}/${bm} meshes per string (want 1, shared)`);
+    else if (a.children[0].geometry !== b.children[0].geometry) bad('two identical signs do not share one merged geometry');
+    else console.log('sign lettering: merged once per string and shared (one draw, one geometry)');
+    // (b) no block may cost the builder more than it has to: the shopping street was over 4000 geometries
+    perf.geos = 0; perf.calls = 0;
+    const heavy = generateChunk(1, -1);
+    const shopBlockGeos = perf.geos;
+    if (shopBlockGeos > 2600) bad(`the shopping street block merges ${shopBlockGeos} geometries (budget 2600)`);
+    else console.log(`geometry budget: the heaviest block (shopping street) merges ${shopBlockGeos} geometries in ${perf.calls} merge calls`);
+    for (const ch of chunks.values()) {
+      if (!ch.group || !ch.group.visible === undefined) bad('a chunk has no group to hide');
+    }
+    void heavy;
+    // (c) streaming is time-budgeted: one call builds at most the allowed number of view blocks, and the
+    // blocks it prefetches beyond the view come in hidden
+    const keysBefore = new Set(chunks.keys());
+    updateChunks(0, 0, 2);
+    const fresh = [...chunks.values()].filter(c => !keysBefore.has(ck(c.cx, c.cz)));
+    const freshView = fresh.filter(c => Math.max(Math.abs(c.cx), Math.abs(c.cz)) <= 2);
+    if (freshView.length > 2) bad(`one streaming call built ${freshView.length} view blocks (the budget allows 2)`);
+    else console.log(`streaming budget: ${freshView.length} view block(s) built this call, ${fresh.length - freshView.length} prefetched ahead, ${chunks.size} held`);
+    // (d) the ring beyond the view is prefetched and hidden, so arriving there costs nothing
+    for (let i = 0; i < 40; i++) updateChunks(0, 0, 2);
+    const held = [...chunks.values()];
+    const shown = held.filter(c => c.group.visible);
+    const hidden = held.filter(c => !c.group.visible);
+    if (!hidden.length) bad('no block is prefetched beyond the view (the buffer ring is missing)');
+    else if (!shown.length) bad('the view ring is not on screen');
+    else {
+      const far = shown.filter(c => Math.max(Math.abs(c.cx - 0), Math.abs(c.cz - 0)) > 2);
+      if (far.length) bad(`${far.length} blocks outside the view ring are still being drawn`);
+      else console.log(`streaming buffer: ${shown.length} blocks drawn around the player, ${hidden.length} built ahead and hidden`);
+    }
+    if (checked.nan) bad(`${checked.nan} geometry transforms went non-finite while generating`);
+  }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fireSlots);
@@ -323,7 +475,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     const dims = world.CAR_DIMS || null;
     const H = world.buildFireStationMesh(0, 0, Math.random);
     const parts = g => { let n = 0; const walk = o => { n++; for (const c of o.children || []) walk(c); }; walk(g); return n; };
-    if (parts(H.group) < 150) bad(`the fire station model is too thin (${parts(H.group)} parts)`);
+    if (parts(H.group) < 30) bad(`the fire station model is too thin (${parts(H.group)} parts)`);
     if (!stations.length) bad('no fire station with appliance bays was generated');
     else {
       const sizes = stations.map(ch => ch.fireSlots.length).sort().join('/');

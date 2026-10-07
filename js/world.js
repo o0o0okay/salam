@@ -55,11 +55,44 @@ function finishChunk(ch) {
     const g = b.geo.clone(); g.applyMatrix4(b.m);
     if (!byMat.has(b.mat)) byMat.set(b.mat, []); byMat.get(b.mat).push(g);
   }
-  for (const [m, geos] of byMat) {
-    const merged = mergeGeometries(geos, false); geos.forEach(g => g.dispose());
-    if (merged) { const mesh = new THREE.Mesh(merged, m); mesh.castShadow = true; mesh.receiveShadow = true; ch.group.add(mesh); ch.geos.push(merged); }
-  }
+  for (const [m, geos] of byMat) mergeSlice(ch, m, geos);
   ch.bakeList = null;
+}
+// One merged mesh for a slice of pieces that share a material. If a single material carries an enormous number
+// of pieces the work is split into slices, so no single merge call can become the frame.
+const MERGE_SLICE = 400;
+function mergeSlice(ch, m, geos) {
+  if (!geos.length) return;
+  const merged = mergeGeometries(geos, false); geos.forEach(g => g.dispose());
+  if (merged) { const mesh = new THREE.Mesh(merged, m); mesh.castShadow = true; mesh.receiveShadow = true; ch.group.add(mesh); ch.geos.push(merged); }
+}
+// Chunk merging, spread across frames. A block with 600+ pieces (a shopping street) used to do all of the
+// cloning and merging in the one frame the streamer asked for it, right as the player arrived. Instead the
+// chunk is generated with its bake list intact, its group goes straight into the scene (so the road and the
+// paving it draws directly are there immediately) and flushChunk() pays the rest off in slices: a few hundred
+// gathers and a couple of merges per frame. The buildings catch up a few frames later, far away and behind fog.
+export function flushChunk(ch, ops = 600, ms = 2.5) {
+  const q = ch.mergeQ, bag = ch.materialBag, t0 = performance.now();
+  let n = 0;
+  while (q.length && n < ops) {
+    const b = q.pop();
+    const g = b.geo.clone(); g.applyMatrix4(b.m);
+    let list = bag.get(b.mat); if (!list) { list = []; bag.set(b.mat, list); }
+    list.push(g); n++;
+    if ((n & 63) === 0 && performance.now() - t0 > ms) break;     // the gather phase has a budget too
+  }
+  if (q.length) return false;
+  // merge slices until the budget runs out: cheap materials are drained several per frame, a huge one takes a
+  // frame of its own, and the chunk lands finished either way
+  for (const [m, geos] of bag) {
+    if (!geos.length) continue;
+    const part = geos.length > MERGE_SLICE ? geos.splice(0, MERGE_SLICE) : geos.splice(0, geos.length);
+    mergeSlice(ch, m, part);
+    if (performance.now() - t0 > ms) return false;
+  }
+  for (const geos of bag.values()) if (geos.length) return false;
+  bag.clear(); ch.merged = true;
+  return true;
 }
 function buildTreeInstances(ch) {
   const byV = new Map();
@@ -157,6 +190,8 @@ function pickSidewalkStyle(type, rng) {
   if (type === 'commercial') return rng() < 0.55 ? 'brick' : 'slab';      // shopping streets lean brick
   if (type === 'hospital') return rng() < 0.6 ? 'panel' : 'slab';         // clean concrete panels by the campus
   if (type === 'fire') return 'panel';                                    // a fire station apron is plain concrete
+  if (type === 'fuel') return 'panel';                                    // a forecourt is plain concrete too
+  if (type === 'shops') return rng() < 0.5 ? 'brick' : 'slab';           // a shopping street gets brick or stone
   return rng() < 0.5 ? 'slab' : 'panel';                                  // parks mix the two paved styles
 }
 // Empty box lists for one chunk's sidewalk ring. Each entry is then merged into a single mesh per material.
@@ -305,19 +340,42 @@ const FONT3D = {
   '8': '01110,10001,10001,01110,10001,10001,01110', '9': '01110,10001,10001,01111,00001,00010,01100',
   ' ': '00000,00000,00000,00000,00000,00000,00000', '-': '00000,00000,00000,11111,00000,00000,00000',
 };
+// Sign lettering: every pixel of a glyph is a square, 5 columns by 7 rows for the classic 5x7 proportions.
+// The letters are merged once per (string, size) and that merged geometry is shared by every sign that asks for
+// it. A shop name used to cost the chunk builder ~150 separate little boxes and a parade of shopfronts plus its
+// tower titles well over two thousand; sharing them is what keeps a shopping street from stalling the streamer.
+const textGeoCache = new Map();
+const TEXT_BOX = new THREE.BoxGeometry(1, 1, 1);
+const _textM = new THREE.Matrix4();
+function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
+  const key = h + '|' + depth + '|' + gap + '|' + str.toUpperCase();
+  let geo = textGeoCache.get(key);
+  if (geo === undefined) {
+    const pw = h / 7, ph = h / 7;
+    const total = str.length * (pw + gap) - gap;
+    const geos = [];
+    for (let i = 0; i < str.length; i++) {
+      const rows = (FONT3D[str[i].toUpperCase()] || FONT3D[' ']).split(',');
+      const x0 = -total / 2 + i * (pw + gap);
+      for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
+        if (rows[r][c] !== '1') continue;
+        const g = TEXT_BOX.clone();
+        _textM.makeScale(pw * 1.02, ph * 1.02, depth);
+        _textM.setPosition(x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0);
+        g.applyMatrix4(_textM);
+        geos.push(g);
+      }
+    }
+    geo = geos.length ? mergeGeometries(geos, false) : null;
+    geos.forEach(g => g.dispose());
+    textGeoCache.set(key, geo);
+  }
+  return geo;
+}
 function textBlocks(str, m, h = 1.2, depth = 0.14, gap = 0.8) {
   const g = new THREE.Group();
-  // Every pixel of a glyph is a square: 5 columns by 7 rows give the classic 5x7 letter proportions.
-  const pw = h / 7, ph = h / 7;
-  const total = str.length * (pw + gap) - gap;
-  for (let i = 0; i < str.length; i++) {
-    const rows = (FONT3D[str[i].toUpperCase()] || FONT3D[' ']).split(',');
-    const x0 = -total / 2 + i * (pw + gap);
-    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
-      if (rows[r][c] !== '1') continue;
-      g.add(box(pw * 1.02, ph * 1.02, depth, m, x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0, false));
-    }
-  }
+  const geo = textGeometry(str, h, depth, gap);
+  if (geo) g.add(new THREE.Mesh(geo, m));
   return g;
 }
 // Hospital air ambulance: a proper rescue helicopter — cabin with a glass canopy, engine deck, tapered tail
@@ -621,12 +679,331 @@ function buildFireStationMesh(bx, bz, rng) {
     ],
   };
 }
-function generateChunk(cx, cz) {
+// Pre-build every sign the world can show, at boot, while nothing is moving: the first time a string is used its
+// letters have to be merged, and paying for that at boot is what keeps a shopping street from hitching the frame
+// the player first drives past it.
+export function warmTextCache() {
+  const G = ['REG', 'MID', 'PREM', 'OPEN 24', 'OPEN', 'HOSPITAL', 'EMERGENCY', 'FIRE STATION', 'H'];
+  for (const t of SHOP_TYPES) for (const h of [0.46, 0.72, 0.82]) textGeometry(t.name, h, h * 0.22, h * 0.5);
+  for (const t of SHOP_TYPES) textGeometry(t.blade, 0.26, 0.06, 0.18);
+  for (const t of PARADE_TITLES) textGeometry(t, 0.42, 0.1, 0.34);
+  for (const b of FUEL_BRANDS) for (const h of [0.46, 0.72, 0.82]) textGeometry(b.name, h, h * 0.22, h * 0.5);
+  for (const t of G) textGeometry(t, 0.3, 0.1, 0.26);
+  textGeometry('H', 4.2, 0.14, 0.6);
+}
+// ---- Fuel station ----
+// Procedural forecourt in the style of a modern filling station: a big flat canopy with a lit underside and
+// the brand's colours on the fascia, two pump islands with two dispensers each, a glazed convenience store
+// behind it and a tall price pylon on the kerb. Three invented brands keep the three reference looks (white
+// canopy with a red band, the yellow-and-red one, and the cool blue night canopy).
+//
+// The dispensers are built as their own little groups so the block can register each one as a separate
+// destructible solid: js/collisions.js knocks a pump over, it tumbles off the island and the spill burns.
+const FUEL_BRANDS = [
+  { name: 'OCTANE 66', dark: 0xd42b2b, band: 0xf4f5f3, pump: 0xd8342c, shop: 0xeceeed, glow: 0xfff3d6, trim: 0x2a2f3a },
+  { name: 'SUNCO',     dark: 0xd42b2b, band: 0xf2c200, pump: 0xf2c200, shop: 0xf0b705, glow: 0xfff6cc, trim: 0x33302a },
+  { name: 'BLUEWAVE',  dark: 0x1f4fd8, band: 0xeef2f8, pump: 0x2a6cff, shop: 0xe9eef6, glow: 0xdce9ff, trim: 0x22303f },
+];
+// One dispenser, sized like a real one: plinth, a tall white body about 1 m across, a lit top lightbox and a
+// brand-coloured cap well over head height (~2.4 m), big lit displays on both faces, and a nozzle and hose on
+// each side so a car can fuel from either lane.
+function buildPumpMesh(brand) {
+  const g = new THREE.Group();
+  const body = mat(0xf2f3f1), cap = mat(brand.pump), dark = mat(0x1d2026), steel = mat(0xa9b0b6), hose = mat(0x2a2d33);
+  const display = new THREE.MeshBasicMaterial({ color: 0x39e08c });       // lit price display
+  const topLit = new THREE.MeshBasicMaterial({ color: brand.glow });     // lit lightbox under the cap
+  g.add(box(1.14, 0.26, 1.0, steel, 0, 0.13, 0, false));                 // island plinth
+  g.add(box(1.06, 0.1, 0.92, dark, 0, 0.31, 0, false));                  // skirt shadow
+  g.add(box(0.94, 1.56, 0.62, body, 0, 1.14, 0));                        // tall body
+  g.add(box(0.98, 0.14, 0.66, cap, 0, 1.99, 0, false));                  // brand band
+  g.add(box(1.08, 0.28, 0.78, cap, 0, 2.2, 0, false));                   // top cap
+  g.add(box(1.16, 0.08, 0.86, cap, 0, 2.38, 0, false));                  // cap lip
+  for (const sz of [-1, 1]) {
+    g.add(box(0.8, 0.2, 0.03, topLit, 0, 1.99, sz * 0.34, false));       // lit lightbox, both faces
+    g.add(box(0.66, 0.5, 0.05, display, 0, 1.7, sz * 0.33, false));      // big lit displays
+    g.add(box(0.72, 0.36, 0.04, dark, 0, 1.24, sz * 0.33, false));       // grade / price strips
+  }
+  g.add(box(0.44, 0.6, 0.06, dark, 0, 0.95, 0.34, false));               // keypad and card reader
+  for (const sx of [-1, 1]) {
+    g.add(box(0.2, 0.5, 0.2, steel, sx * 0.52, 1.05, 0, false));         // nozzle holster
+    g.add(box(0.16, 0.32, 0.16, cap, sx * 0.55, 1.26, 0.08, false));     // nozzle head
+    g.add(box(0.07, 0.95, 0.07, hose, sx * 0.56, 0.72, -0.22, false));   // hose run down the side
+    g.add(box(0.07, 0.3, 0.07, hose, sx * 0.56, 0.3, -0.3, false));
+  }
+  return g;
+}
+function buildFuelStationMesh(bx, bz, rng) {
+  const brand = FUEL_BRANDS[Math.floor(rng() * FUEL_BRANDS.length)];
+  const g = new THREE.Group(), solids = [], pumps = [], lamps = [];
+  const M = {
+    band: mat(brand.band), dark: mat(brand.dark), white: mat(0xf3f4f2), steel: mat(0xb6bcc2),
+    concrete: mat(0x9aa0a6), glass: mat(0x1e3140), shop: mat(brand.shop), trim: mat(brand.trim),
+    lit: new THREE.MeshBasicMaterial({ color: brand.glow }),                       // canopy underside glow
+    inside: new THREE.MeshBasicMaterial({ color: 0xf6e3ac }),                      // lit shop interior
+  };
+  const Y = 0.25;                                         // forecourt surface (the block lays the pad)
+  const B = (w, h, d, m, x, y, z, cast = true) => g.add(box(w, h, d, m, x, Y + y, z, cast));
+  const CYL = (rt, rb, h, m, x, y, z, cast = false) => g.add(cyl(rt, rb, h, 8, m, x, Y + y, z, cast));
+
+  // ---- canopy: flat white roof, brand fascia on all four edges, lit underside ----
+  const CAN = { w: 27, d: 18, h: 6.3, z: 8 };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const cx = sx * 10.6, cz = CAN.z + sz * 6.4;
+    B(0.64, CAN.h - 0.4, 0.64, M.steel, cx, (CAN.h - 0.4) / 2, cz);
+    B(0.86, 0.24, 0.86, M.concrete, cx, 0.12, cz, false);
+    solids.push({ x: bx + cx, z: bz + cz, hx: 0.45, hz: 0.45, kind: 'column' });
+  }
+  B(CAN.w, 0.5, CAN.d, M.white, 0, CAN.h + 0.25, CAN.z);
+  for (const [w, d, dx, dz] of [[CAN.w + 0.5, 0.7, 0, CAN.d / 2], [CAN.w + 0.5, 0.7, 0, -CAN.d / 2], [0.7, CAN.d + 0.5, CAN.w / 2, 0], [0.7, CAN.d + 0.5, -CAN.w / 2, 0]])
+    B(w, 0.98, d, M.dark, dx, CAN.h + 0.2, CAN.z + dz);                          // fascia band
+  B(CAN.w - 1.4, 0.14, CAN.d - 1.4, M.lit, 0, CAN.h - 0.04, CAN.z, false);       // lit ceiling panel
+  for (const lx of [-9.5, -3.2, 3.2, 9.5]) for (const lz of [-4.6, 0, 4.6])
+    B(2.7, 0.1, 0.55, M.lit, lx, CAN.h - 0.16, CAN.z + lz, false);               // strip lights
+  const canopySign = textBlocks(brand.name, M.dark, 0.72, 0.16, 0.42);
+  canopySign.position.set(0, Y + CAN.h + 0.31, CAN.z + CAN.d / 2 + 0.42); g.add(canopySign);
+  for (const sx of [-1, 1]) {                                                    // the sides carry the name too
+    const side = textBlocks(brand.name, M.dark, 0.6, 0.16, 0.36);
+    side.position.set(sx * (CAN.w / 2 + 0.42), Y + CAN.h + 0.28, CAN.z); side.rotation.y = sx * PI / 2; g.add(side);
+  }
+
+  // ---- two pump islands, two dispensers each, bollards fore and aft ----
+  for (const sx of [-1, 1]) {
+    const ix = sx * 4.8;
+    B(2.5, 0.26, 12.4, M.concrete, ix, 0.13, CAN.z, false);
+    B(2.5, 0.06, 12.8, M.white, ix, 0.28, CAN.z, false);
+    for (const pz of [CAN.z - 3.4, CAN.z + 3.4]) pumps.push({ x: ix, z: pz, y: Y, rotY: 0, group: buildPumpMesh(brand) });
+    for (const sz of [-1, 1]) CYL(0.15, 0.17, 0.95, M.dark, ix, 0.47, CAN.z + sz * 6.9);
+  }
+
+  // ---- convenience store: glazed front facing the pumps, brand fascia, roof plant ----
+  const S = { w: 22, d: 12, h: 4.7, x: 0, z: -18 };
+  const fz = S.z + S.d / 2;
+  B(S.w, S.h, S.d, M.shop, S.x, S.h / 2, S.z);
+  solids.push({ x: bx + S.x, z: bz + S.z, hx: S.w / 2, hz: S.d / 2, kind: 'building' });
+  B(S.w - 1.6, 2.9, 0.14, M.inside, S.x, 1.95, fz - 0.08, false);               // lit interior
+  B(S.w - 1.2, 3.0, 0.1, M.glass, S.x, 1.95, fz + 0.04, false);                 // shopfront glass
+  for (let i = -3; i <= 3; i++) B(0.14, 3.0, 0.18, M.white, S.x + i * 3.1, 1.95, fz + 0.12, false);
+  B(2.4, 3.0, 0.18, M.trim, S.x + 8.6, 1.5, fz + 0.12, false);                  // entrance
+  B(2.9, 0.28, 2.2, M.dark, S.x + 8.6, 3.32, fz + 0.5, false);                  // door canopy
+  for (const sx of [-1, 1]) B(0.2, 3.2, 0.2, M.white, S.x + 8.6 + sx * 1.45, 1.5, fz + 0.9, false);
+  B(S.w + 0.6, 1.2, 0.55, M.band, S.x, 3.7, fz + 0.22);                          // fascia band
+  const shopSign = textBlocks(brand.name, M.dark, 0.82, 0.18, 0.5);
+  shopSign.position.set(S.x, Y + 3.72, fz + 0.56); g.add(shopSign);
+  const openSign = textBlocks('OPEN 24', M.dark, 0.3, 0.1, 0.24);
+  openSign.position.set(S.x - 6.4, Y + 2.85, fz + 0.2); g.add(openSign);
+  B(S.w + 0.4, 0.36, S.d + 0.4, M.white, S.x, S.h + 0.16, S.z, false);           // parapet
+  for (const ax of [-6.5, 0, 6.5]) B(2.6, 1.1, 2.2, M.steel, S.x + ax, S.h + 0.72, S.z - 1.6);
+
+  // ---- price pylon on the kerb, brand name over three lit grade/price rows ----
+  const P = { x: -23, z: 21.5 };
+  B(1.0, 8.7, 0.9, M.steel, P.x, 4.35, P.z);
+  B(4.9, 3.7, 0.42, M.dark, P.x, 8.35, P.z);
+  B(5.1, 0.55, 0.46, M.band, P.x, 10.45, P.z, false);
+  const pylonName = textBlocks(brand.name, M.white, 0.46, 0.12, 0.34);
+  pylonName.position.set(P.x, Y + 9.95, P.z + 0.28); g.add(pylonName);
+  [['REG', '3.79'], ['MID', '4.05'], ['PREM', '4.29']].forEach(([grade, price], i) => {
+    const y = Y + 9.05 - i * 0.82;
+    const gt = textBlocks(grade, M.white, 0.3, 0.1, 0.26); gt.position.set(P.x - 1.5, y, P.z + 0.28); g.add(gt);
+    const pt = textBlocks(price, M.white, 0.46, 0.1, 0.2); pt.position.set(P.x + 0.95, y, P.z + 0.28); g.add(pt);
+  });
+  solids.push({ x: bx + P.x, z: bz + P.z, hx: 0.72, hz: 0.62, kind: 'pole' });
+
+  // ---- forecourt fittings: lamp masts, drains, bins, an air-and-water box, painted lanes ----
+  for (const sx of [-1, 1]) {
+    const lx = sx * 13.5, lz = 17.5;
+    CYL(0.16, 0.2, 7.4, M.steel, lx, 3.7, lz, true);
+    B(1.5, 0.22, 0.7, M.lit, lx, 7.35, lz, false);
+    solids.push({ x: bx + lx, z: bz + lz, hx: 0.34, hz: 0.34, kind: 'lamp' });
+    B(0.4, 0.02, 12, M.white, sx * 7.8, 0.02, CAN.z, false);                     // lane markings
+  }
+  for (const [dx, dz] of [[0, 16.6], [-9.5, -3.4], [9.5, -3.4]]) B(2.2, 0.05, 0.9, M.trim, dx, 0.03, dz, false);
+  for (const sx of [-1, 1]) { CYL(0.34, 0.36, 0.9, M.trim, sx * 8.6, 0.45, S.z + 7.4); }
+  B(1.9, 1.5, 1.1, M.steel, 12.6, 0.75, S.z + 8.2);                              // air / water box
+  B(2.0, 0.14, 1.2, M.dark, 12.6, 1.56, S.z + 8.2, false);
+  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) CYL(0.13, 0.15, 0.8, M.dark, sx * 12.2, 0.4, 17.4 + i * 2.1);
+  lamps.push({ x: bx - 13.5, z: bz + 17.5 }, { x: bx + 13.5, z: bz + 17.5 });
+
+  return { group: g, solids, pumps, brand, canopy: CAN, store: S, pylon: P, lamps };
+}
+// ---- Shops: a high street of small businesses ----
+// Every shop is a facade kit: plinth, a display window whose goods are silhouetted against a lit pane,
+// mullions, a door with a step and an OPEN plate, a fascia carrying the shop's name, a striped awning, a
+// projecting blade sign and a few outdoor props (cafe tables, produce crates, flower stands...). The window
+// pane is returned as its own group so a car can smash it out (see breakShopFront in js/collisions.js).
+const SHOP_TYPES = [
+  { name: 'CAFE',     kind: 'cafe',     fascia: 0x6b4a2f, sign: 0xf2e9d8, glow: 0xffcf8f, awn: [0x8c3f24, 0xf0e2c8], accent: 0x7a4a28, blade: 'CA', props: 'cafe' },
+  { name: 'BAKERY',   kind: 'bakery',   fascia: 0xe6dcc4, sign: 0x8a4b12, glow: 0xffd9a0, awn: [0xd8b064, 0xfaf3e2], accent: 0xc98a3a, blade: 'BK', props: 'bread' },
+  { name: 'PIZZA',    kind: 'pizza',    fascia: 0x1f6b3a, sign: 0xf7f3e8, glow: 0xffe0a0, awn: [0x1f6b3a, 0xd8452f], accent: 0xd8452f, blade: 'PZ', props: 'tavern' },
+  { name: 'MARKET',   kind: 'market',   fascia: 0x2f7d5b, sign: 0xf4f7f4, glow: 0xe0ffdc, awn: [0x2f7d5b, 0xffffff], accent: 0x86c34a, blade: 'MK', props: 'produce' },
+  { name: 'PHARMACY', kind: 'pharmacy', fascia: 0xf0f3f4, sign: 0x1c7a4a, glow: 0xd8ffe8, awn: [0x1c7a4a, 0xf2f5f6], accent: 0x2fbf7a, blade: 'RX', props: 'planter' },
+  { name: 'BOOKS',    kind: 'books',    fascia: 0x7a2f2f, sign: 0xf6e9d0, glow: 0xffe9b8, awn: [0x7a2f2f, 0xe8d6b0], accent: 0x9a6a3a, blade: 'BO', props: 'crates' },
+  { name: 'BARBER',   kind: 'barber',   fascia: 0x1f3a6b, sign: 0xf2f5f6, glow: 0xdcE8ff, awn: [0x2a5fb0, 0xffffff], accent: 0xd8452f, blade: 'BR', props: 'bench' },
+  { name: 'DONUTS',   kind: 'donuts',   fascia: 0xe08bb0, sign: 0x4a2140, glow: 0xffd8ec, awn: [0xe08bb0, 0xfff3f8], accent: 0xf2a0c0, blade: 'DN', props: 'cafe' },
+  { name: 'FLOWERS',  kind: 'flowers',  fascia: 0x3f7d4f, sign: 0xfdf6e3, glow: 0xe8ffdc, awn: [0x3f7d4f, 0xf0e2c8], accent: 0xd84f8a, blade: 'FL', props: 'flowers' },
+  { name: 'HARDWARE', kind: 'hardware', fascia: 0x9a5a1f, sign: 0xf7efdd, glow: 0xffe3b0, awn: [0x9a5a1f, 0xd8d2c4], accent: 0x6c7580, blade: 'HW', props: 'crates' },
+  { name: 'LAUNDRY',  kind: 'laundry',  fascia: 0x2f6f86, sign: 0xf2fbff, glow: 0xdcf4ff, awn: [0x2f6f86, 0xffffff], accent: 0x9fd8e8, blade: 'LD', props: 'bench' },
+  { name: 'SHOES',    kind: 'shoes',    fascia: 0x3a3a44, sign: 0xf2f2f2, glow: 0xffe9c0, awn: [0x3a3a44, 0xb0b6bd], accent: 0x7a4a28, blade: 'SH', props: 'bench' },
+  { name: 'ARCADE',   kind: 'arcade',   fascia: 0x2a1f4a, sign: 0x9cf0ff, glow: 0xc0baff, awn: [0x2a1f4a, 0x9cf0ff], accent: 0x6f5bd8, blade: 'AR', props: 'bench' },
+  { name: 'GRILL',    kind: 'grill',    fascia: 0xb03a2a, sign: 0xfff2d8, glow: 0xffc98a, awn: [0xb03a2a, 0xf6e0b0], accent: 0x8a2f22, blade: 'GR', props: 'tavern' },
+];
+const PARADE_TITLES = ['HIGH STREET', 'OLD TOWN PARADE', 'MARKET ROW', 'TRADERS ROW'];
+// The sign font is a fixed 5x7 block font, so a long name has to be scaled down to fit its fascia.
+function fitText(str, m, maxW, th, depth, gap) {
+  const unit = 5 * th / 7 + gap;
+  const total = str.length * unit - gap;
+  if (total > maxW) { const k = (maxW + gap) / (str.length * unit); th *= k; gap *= k; }
+  return textBlocks(str, m, th, depth, gap);
+}
+// One storefront, built in local coordinates: front plane at z = 0, ground at y = 0, centred on x.
+function buildShopFrontMesh(shop, w, h, rng, opts) {
+  const body = new THREE.Group(), glass = new THREE.Group();
+  const F = mat(shop.fascia), S = mat(shop.sign), dark = mat(0x2a2d33), frame = mat(0xe9ebe8), steel = mat(0xb6bcc2);
+  const pane = new THREE.MeshBasicMaterial({ color: shop.glow });
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0cf });
+  const accent = mat(shop.accent);
+  const B = (g, bw, bh, bd, m, x, y, z, cast = true) => g.add(box(bw, bh, bd, m, x, y, z, cast));
+  const winW = w - 1.1, sill = 0.52, winH = h - 2.05;
+  // ---- the shop window: a lit pane with the goods silhouetted in front of it ----
+  B(glass, winW, winH, 0.07, pane, 0, sill + winH / 2, 0.03, false);
+  B(body, winW + 0.5, winH + 0.5, 0.14, mat(0x22252b), 0, sill + winH / 2, -1.25, false);   // dark interior behind the pane
+  B(body, 0.2, winH, 0.24, frame, -winW / 2, sill + winH / 2, 0.1, false);                  // jambs
+  B(body, 0.2, winH, 0.24, frame, winW / 2, sill + winH / 2, 0.1, false);
+  B(body, winW + 0.4, 0.16, 0.26, frame, 0, sill, 0.1, false);                              // sill
+  B(body, winW + 0.4, 0.2, 0.26, frame, 0, sill + winH + 0.1, 0.1, false);                  // head
+  B(body, w, sill, 0.24, mat(0x4a4d55), 0, sill / 2, 0.08);                                 // plinth
+  // goods on show, silhouette boxes of differing height so no two windows look alike
+  const goods = 3 + Math.floor(rng() * 3);
+  for (let i = 0; i < goods; i++) {
+    const gw = 0.5 + rng() * 0.7, gh = 0.5 + rng() * (winH - 1.4), gd = 0.4 + rng() * 0.5;
+    const gx = -winW / 2 + 0.6 + (i + 0.5) * ((winW - 1.2) / goods) + rng() * 0.2;
+    B(body, gw, gh, gd, i % 2 ? accent : dark, gx, sill + 0.1 + gh / 2, -0.55 - rng() * 0.5);
+  }
+  B(body, winW - 1.6, 0.9, 1.1, dark, 0, sill + 0.55, -1.15, false);                        // counter at the back
+  for (let i = 0; i < 3; i++) B(body, 0.16, 0.16, 0.16, lamp, -winW / 3 + i * winW / 3, h - 1.15, -0.55, false);   // ceiling lamps
+  // ---- mullions ----
+  const cols = Math.max(2, Math.round(winW / 2.1));
+  for (let i = 1; i < cols; i++) B(body, 0.13, winH, 0.2, frame, -winW / 2 + i * (winW / cols), sill + winH / 2, 0.09, false);
+  B(body, winW + 0.4, 0.12, 0.2, frame, 0, sill + winH * 0.62, 0.09, false);                // transom
+  // ---- fascia with the shop's name, lamps and a blade sign ----
+  B(body, w, 0.95, 0.3, F, 0, h - 0.5, 0.15);
+  const name = fitText(shop.name, S, w - 1.6, 0.46, 0.12, 0.4);
+  name.position.set(0, h - 0.5, 0.33); body.add(name);
+  for (const sx of [-1, 1]) {
+    B(body, 0.36, 0.14, 0.3, lamp, sx * (w / 2 - 0.95), h - 1.16, 0.2, false);              // shop lamps
+    B(body, 0.08, 0.22, 0.08, steel, sx * (w / 2 - 0.95), h - 1.3, 0.16, false);
+  }
+  const bladeX = w / 2 - 1.0;
+  B(body, 0.1, 0.7, 0.7, F, bladeX, h - 2.1, 0.62);
+  const monoL = fitText(shop.blade, S, 0.72, 0.26, 0.06, 0.18); monoL.position.set(bladeX + 0.07, h - 2.1, 0.62); monoL.rotation.y = PI / 2; body.add(monoL);
+  const monoR = fitText(shop.blade, S, 0.72, 0.26, 0.06, 0.18); monoR.position.set(bladeX - 0.07, h - 2.1, 0.62); monoR.rotation.y = -PI / 2; body.add(monoR);
+  B(body, 0.07, 0.07, 0.55, steel, bladeX, h - 1.72, 0.32, false);                          // bracket
+  // ---- door at the other end, with a step and an OPEN plate ----
+  const dx = -(w / 2) + 1.55;
+  B(body, 1.35, h - 1.7, 0.2, frame, dx, (h - 1.7) / 2 + 0.5, 0.08);
+  B(body, 1.05, h - 2.2, 0.14, mat(0x2b3a44), dx, (h - 2.2) / 2 + 0.55, 0.16);
+  B(body, 0.86, 0.9, 0.06, pane, dx, 1.75, 0.24, false);                                    // the door glows too
+  B(body, 0.09, 0.62, 0.09, steel, dx + 0.42, 1.15, 0.25, false);                           // push bar
+  B(body, 1.9, 0.16, 0.8, mat(0x6f747c), dx, 0.08, 0.4);                                    // step
+  const open = fitText('OPEN', S, 1.2, 0.2, 0.06, 0.22);
+  open.position.set(dx, h - 1.62, 0.25); body.add(open);
+  // ---- striped awning (skipped when the shop sits too close to the pavement) ----
+  if (opts.awning !== false) {
+    const aw = new THREE.Group(); aw.position.set(0.3, h - 1.55, 0.12); aw.rotation.x = -0.16;
+    const n = 8, sw2 = (w - 0.5) / n;
+    for (let i = 0; i < n; i++) {
+      const m = i % 2 ? mat(shop.awn[0]) : mat(shop.awn[1]);
+      aw.add(box(sw2, 0.07, 1.7, m, -(w - 0.5) / 2 + (i + 0.5) * sw2, 0, 0.85));
+      aw.add(box(sw2, 0.26, 0.06, i % 2 ? mat(shop.awn[1]) : mat(shop.awn[0]), -(w - 0.5) / 2 + (i + 0.5) * sw2, -0.18, 1.68, false));
+    }
+    for (const sx of [-1, 1]) aw.add(box(0.08, 0.08, 1.72, steel, sx * (w - 0.5) / 2, 0.02, 0.85, false));
+    body.add(aw);
+  }
+  // ---- outdoor props, kept within 1.6 m of the front so parked cars clear them ----
+  if (opts.outdoor !== false) {
+    const P = shop.props, ox = -w / 2 + 1.2;
+    const crate = (x, z, col, n2 = 3) => { for (let i = 0; i < n2; i++) B(body, 0.42, 0.28, 0.34, mat(0xb98a55), x, 0.3 + i * 0.3, z, false); B(body, 0.34, 0.16, 0.26, mat(col), x, 0.34 + n2 * 0.3, z, false); };
+    if (P === 'cafe') {
+      for (const [tx, tz] of [[ox + 0.4, 1.15], [ox + 2.5, 1.15]]) {
+        B(body, 0.62, 0.06, 0.62, mat(0x8a8f96), tx, 0.76, tz, false);
+        B(body, 0.08, 0.72, 0.08, steel, tx, 0.38, tz, false);
+        for (const s2 of [-1, 1]) B(body, 0.34, 0.42, 0.34, mat(0x6f5a44), tx + s2 * 0.62, 0.22, tz, false);
+      }
+      B(body, 0.75, 0.95, 0.07, mat(0x2f3a33), ox + 1.6, 0.48, 1.5, false);                  // menu board
+    } else if (P === 'produce') {
+      crate(ox + 0.5, 1.1, 0x86c34a, 2); crate(ox + 1.5, 1.15, 0xd8452f, 2); crate(ox + 2.5, 1.1, 0xf2a93b, 1);
+    } else if (P === 'bread') {
+      B(body, 1.5, 0.08, 0.7, mat(0xb98a55), ox + 1.0, 0.92, 1.15, false);
+      B(body, 1.5, 0.08, 0.7, mat(0xb98a55), ox + 1.0, 0.6, 1.15, false);
+      for (const s2 of [-1, 1]) B(body, 0.07, 0.9, 0.07, mat(0x8a6a42), ox + 1.0 + s2 * 0.7, 0.45, 1.15, false);
+      for (let i = 0; i < 4; i++) B(body, 0.34, 0.24, 0.26, mat(0xc98a3a), ox + 0.4 + i * 0.4, 1.04, 1.15, false);
+    } else if (P === 'flowers') {
+      for (const [fx, fz] of [[ox + 0.3, 1.1], [ox + 1.7, 1.1]]) {
+        B(body, 0.7, 0.55, 0.5, mat(0x8a8f96), fx, 0.3, fz, false);
+        for (let i = 0; i < 4; i++) B(body, 0.16, 0.34, 0.16, mat([0xd84f8a, 0xf2a93b, 0xe34a4a, 0x8e5bd9][i]), fx - 0.24 + (i % 2) * 0.48, 0.8, fz - 0.12 + Math.floor(i / 2) * 0.24, false);
+      }
+    } else if (P === 'tavern') {
+      B(body, 2.0, 0.09, 0.85, mat(0x9a7a52), ox + 1.3, 0.82, 1.15, false);
+      for (const s2 of [-1, 1]) B(body, 0.12, 0.8, 0.8, mat(0x7a5f3f), ox + 1.3 + s2 * 0.9, 0.42, 1.15, false);
+      B(body, 0.09, 2.2, 0.09, steel, ox + 1.3, 1.1, 1.5, false);
+      B(body, 2.2, 0.12, 2.0, mat(0xd8452f), ox + 1.3, 2.25, 1.5, false);
+    } else if (P === 'crates') {
+      crate(ox + 0.5, 1.1, 0x6c7580, 3); crate(ox + 1.4, 1.15, 0x6c7580, 1);
+    } else if (P === 'bench') {
+      B(body, 1.5, 0.1, 0.55, mat(0x9a7a52), ox + 1.2, 0.48, 1.15, false);
+      B(body, 1.5, 0.5, 0.1, mat(0x9a7a52), ox + 1.2, 0.75, 0.95, false);
+      for (const s2 of [-1, 1]) B(body, 0.11, 0.46, 0.11, mat(0x6f747c), ox + 1.2 + s2 * 0.65, 0.24, 1.15, false);
+    } else {
+      for (const px of [ox + 0.3, ox + 2.4]) {
+        B(body, 0.9, 0.5, 0.55, mat(0x8a8f96), px, 0.28, 1.1, false);
+        B(body, 0.8, 0.3, 0.45, mat(0x4e9c48), px, 0.62, 1.1, false);                          // planter greenery
+      }
+    }
+  }
+  return { body, glass };
+}
+// A parade: one low building whose front is a row of different shops, framed by two taller corner towers
+// carrying the parade's name. Local coordinates: front plane at z = 0, body towards -z, length along x.
+function buildShopParadeMesh(shops, rng, opts = {}) {
+  const shopW = opts.shopW || 9, depth = opts.depth || 8.5, h = opts.h || 4.4;
+  const len = shops.length * shopW;
+  const g = new THREE.Group(), glasses = [], list = [];
+  const wall = mat(opts.wall || 0xc9c6bd), trim = mat(0xe4e1d7), roofM = mat(0x8b8f95), steel = mat(0xb6bcc2);
+  const gate = new THREE.MeshBasicMaterial({ color: 0xffe6b0 });
+  const B = (bw, bh, bd, m, x, y, z, cast = true) => g.add(box(bw, bh, bd, m, x, y, z, cast));
+  B(len + 7, h, depth, wall, 0, h / 2, -depth / 2);                                  // the parade box, towers included
+  B(len + 7.4, 0.42, depth + 0.5, trim, 0, h + 0.21, -depth / 2, false);             // parapet
+  B(len, 0.5, 0.3, trim, 0, 0.25, 0.15, false);                                      // base course
+  for (let i = 0; i < 3; i++) B(1.9, 0.95, 1.7, roofM, -len / 4 + len / 2 * i, h + 0.75, -depth + 1.4);   // roof plant
+  for (const sx of [-1, 1]) {                                                        // corner towers
+    const tx = sx * (len / 2 + 2.4);
+    B(0.35, h + 2.8, depth + 0.9, trim, tx - sx * 1.45, (h + 2.8) / 2, -depth / 2 - 0.45, false);   // end pilaster
+    B(2.7, 1.5, 0.16, mat(0x2b3a44), tx, h + 0.9, 0.5, false);                       // upper windows
+    B(2.7, 1.5, 0.16, mat(0x2b3a44), tx, h + 0.9, -depth - 0.5, false);
+    B(3.4, 1.0, 0.24, mat(0x2f343b), tx, h + 2.1, 0.55, false);                      // sign board
+    const title = fitText(opts.title || 'SHOPS', mat(0xf2e9d8), 3.1, 0.42, 0.1, 0.34);
+    title.position.set(tx, h + 2.1, 0.7); g.add(title);
+    const side = fitText(opts.title || 'SHOPS', mat(0xf2e9d8), 3.1, 0.42, 0.1, 0.34);
+    side.position.set(tx, h + 2.1, -depth - 0.7); side.rotation.y = PI; g.add(side);
+    B(0.3, 0.3, 0.3, gate, tx, h + 0.15, 0.5, false);                                // door lamp
+  }
+  shops.forEach((shop, i) => {
+    const x = -len / 2 + (i + 0.5) * shopW;
+    B(0.26, h, 0.3, trim, x - shopW / 2, h / 2, 0.15, false);                        // pilaster between shops
+    const kit = buildShopFrontMesh(shop, shopW - 0.3, h, rng, opts);
+    kit.body.position.x = x; g.add(kit.body);
+    kit.glass.position.x = x; glasses.push({ group: kit.glass, x, w: shopW - 0.3, name: shop.name, kind: shop.kind });
+    list.push({ name: shop.name, kind: shop.kind, x, w: shopW - 0.3 });
+  });
+  B(0.26, h, 0.3, trim, len / 2, h / 2, 0.15, false);                                // closing pilaster
+  return { group: g, glasses, shops: list, len, depth, h, shopW };
+}
+function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
+  const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
   const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
   const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], geos: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], spill: [], lotStanding: [] };
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], shops: [], parades: [], geos: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], spill: [], lotStanding: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
   const solid = (x, z, hx, hz, kind) => ch.solids.push({ x, z, hx, hz, kind, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
@@ -638,7 +1015,7 @@ function generateChunk(cx, cz) {
     return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
   };
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    const d = PROP_DEFS[kind], m = d.make(); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
+    const d = PROP_DEFS[kind], m = mergeStandalone(d.make()); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
     ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false });
   };
   const tree = (x, z, y = 0.2) => {
@@ -700,7 +1077,10 @@ function generateChunk(cx, cz) {
   const type = nearSpawn ? 'commercial'
     : (cx === -1 && cz === 0) ? 'hospital'
     : (cx === 0 && cz === -1) ? 'fire'                          // the block the player starts beside
-    : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial' : t < 0.88 ? 'fire' : t < 0.92 ? 'hospital' : 'industrial';
+    : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
+    : (cx === 1 && cz === -1) ? 'shops'                        // a shopping street on the fourth corner of the spawn
+    : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
+    : t < 0.875 ? 'fire' : t < 0.9 ? 'fuel' : t < 0.93 ? 'shops' : t < 0.96 ? 'hospital' : 'industrial';
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
   const sw = sidewalkPieces(cx, cz, swStyle);
@@ -714,16 +1094,45 @@ function generateChunk(cx, cz) {
         continue;
       }
       const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
+      let hasShops = false;
       const geo = makeBuildingGeo(w, h, d), wm = ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
       const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
       mesh.position.set(lx, h / 2 + 0.15, lz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
       solid(lx, lz, w / 2, d / 2, 'building');
+      // Ground-floor shops on the face that looks at the street: a downtown block becomes a high street.
+      const ox = lx - bx, oz = lz - bz;
+      const alongX = Math.abs(ox) >= Math.abs(oz);
+      const faceAxis = alongX ? Math.sign(ox || 1) : Math.sign(oz || 1);
+      const faceLen = alongX ? d : w;
+      const faceAt = alongX ? lx + faceAxis * (w / 2) : lz + faceAxis * (d / 2);
+      const radial = alongX ? (faceAxis > 0 ? bx0 + CHUNK - faceAt : faceAt - bx0)
+                            : (faceAxis > 0 ? bz0 + CHUNK - faceAt : faceAt - bz0);
+      const clear = radial - PAVE_OUT;                                  // room between the wall and the paving
+      const nFace = Math.max(1, Math.min(3, Math.floor(faceLen / 9)));
+      const rotY = alongX ? (faceAxis > 0 ? PI / 2 : -PI / 2) : (faceAxis > 0 ? 0 : PI);
+      const shopWide = Math.min(8.6, (faceLen - 0.8) / nFace);
+      for (let si = 0; si < nFace; si++) {
+        const shop = SHOP_TYPES[Math.floor(rng() * SHOP_TYPES.length)];
+        const off = (si + 0.5 - nFace / 2) * (faceLen / nFace);
+        const sx = alongX ? faceAt + faceAxis * 0.05 : lx + off;
+        const sz = alongX ? lz + off : faceAt + faceAxis * 0.05;
+        const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
+        const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
+        const gm = mergeStandalone(kit.glass);
+        gm.position.set(sx, 0.15, sz); gm.rotation.y = rotY; group.add(gm);
+        const hx = alongX ? 0.24 : shopWide / 2 - 0.2, hz = alongX ? shopWide / 2 - 0.2 : 0.24;
+        solid(sx, sz, hx, hz, 'shopfront');
+        const sEntry = ch.solids[ch.solids.length - 1];
+        sEntry.shop = { mesh: gm, x: sx, z: sz, w: shopWide, name: shop.name, kind: shop.kind, broken: false, solid: sEntry, downtown: true };
+        ch.shops.push(sEntry.shop);
+      }
+      hasShops = true;
       // rooftop details
       if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), lx, h + 2.65, lz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), lx, h + 8.6, lz)); }
       else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), lx + r(-4, 4), h + 1.05, lz + r(-4, 4)));
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
       // reflective warning cones placed along the sidewalk line in front of it.
-      if (h > 20 && rng() < 0.3) {
+      if (h > 20 && rng() < 0.3 && !hasShops) {          // a shopfront already owns the pavement face
         const sideS = Math.floor(rng() * 4), faceLen = (sideS === 0 || sideS === 1) ? d : w;
         const sw = Math.max(4, Math.min(15, faceLen * r(0.5, 0.85)));
         const sh = Math.max(6, Math.min(h - 1.5, h * r(0.55, 0.92)));
@@ -904,7 +1313,7 @@ function generateChunk(cx, cz) {
     add(box(54, 0.1, 58, mat(0x4b5058), bx, 0.2, bz, false));
     const H = buildHospitalMesh(bx, bz, rng);
     H.group.position.set(bx, 0, bz);
-    group.add(mergeStandalone(H.group));
+    bake(ch, H.group);                       // merged with the rest of the block, in slices
     // Rotors merge on their own so each one can turn about its own mast. The builder works in block-local
     // coordinates, so the chunk-level rotor meshes have to be lifted to world space by the block origin.
     const bladesMain = mergeStandalone(H.heliMain);
@@ -952,7 +1361,7 @@ function generateChunk(cx, cz) {
     add(box(50, 0.1, 46, mat(0x5a6068), bx, 0.2, bz, false));
     const F = buildFireStationMesh(bx, bz, rng);
     F.group.position.set(bx, 0, bz);
-    group.add(mergeStandalone(F.group));
+    bake(ch, F.group);
     for (const sv of F.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
     ch.fireSlots = F.bays;
     ch.fireDoors = F.doors;
@@ -964,6 +1373,112 @@ function generateChunk(cx, cz) {
     }
     for (const sx of [-1, 1]) tree(bx + sx * 22, bz + 20.5, lotSurfaceY + 0.02);
     prop('bench', bx - 6, bz + 19.5, 0, lotSurfaceY + 0.15);
+  } else if (type === 'fuel') {
+    // A filling station: lit canopy, two pump islands, convenience store and a price pylon on the kerb.
+    // The four dispensers are registered one by one as their own destructible solids (ch.pumps), so a hit
+    // knocks a pump off its island and the spill burns.
+    const fuelY = 0.25;
+    add(box(52, 0.1, 48, mat(0x60666d), bx, 0.2, bz, false));                 // forecourt pad
+    add(box(50, 0.04, 46, mat(0x74797f), bx, 0.27, bz, false));               // lighter topping
+    const FS = buildFuelStationMesh(bx, bz, rng);
+    FS.group.position.set(bx, 0, bz);
+    bake(ch, FS.group);
+    for (const sv of FS.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+    for (const p of FS.pumps) {
+      const pm = mergeStandalone(p.group);
+      pm.position.set(bx + p.x, p.y, bz + p.z); pm.rotation.y = p.rotY; group.add(pm);
+      const x = bx + p.x, z = bz + p.z;
+      solid(x, z, 0.6, 0.52, 'pump');                       // the body, hoses and nozzles included
+      const sEntry = ch.solids[ch.solids.length - 1];
+      sEntry.pump = { mesh: pm, x, z, broken: false, solid: sEntry };
+      ch.pumps.push(sEntry.pump);
+    }
+    ch.fuelBrand = FS.brand.name; ch.fuelCanopy = FS.canopy;
+    // Bays: two cars can fuel at each island, four park along the side of the store, four more nose in off
+    // the street. The day/night curve keeps two of them busy at every hour (ch.parkingFloor).
+    const bays = [];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+      bays.push({ x: bx + sx * 7.8, z: bz + FS.canopy.z + sz * 3.4, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+    for (const sx of [-1, 1]) for (const dz of [-2.5, 2.5])
+      bays.push({ x: bx + sx * 14.2, z: bz + FS.store.z + dz, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+    for (const dx of [-18, -12, -6, 0, 6, 12, 18])
+      bays.push({ x: bx + dx, z: bz + 21, rotY: PI / 2, y: fuelY - 0.05, hx: 2.45, hz: 1.25 });
+    ch.parkingTotal = bays.length;
+    ch.parkingFloor = 2;
+    const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
+    for (let i = 0; i < bays.length; i++) {
+      const b = bays[i];
+      if (i < present) {                                                      // busy at generation time too
+        const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
+        const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+        ch.lotStanding.push({ car, slot: b });
+      } else ch.parking.push(b);                                              // kept free for later arrivals
+    }
+    for (const sx of [-1, 1]) prop('trashcan', bx + sx * 9.8, bz + 15.6);
+  } else if (type === 'shops') {
+    // A shopping street: two parades of shops facing each other across a parking court, with a little green
+    // square in the middle. Each parade carries five different businesses, so a drive down the block passes
+    // ten shopfronts with their own names, colours, awnings and window displays.
+    const lotY = 0.25;
+    const asphalt = mat(0x4b5058), concrete = mat(0xc9ccca), grass = mat(0x5aa04a), parkingPaint = mat(0xe9e8df);
+    add(box(54, 0.1, 54, asphalt, bx, 0.2, bz, false));                                 // the court
+    for (const sx of [-1, 1]) add(box(3.6, 0.14, 54, concrete, bx + sx * 18, lotY, bz, false));   // aprons in front of the shops
+    add(box(54, 0.14, 3.6, concrete, bx, lotY, bz - 18, false));
+    add(box(54, 0.14, 3.6, concrete, bx, lotY, bz + 18, false));
+    const title = PARADE_TITLES[Math.floor(rng() * PARADE_TITLES.length)];
+    const faces = [bx - 18, bx + 18];                                                   // west and east parade fronts
+    const ordered = SHOP_TYPES.slice().sort(() => rng() - 0.5);                          // shuffled once per block
+    for (let side = 0; side < 2; side++) {
+      const shops = ordered.slice(side * nShop, side * nShop + nShop);
+      const rotY = side === 0 ? PI / 2 : -PI / 2;                                       // fronts face the court
+      const P = buildShopParadeMesh(shops, rng, { title, shopW, h: 4.4, depth: 8.5, wall: side ? 0xd2cfc6 : 0xc9c6bd });
+      P.group.position.set(faces[side], lotY, bz); P.group.rotation.y = rotY;
+      bake(ch, P.group);                          // the parade merges with the block, not in a pass of its own
+      // The parade is built with its front at local +z, so after the rotation a shop sitting at local x
+      // lands at bz - x on the west side and bz + x on the east side. The mesh and its collision box must
+      // use that same mapping or the windows would never break where they look like they are.
+      solid(faces[side] + (side === 0 ? -4.8 : 4.8), bz, 3.7, P.len / 2 + 4.3, 'building');
+      for (const gl of P.glasses) {
+        const x = faces[side], z = side === 0 ? bz - gl.x : bz + gl.x;   // matches the mesh's own rotation
+        solid(x, z, 0.24, gl.w / 2, 'shopfront');
+        const sEntry = ch.solids[ch.solids.length - 1];
+        const gm = mergeStandalone(gl.group);
+        gm.position.set(x, lotY, z); gm.rotation.y = rotY; group.add(gm);
+        sEntry.shop = { mesh: gm, x, z, w: gl.w, name: gl.name, kind: gl.kind, broken: false, solid: sEntry };
+        ch.shops.push(sEntry.shop);
+      }
+      ch.parades.push({ x: faces[side], z: bz, rotY, title, shops: P.shops.map(o => o.name), len: P.len });
+    }
+    // the court: eighteen perpendicular bays in two rows, plus the green square with market stalls
+    const bays = [];
+    for (const sx of [-1, 1]) for (let i = 0; i < 9; i++)
+      bays.push({ x: bx + sx * 12.5, z: bz - 20 + i * 5, rotY: PI / 2, y: lotY - 0.05, hx: 2.45, hz: 1.25 });
+    add(box(9.4, 0.16, 9.4, grass, bx, lotY + 0.02, bz, false));                        // the little square
+    add(box(9.8, 0.26, 9.8, mat(0x9aa0a6), bx, lotY, bz, false));
+    add(box(9.4, 0.14, 9.4, grass, bx, lotY + 0.1, bz, false));
+    tree(bx - 3.1, bz - 3.1, lotY); tree(bx + 3.1, bz + 3.1, lotY); tree(bx + 3.1, bz - 3.1, lotY); tree(bx - 3.1, bz + 3.1, lotY);
+    for (const [kx, kz] of [[bx - 6.6, bz], [bx + 6.6, bz]]) {                          // two market stalls
+      add(box(3.4, 0.9, 2.2, mat(0x9a7a52), kx, lotY + 0.45, kz));
+      add(box(4.0, 1.5, 2.6, mat(0xd8452f), kx, lotY + 1.6, kz, false));
+      add(box(4.2, 0.2, 2.8, mat(0xf2e9d8), kx, lotY + 2.35, kz, false));
+      add(box(3.0, 0.1, 1.8, mat(0xf4f1e6), kx, lotY + 0.95, kz, false));
+    }
+    prop('bench', bx - 4.4, bz + 5.2, PI); prop('bench', bx + 4.4, bz - 5.2, 0);
+    prop('trashcan', bx + 5.4, bz + 3.2); prop('trashcan', bx - 5.4, bz - 3.2);
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) prop('streetlight', bx + sx * 14.5, bz - 16 + i * 10.5);
+    ch.parkingTotal = bays.length;
+    ch.parkingFloor = 2;
+    const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
+    for (let i = 0; i < bays.length; i++) {
+      const b = bays[i];
+      if (i < present) {
+        const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
+        const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+        ch.lotStanding.push({ car, slot: b });
+      } else ch.parking.push(b);
+    }
+    for (const sx of [-1, 1]) for (let i = 0; i < 6; i++)
+      add(box(4.6, 0.03, 0.14, parkingPaint, bx + sx * 12.5, lotY + 0.03, bz - 20 + i * 5 - 2.5, false));
   } else { // industrial
     add(box(56, 0.1, 56, mat(0x9b9da4), bx, 0.2, bz, false));
     const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];
@@ -1131,7 +1646,15 @@ function generateChunk(cx, cz) {
   bakeRing(sw.bed, ASSET.soilMat, 2, false, ch);
   bakeRing(sw.bedEdge, ASSET.curbMat, 2, true, ch);
   buildTreeInstances(ch);
+  if (defer) {
+    // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
+    // was given directly), the merged buildings and props follow over the next few frames
+    ch.mergeQ = ch.bakeList; ch.bakeList = null; ch.materialBag = new Map(); ch.merged = false;
+    scene.add(group);
+    return ch;
+  }
   finishChunk(ch);
+  ch.merged = true;
   scene.add(group);
   return ch;
 }
@@ -1151,18 +1674,70 @@ function addPickup(ch, kind, x, z) {
 }
 export function disposeChunk(ch) {
   scene.remove(ch.group); ch.geos.forEach(g => g.dispose()); ch.insts.forEach(m => m.dispose());
+  if (ch.materialBag) { for (const geos of ch.materialBag.values()) geos.forEach(g => g.dispose()); ch.materialBag.clear(); }
+  if (ch.mergeQ) ch.mergeQ.length = 0;
+  for (const p of ch.pumps || []) p.gone = true;               // a dismantled forecourt must not go on exploding
   for (const pc of ch.spill) scene.remove(pc.mesh);      // cars added to the lot after generation
   removeIntersection(ch.cx * CHUNK, ch.cz * CHUNK);
 }
+// Streaming budget. A block is expensive to build and to merge (a shopping street is 600+ pieces), so the
+// streamer works to a time budget rather than a block count, and the merging is spread over frames by
+// flushChunk. At 60 fps a 6 ms budget leaves the rest of the frame to physics and drawing, which is what stops
+// the streamer hitching the moment the player reaches new ground. Pass a budget of 999 to build everything at
+// once (boot and world reset, when there is nothing to stall).
+//
+// One ring beyond the view is kept built but hidden (group.visible = false, so it draws nothing): when the view
+// moves, that block is already there instead of being built in the middle of the frame. The prefetch only runs
+// when the view queue is empty, so a fast drive never pays for it, and it has its own small budget.
+const STREAM_MS = 6, PREFETCH_MS = 4, MERGE_MS = 3;
 export function updateChunks(px, pz, budget) {
   const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
-  for (const [k, ch] of chunks) if (Math.max(Math.abs(ch.cx - pcx), Math.abs(ch.cz - pcz)) > VIEW_R + 1) { disposeChunk(ch); chunks.delete(k); }
+  // ---- drop what is two rings out, and show/hide what is in the view ring ----
+  for (const [k, ch] of chunks) if (Math.max(Math.abs(ch.cx - pcx), Math.abs(ch.cz - pcz)) > VIEW_R + 2) { disposeChunk(ch); chunks.delete(k); }
+  for (const ch of chunks.values()) {
+    const inView = Math.max(Math.abs(ch.cx - pcx), Math.abs(ch.cz - pcz)) <= VIEW_R;
+    if (ch.group.visible !== inView) ch.group.visible = inView;
+  }
+  // ---- build whatever the view needs, nearest first, inside the time budget ----
   const need = [];
   for (let dx = -VIEW_R; dx <= VIEW_R; dx++) for (let dz = -VIEW_R; dz <= VIEW_R; dz++) {
     const cx = pcx + dx, cz = pcz + dz; if (!chunks.has(ck(cx, cz))) need.push({ cx, cz, d: dx * dx + dz * dz });
   }
   need.sort((a, b) => a.d - b.d);
-  for (let i = 0; i < Math.min(budget, need.length); i++) chunks.set(ck(need[i].cx, need[i].cz), generateChunk(need[i].cx, need[i].cz));
+  const all = budget >= 999;
+  const t0 = all ? 0 : performance.now();
+  const limit = Math.min(budget, need.length);
+  for (let i = 0; i < limit; i++) {
+    // the first block always goes in (there has to be ground under the car), the rest only while under budget
+    if (!all && i > 0 && performance.now() - t0 > STREAM_MS) break;
+    chunks.set(ck(need[i].cx, need[i].cz), generateChunk(need[i].cx, need[i].cz, !all));
+  }
+  // ---- finish off whatever is still merging, inside its own budget ----
+  if (!all) {
+    const tf = performance.now();
+    for (const ch of chunks.values()) {
+      if (ch.merged !== false) continue;
+      flushChunk(ch);
+      if (performance.now() - tf > MERGE_MS) break;
+    }
+  }
+  // ---- nothing missing in view: build the hidden ring ahead of the player ----
+  if (all || need.length > limit) return;
+  const ahead = [];
+  for (let dx = -VIEW_R - 1; dx <= VIEW_R + 1; dx++) for (let dz = -VIEW_R - 1; dz <= VIEW_R + 1; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== VIEW_R + 1) continue;
+    const cx = pcx + dx, cz = pcz + dz;
+    if (!chunks.has(ck(cx, cz))) ahead.push({ cx, cz, d: dx * dx + dz * dz });
+  }
+  if (!ahead.length) return;
+  ahead.sort((a, b) => a.d - b.d);
+  const tp = performance.now();
+  for (let i = 0; i < ahead.length; i++) {
+    if (i > 0 && performance.now() - tp > PREFETCH_MS) break;
+    const ch = generateChunk(ahead[i].cx, ahead[i].cz, true);
+    ch.group.visible = false;                                  // built ahead of the view, drawn when it arrives
+    chunks.set(ck(ahead[i].cx, ahead[i].cz), ch);
+  }
 }
 const _near = [];
 export function nearChunks(x, z) {

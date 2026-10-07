@@ -3,11 +3,39 @@ import { $, PI } from './utils.js';
 
 export const SKY = 0x9ad5ff;
 export const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// The shadow map is the single most expensive thing on screen: it draws every caster a second time, at 2048².
+// Its contents only change when cars move, so the frame loop refreshes it on a cadence (see js/main.js) rather
+// than every frame. On a retina display the pixel ratio is the other half of the fill cost, so it is capped and
+// then driven by the frame-time controller.
+renderer.shadowMap.autoUpdate = false;
 $('game').appendChild(renderer.domElement);
+
+// Quality tiers, best first: render resolution and shadow-map resolution. The frame loop walks down the list
+// when frames take too long and back up when there is headroom, so a weak GPU still drives smoothly and a
+// strong one gets the sharp picture back.
+export const QUALITY = [
+  { pixelRatio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, shadowsEvery: 2 },
+  { pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), shadow: 2048, shadowsEvery: 2 },
+  { pixelRatio: 1, shadow: 1024, shadowsEvery: 3 },
+  { pixelRatio: 0.85, shadow: 1024, shadowsEvery: 4 },
+];
+export let qualityLevel = 0;
+export function applyQuality(level) {
+  const q = QUALITY[Math.max(0, Math.min(QUALITY.length - 1, level))];
+  if (!q) return qualityLevel;
+  qualityLevel = QUALITY.indexOf(q);
+  renderer.setPixelRatio(q.pixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  if (sun.shadow.mapSize.width !== q.shadow) {
+    sun.shadow.mapSize.set(q.shadow, q.shadow);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }   // three.js allocates the next one
+  }
+  renderer.shadowMap.needsUpdate = true;
+  return qualityLevel;
+}
 
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);

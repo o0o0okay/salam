@@ -11,7 +11,7 @@ import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideProps, triggerRamps, carCar } from './collisions.js';
+import { collideSolids, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
@@ -30,6 +30,7 @@ function spinPickups(t) {
     if (pk.taken) continue; pk.mesh.rotation.y = t * 2.6 + pk.ph; pk.mesh.position.y = 1.4 + Math.sin(t * 3 + pk.ph) * 0.2;
   }
 }
+let hudTick = 0;
 export function update(dt) {
   game.t += dt;
   if (game.paused) return;
@@ -159,6 +160,7 @@ export function update(dt) {
   }
   /* --- collisions --- */
   for (const c of cars) { if (c.dead) continue; collideSolids(c); collideProps(c); }
+  tickPumpFuses(sdt);                                          // dispensers that caught the fire
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const A = cars[i], B = cars[j]; if (A.dead || B.dead) continue;
     const dx = A.x - B.x, dz = A.z - B.z, rr = A.box.e1 + B.box.e1 + 1; if (dx * dx + dz * dz > rr * rr) continue; carCar(A, B);
@@ -240,5 +242,8 @@ export function update(dt) {
   const heliActive = !!(helicopter && helicopter.visible);
   const heliDist = heliActive ? Math.hypot(helicopter.x - player.x, helicopter.z - player.z) : 999;
   sfx.updateHeli(heliDist, heliActive, heliActive ? helicopter.rotor.rotation.y : 0);
-  if (!menu) { updateHUD(); drawRadar(); }
+  // HUD text and the radar canvas redraw do not need 60 Hz: cheap throttling keeps the DOM and the 2D
+  // canvas off the critical path (they update at ~20 Hz, which reads as live).
+  hudTick = (hudTick + 1) % 3;
+  if (!menu && hudTick === 0) { updateHUD(); drawRadar(); }
 }
