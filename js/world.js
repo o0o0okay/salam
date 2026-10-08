@@ -1902,13 +1902,25 @@ function generateChunk(cx, cz, defer = false) {
       }
     }
   } else if (type === 'suburb') {
-    padBox(56, 56, mat(0x7bc96f), bxo - bx, bzo - bz);
+    // Effective block bounds: on at-grade sides the road encroaches by (roadEdge() - PAD_IN),
+    // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? (roadEdge() - PAD_IN) : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? (roadEdge() - PAD_IN) : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? (roadEdge() - PAD_IN) : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? (roadEdge() - PAD_IN) : 0);
+    const padW = hi_x - lo_x, padD = hi_z - lo_z;
+    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+    padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
     const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
-    // The house grid starts from the block's own building line, which steps back on a side that carries a
-    // flyover's at-grade lane: otherwise a house's jitter can put its wall inside the stepped-back line.
+    // The house grid fits within the effective block bounds. On at-grade sides the grid shifts
+    // and shrinks so no house wall or jitter lands in the carriageway.
+    const houseSpanX = Math.max(0, padW - 18.66), houseSpanZ = Math.max(0, padD - 18.66);
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-      const lx = bx0 + 9.33 + i * 18.67 + (bxo - bx), lz = bz0 + 9.33 + j * 18.67 + (bzo - bz);
+      const lx = lo_x + 9.33 + (houseSpanX > 0 ? i * houseSpanX / 2 : 0);
+      const lz = lo_z + 9.33 + (houseSpanZ > 0 ? j * houseSpanZ / 2 : 0);
       const w = r(8, 10), d = r(7, 9), h = r(4.5, 6), ox = r(-1, 1), oz = r(-1, 1), hx = lx + ox, hz = lz + oz;
+      // Skip houses that would extend into the at-grade lane (with jitter and half-extent margin)
+      if (hx - w/2 < lo_x || hx + w/2 > hi_x || hz - d/2 < lo_z || hz + d/2 > hi_z) continue;
       const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
       add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
       const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
@@ -1920,23 +1932,42 @@ function generateChunk(cx, cz, defer = false) {
       tree(lx + cs * 7.6, lz + cs2 * 7.6);
       if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
     }
-    for (const side of [-1, 1]) for (let x = -25.5; x <= 26; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + (bxo - bx), bz + side * 28.6 + (bzo - bz), 0, 0.2);
+    for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + padOx, bz + side * (padD/2 - 0.4) + padOz, 0, 0.2);
   } else if (type === 'park') {
-    padBox(56, 56, mat(0x78c46c));
-    padBox(56, 3.4, mat(0xe3d6b0), 0, 0, 0.27, 0.04); padBox(3.4, 56, mat(0xe3d6b0), 0, 0, 0.27, 0.04);
-    const pw = r(10, 15), pd = r(8, 11), px = bx + (rng() < 0.5 ? -1 : 1) * r(10, 14), pz = bz + (rng() < 0.5 ? -1 : 1) * r(11, 16);
+    // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? (roadEdge() - PAD_IN) : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? (roadEdge() - PAD_IN) : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? (roadEdge() - PAD_IN) : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? (roadEdge() - PAD_IN) : 0);
+    const padW = hi_x - lo_x, padD = hi_z - lo_z;
+    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+    padBox(padW, padD, mat(0x78c46c), padOx, padOz);
+    // Paths along the centerlines of the effective bounds
+    padBox(padW, 3.4, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+    padBox(3.4, padD, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+    // Pond positioned within the valid bounds
+    const pw = r(10, 15), pd = r(8, 11);
+    const px = (lo_x + hi_x) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(14, padW/2 - pw/2 - 2));
+    const pz = (lo_z + hi_z) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(16, padD/2 - pd/2 - 2));
     add(box(pw, 0.06, pd, mat(0x58b6e8), px, 0.27, pz, false));
     ch.keepouts.push({ x: px, z: pz, hx: pw / 2, hz: pd / 2 });
     const placed = [];
     for (let a = 0, n = 0; a < 70 && n < 16; a++) {
-      const x = bx + r(-26, 26), z = bz + r(-26, 26);
-      if (Math.abs(x - bx) < 4.5 || Math.abs(z - bz) < 4.5) continue;
+      const x = (lo_x + hi_x) / 2 + r(-padW/2 + 2, padW/2 - 2);
+      const z = (lo_z + hi_z) / 2 + r(-padD/2 + 2, padD/2 - 2);
+      // Keep trees away from the center path and pond
+      if (Math.abs(x - (lo_x + hi_x) / 2) < 2.5 || Math.abs(z - (lo_z + hi_z) / 2) < 2.5) continue;
       if (Math.abs(x - px) < pw / 2 + 2 && Math.abs(z - pz) < pd / 2 + 2) continue;
       if (placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 49)) continue;
       placed.push([x, z]); tree(x, z); n++;
     }
-    prop('bench', bx - 8, bz - 2.5, 0, 0.3); prop('bench', bx + 9, bz + 2.5, PI, 0.3); prop('bench', bx - 2.5, bz + 10, PI / 2, 0.3);
-    for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), bx + r(-26, 26), 0.4, bz + r(-26, 26), false));
+    // Benches along the paths, within valid bounds
+    const cx_p = (lo_x + hi_x) / 2, cz_p = (lo_z + hi_z) / 2;
+    prop('bench', cx_p - 8, cz_p - 2.5, 0, 0.3);
+    prop('bench', cx_p + 9, cz_p + 2.5, PI, 0.3);
+    prop('bench', cx_p - 2.5, cz_p + 10, PI / 2, 0.3);
+    // Flowers scattered within the valid area
+    for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), cx_p + r(-padW/2 + 2, padW/2 - 2), 0.4, cz_p + r(-padD/2 + 2, padD/2 - 2), false));
   } else if (type === 'commercial') {
     // The whole mall ensemble — the building, its wing, the lot's painted rows and the bays — stands on the
     // block's own building line, so on a side that carries a flyover's at-grade lane it steps back with it.
