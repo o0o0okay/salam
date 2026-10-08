@@ -1456,60 +1456,30 @@ function buildFlyoverGantry(legV, dir) {
 }
 
 /* ---- Junction plazas ----
- * A small circular island in the middle of an eligible plain four-way junction: a curb ring in concrete, a
- * disc of grass inside, and a central feature (fountain, statue, or tree grove) chosen by the hash of the
- * junction's own indices. It sits on top of the road texture, which is fine: the island is a solid, so cars
- * steer around it and the junction reads as a small roundabout.
+ * A small circular island in the middle of an eligible plain four-way junction: a curb ring in concrete and
+ * a disc of grass inside. The central feature (fountain, statue, or tree grove) is a destructible prop placed
+ * at the junction's centre — a car that drives into it knocks it down, just like a streetlight or a hydrant.
+ * The island itself has no solid, so cars can drive over it (the curb is only 0.3 m tall — a speed bump).
  *
  * `plazaAt(jx, jz)` in js/flyover.js decides which junctions get one — it keeps plazas off the main roads
  * (where flyovers live), off junctions beside flyovers (the cut corner would swallow them), and off junctions
  * under flyover ramps. ~15% of the remaining junctions become plazas.
  *
  * The whole island is 5 m in radius. A plain junction's carriageway is 16.5 m wide, so that leaves 3.25 m of
- * lane on each side — enough for one lane each way, and enough for the traffic to go around the island. The
- * island is recorded as a solid (for cars) and a keepout (for props and parked cars), so nothing lands on it.
+ * lane on each side — enough for one lane each way, and enough for the traffic to go around the island.
  *
- * The builder produces only its own geometry — no props — and returns the island as a Group ready to be
- * placed at the junction's world position by the chunk that owns that corner (one chunk per junction, so
- * nothing duplicates).
+ * The builder produces only the island base (curb + grass). The central feature is placed separately as a
+ * prop by generateChunk() so it gets the same breakable-prop lifecycle as everything else (collision, drag,
+ * flying debris, etc.).
  */
-function buildPlazaIsland(radius, feature) {
+function buildPlazaIsland(radius) {
   const g = new THREE.Group();
-  const concrete = mat(0xd4cfc4), grass = mat(0x3a7a2a), stone = mat(0xbfb7a8), water = mat(0x3aa8d8, { emissive: 0x0a3a50 });
-  // The curb: a solid concrete disc that is the island's base, 0.3 m tall. Its top is the level traffic has to
-  // clear to drive on the island (which is what the solid's maxY enforces — nothing climbs onto it).
+  const concrete = mat(0xd4cfc4), grass = mat(0x3a7a2a);
+  // The curb: a concrete disc, 0.3 m tall. Low enough that a car can drive over it — it's a speed bump,
+  // not a wall. Cars that don't want to hit the central feature just go around.
   g.add(cyl(radius, radius, 0.3, 24, concrete, 0, 0.15, 0, false));
   // Grass: a slightly smaller disc on top of the curb, so the curb's rim stays bare concrete all round.
   g.add(cyl(radius - 0.35, radius - 0.35, 0.34, 24, grass, 0, 0.17, 0, false));
-  if (feature === 0) {
-    // ---- Fountain: a tiered stone basin with a water jet. Three rings get smaller and higher, the top ring
-    //      carries the jet (a narrow cylinder in water-colour emissive so it reads as water at night).
-    for (let i = 0; i < 3; i++) {
-      const r = 1.6 - i * 0.45, y = 0.35 + i * 0.55;
-      g.add(cyl(r, r, 0.22, 20, stone, 0, y, 0, false));
-      g.add(cyl(r - 0.08, r - 0.08, 0.1, 20, water, 0, y + 0.16, 0, false));
-    }
-    g.add(cyl(0.12, 0.12, 1.4, 10, water, 0, 1.05, 0, false));                // the jet
-    g.add(cyl(0.08, 0.08, 0.5, 8, water, 0, 1.8, 0, false));                  // spray tip
-  } else if (feature === 1) {
-    // ---- Statue: a bronze abstract sculpture on a stone pedestal. A tapered column of three stacked shapes
-    //      (box, cone, sphere) — abstract enough to read from any distance, specific enough to be a statue.
-    g.add(cyl(1.1, 1.1, 0.5, 16, stone, 0, 0.55, 0, false));                  // plinth
-    g.add(cyl(0.7, 0.9, 1.6, 8, mat(0xb87333, { emissive: 0x3a1e0a }), 0, 1.6, 0, false));
-    g.add(box(0.5, 1.0, 0.5, mat(0xb87333, { emissive: 0x3a1e0a }), 0, 2.8, 0, false));
-    const top = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), mat(0xb87333, { emissive: 0x3a1e0a }));
-    top.position.set(0, 3.5, 0); g.add(top);
-  } else {
-    // ---- Tree grove: three small trees in a triangle on the grass, with a low stone bench ring.
-    const trunk = mat(0x5a3a1e), leaf = mat(0x2a6a28);
-    const pts = [[0, 1.1], [-0.95, -0.55], [0.95, -0.55]];
-    for (const [px, pz] of pts) {
-      g.add(cyl(0.14, 0.14, 1.4, 6, trunk, px, 0.95, pz, false));
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), leaf);
-      top.position.set(px, 2.0, pz); g.add(top);
-    }
-    g.add(cyl(1.8, 1.8, 0.18, 16, stone, 0, 0.39, 0, false));                 // central bed
-  }
   return g;
 }
 
@@ -1611,13 +1581,19 @@ function generateChunk(cx, cz, defer = false) {
   // under a ramp; the decision is deterministic, so the chunk and its audits agree.
   const p = plazaAt(cx, cz);
   if (p) {
-    const island = buildPlazaIsland(p.radius, p.feature);
+    // The plaza island: a circular curb ring + grass inside. No solid here — cars can drive over it (the
+    // curb is only 0.3 m tall, a speed-bump, and the user asked for the island to be drivable). It is still
+    // a keepout so props and parked cars stay off it.
+    const island = buildPlazaIsland(p.radius);
     island.position.set(x0, 0, z0);
     add(island);
-    ch.solids.push({ x: x0, z: z0, hx: p.radius, hz: p.radius, kind: 'plaza', maxY: 4.0,
-      box: { x: x0, z: z0, ux: 1, uz: 0, vx: 0, vz: 1, e1: p.radius, e2: p.radius } });
     ch.keepouts.push({ x: x0, z: z0, hx: p.radius + 0.5, hz: p.radius + 0.5 });
     ch.plazas.push({ x: x0, z: z0, radius: p.radius, feature: p.feature });
+    // The central feature is a destructible prop: a car that drives into it knocks it down, just like a
+    // streetlight or a hydrant. The prop's collision radius matches its visual size, so cars clip it before
+    // they reach the curb. The prop sits on the island's grass surface (y = 0.34).
+    const featKind = ['plazaFountain', 'plazaStatue', 'plazaTree'][p.feature];
+    prop(featKind, x0, z0, 0, 0.34);
   }
   // ---- Grade-separated interchanges ----
   // The city's two main roads carry flyovers every few junctions (js/flyover.js decides where): the road climbs

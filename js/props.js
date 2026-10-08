@@ -79,4 +79,28 @@ export const PROP_DEFS = {
   pipe: { r: 0.9, drag: 0.93, color: 0x6c7580, make() { const g = new THREE.Group(), m = mat(0x6c7580);
     const mkPipe = (z, y) => { const p = cyl(0.18, 0.18, 1.7, 10, m, 0, y, z, false); p.rotation.z = Math.PI / 2; return p; };
     g.add(mkPipe(-0.2, 0.18)); g.add(mkPipe(0.2, 0.18)); g.add(mkPipe(0, 0.5)); return g; } },
+  // Plaza features: each is a destructible prop — a car that drives into it knocks it down, just like a
+  // hydrant or a streetlight. They live in the middle of a plaza island (js/world.js places them via prop()),
+  // and the island's curb is low (0.3 m) so a car can drive over the island after smashing the centre.
+  plazaFountain: { r: 1.8, drag: 0.92, color: 0x3aa8d8, make() {
+    const g = new THREE.Group(), stone = mat(0xbfb7a8), water = mat(0x3aa8d8, { emissive: 0x0a3a50 });
+    for (let i = 0; i < 3; i++) { const r = 1.6 - i * 0.45, y = 0.35 + i * 0.55;
+      g.add(cyl(r, r, 0.22, 20, stone, 0, y, 0, false)); g.add(cyl(r - 0.08, r - 0.08, 0.1, 20, water, 0, y + 0.16, 0, false)); }
+    g.add(cyl(0.12, 0.12, 1.4, 10, water, 0, 1.05, 0, false));
+    g.add(cyl(0.08, 0.08, 0.5, 8, water, 0, 1.8, 0, false));
+    return g; } },
+  plazaStatue: { r: 1.2, drag: 0.9, color: 0xb87333, make() {
+    const g = new THREE.Group(), bronze = mat(0xb87333, { emissive: 0x3a1e0a }), stone = mat(0xbfb7a8);
+    g.add(cyl(1.1, 1.1, 0.5, 16, stone, 0, 0.55, 0, false));
+    g.add(cyl(0.7, 0.9, 1.6, 8, bronze, 0, 1.6, 0, false));
+    g.add(box(0.5, 1.0, 0.5, bronze, 0, 2.8, 0, false));
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), bronze); top.position.set(0, 3.5, 0); g.add(top);
+    return g; } },
+  plazaTree: { r: 1.5, drag: 0.88, color: 0x2a6a28, make() {
+    const g = new THREE.Group(), trunk = mat(0x5a3a1e), leaf = mat(0x2a6a28);
+    const pts = [[0, 1.1], [-0.95, -0.55], [0.95, -0.55]];
+    for (const [px, pz] of pts) { g.add(cyl(0.14, 0.14, 1.4, 6, trunk, px, 0.95, pz, false));
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), leaf); top.position.set(px, 2.0, pz); g.add(top); }
+    g.add(cyl(1.8, 1.8, 0.18, 16, mat(0xbfb7a8), 0, 0.39, 0, false));
+    return g; } },
 };
