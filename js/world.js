@@ -8,7 +8,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover, plazaAt } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -1455,13 +1455,71 @@ function buildFlyoverGantry(legV, dir) {
   return g;
 }
 
+/* ---- Junction plazas ----
+ * A small circular island in the middle of an eligible plain four-way junction: a curb ring in concrete, a
+ * disc of grass inside, and a central feature (fountain, statue, or tree grove) chosen by the hash of the
+ * junction's own indices. It sits on top of the road texture, which is fine: the island is a solid, so cars
+ * steer around it and the junction reads as a small roundabout.
+ *
+ * `plazaAt(jx, jz)` in js/flyover.js decides which junctions get one — it keeps plazas off the main roads
+ * (where flyovers live), off junctions beside flyovers (the cut corner would swallow them), and off junctions
+ * under flyover ramps. ~15% of the remaining junctions become plazas.
+ *
+ * The whole island is 5 m in radius. A plain junction's carriageway is 16.5 m wide, so that leaves 3.25 m of
+ * lane on each side — enough for one lane each way, and enough for the traffic to go around the island. The
+ * island is recorded as a solid (for cars) and a keepout (for props and parked cars), so nothing lands on it.
+ *
+ * The builder produces only its own geometry — no props — and returns the island as a Group ready to be
+ * placed at the junction's world position by the chunk that owns that corner (one chunk per junction, so
+ * nothing duplicates).
+ */
+function buildPlazaIsland(radius, feature) {
+  const g = new THREE.Group();
+  const concrete = mat(0xd4cfc4), grass = mat(0x3a7a2a), stone = mat(0xbfb7a8), water = mat(0x3aa8d8, { emissive: 0x0a3a50 });
+  // The curb: a solid concrete disc that is the island's base, 0.3 m tall. Its top is the level traffic has to
+  // clear to drive on the island (which is what the solid's maxY enforces — nothing climbs onto it).
+  g.add(cyl(radius, radius, 0.3, 24, concrete, 0, 0.15, 0, false));
+  // Grass: a slightly smaller disc on top of the curb, so the curb's rim stays bare concrete all round.
+  g.add(cyl(radius - 0.35, radius - 0.35, 0.34, 24, grass, 0, 0.17, 0, false));
+  if (feature === 0) {
+    // ---- Fountain: a tiered stone basin with a water jet. Three rings get smaller and higher, the top ring
+    //      carries the jet (a narrow cylinder in water-colour emissive so it reads as water at night).
+    for (let i = 0; i < 3; i++) {
+      const r = 1.6 - i * 0.45, y = 0.35 + i * 0.55;
+      g.add(cyl(r, r, 0.22, 20, stone, 0, y, 0, false));
+      g.add(cyl(r - 0.08, r - 0.08, 0.1, 20, water, 0, y + 0.16, 0, false));
+    }
+    g.add(cyl(0.12, 0.12, 1.4, 10, water, 0, 1.05, 0, false));                // the jet
+    g.add(cyl(0.08, 0.08, 0.5, 8, water, 0, 1.8, 0, false));                  // spray tip
+  } else if (feature === 1) {
+    // ---- Statue: a bronze abstract sculpture on a stone pedestal. A tapered column of three stacked shapes
+    //      (box, cone, sphere) — abstract enough to read from any distance, specific enough to be a statue.
+    g.add(cyl(1.1, 1.1, 0.5, 16, stone, 0, 0.55, 0, false));                  // plinth
+    g.add(cyl(0.7, 0.9, 1.6, 8, mat(0xb87333, { emissive: 0x3a1e0a }), 0, 1.6, 0, false));
+    g.add(box(0.5, 1.0, 0.5, mat(0xb87333, { emissive: 0x3a1e0a }), 0, 2.8, 0, false));
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), mat(0xb87333, { emissive: 0x3a1e0a }));
+    top.position.set(0, 3.5, 0); g.add(top);
+  } else {
+    // ---- Tree grove: three small trees in a triangle on the grass, with a low stone bench ring.
+    const trunk = mat(0x5a3a1e), leaf = mat(0x2a6a28);
+    const pts = [[0, 1.1], [-0.95, -0.55], [0.95, -0.55]];
+    for (const [px, pz] of pts) {
+      g.add(cyl(0.14, 0.14, 1.4, 6, trunk, px, 0.95, pz, false));
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), leaf);
+      top.position.set(px, 2.0, pz); g.add(top);
+    }
+    g.add(cyl(1.8, 1.8, 0.18, 16, stone, 0, 0.39, 0, false));                 // central bed
+  }
+  return g;
+}
+
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
   const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
   const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
   const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [] };
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
   // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
@@ -1546,6 +1604,21 @@ function generateChunk(cx, cz, defer = false) {
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group, ch);
+  // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the
+  // junction at that corner, if plazaAt(cx, cz) says it should have one. The plaza is a circular island with a
+  // curb and a central feature (fountain, statue, or tree grove) — it sits on top of the road texture, and
+  // the whole junction reads as a small roundabout. Plazas are never at a flyover, never beside one, and never
+  // under a ramp; the decision is deterministic, so the chunk and its audits agree.
+  const p = plazaAt(cx, cz);
+  if (p) {
+    const island = buildPlazaIsland(p.radius, p.feature);
+    island.position.set(x0, 0, z0);
+    add(island);
+    ch.solids.push({ x: x0, z: z0, hx: p.radius, hz: p.radius, kind: 'plaza', maxY: 4.0,
+      box: { x: x0, z: z0, ux: 1, uz: 0, vx: 0, vz: 1, e1: p.radius, e2: p.radius } });
+    ch.keepouts.push({ x: x0, z: z0, hx: p.radius + 0.5, hz: p.radius + 0.5 });
+    ch.plazas.push({ x: x0, z: z0, radius: p.radius, feature: p.feature });
+  }
   // ---- Grade-separated interchanges ----
   // The city's two main roads carry flyovers every few junctions (js/flyover.js decides where): the road climbs
   // an embankment, crosses the junction it meets on a deck 7.2 m above the ground, and comes back down on the
