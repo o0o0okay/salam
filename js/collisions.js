@@ -357,11 +357,40 @@ function tearFencePanel(pc, c, nx, nz) {
   flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(2, 5) + rnd(-1.5, 1.5), vy: rnd(4, 8),
     vz: c.vz * 0.4 + nz * rnd(2, 5) + rnd(-1.5, 1.5), sx: rnd(-7, 7), sz: rnd(-7, 7), life: rnd(1.6, 2.4), probe });
 }
+function smashPlaza(pr) {
+  // Plaza features smash into small debris (stone, bronze, water, wood, leaf) rather than flying away whole.
+  // Each piece gets its own colour and velocity, so the crash looks like the thing is actually breaking apart.
+  const x = pr.x, z = pr.z;
+  if (pr.kind === 'plazaFountain') {
+    // Three stone basins + jet + spray: mostly stone-colour debris with a few water particles.
+    const stone = 0xbfb7a8, water = 0x3aa8d8;
+    for (let i = 0; i < 14; i++) emit(x, 0.6, z, rnd(-3, 3), rnd(3, 9), rnd(-3, 3), stone, rnd(0.15, 0.35), rnd(1.2, 2.0), 20);
+    for (let i = 0; i < 10; i++) emit(x, 0.8, z, rnd(-2, 2), rnd(4, 7), rnd(-2, 2), water, rnd(0.08, 0.18), rnd(0.8, 1.4), 14);
+  } else if (pr.kind === 'plazaStatue') {
+    // Stone plinth + bronze body: a mix of heavy stone chunks and lighter bronze fragments.
+    const stone = 0xbfb7a8, bronze = 0xb87333;
+    for (let i = 0; i < 10; i++) emit(x, 0.8, z, rnd(-4, 4), rnd(5, 11), rnd(-4, 4), stone, rnd(0.15, 0.45), rnd(1.4, 2.2), 22);
+    for (let i = 0; i < 8; i++) emit(x, 1.2, z, rnd(-5, 5), rnd(6, 12), rnd(-5, 5), bronze, rnd(0.08, 0.25), rnd(1.0, 1.8), 18);
+  } else if (pr.kind === 'plazaTree') {
+    // Three trunks + three leaf balls + stone bed: wood, leaf, and stone debris.
+    const wood = 0x5a3a1e, leaf = 0x2a6a28, stone = 0xbfb7a8;
+    for (let i = 0; i < 6; i++) emit(x, 0.6, z, rnd(-3, 3), rnd(4, 8), rnd(-3, 3), wood, rnd(0.08, 0.18), rnd(1.2, 2.0), 16);
+    for (let i = 0; i < 10; i++) emit(x, 1.4, z, rnd(-4, 4), rnd(5, 10), rnd(-4, 4), leaf, rnd(0.15, 0.35), rnd(1.0, 1.6), 18);
+    for (let i = 0; i < 5; i++) emit(x, 0.4, z, rnd(-2, 2), rnd(3, 6), rnd(-2, 2), stone, rnd(0.2, 0.4), rnd(1.4, 2.0), 20);
+  }
+}
 function breakProp(pr, c) {
   pr.broken = true; const m = pr.mesh; scene.add(m);
   const sp = Math.max(8, c.speed);
-  flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
-  debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, 4, 0, 0, 6);
+  // Plaza features smash into pieces instead of flying away whole: they break where they stand and leave the
+  // island empty, the way a real fountain or statue would when a car drives through it.
+  if (pr.kind.startsWith('plaza')) {
+    smashPlaza(pr);
+    sparks(pr.x, 1, pr.z, 6, 0, 0, 8);
+  } else {
+    flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
+    debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, 4, 0, 0, 6);
+  }
   if (pr.kind === 'hydrant') { geysers.push({ x: pr.x, z: pr.z, life: 7 }); for (let i = 0; i < 20; i++) emit(pr.x, 0.6, pr.z, rnd(-4, 4), rnd(8, 16), rnd(-4, 4), 0x8fd3ff, rnd(0.2, 0.45), rnd(0.8, 1.4), 26); }
   const f = pr.drag; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.25); sfx.crash(sp * 0.5); }
