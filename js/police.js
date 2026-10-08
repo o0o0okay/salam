@@ -7,14 +7,29 @@ import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt } from './world.js';
 import { overlapsAnything } from './collisions.js';
+import { FLY, flyoverNear, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, rampHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
   return Math.random() < 0.5
     ? { x: Math.round((x + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3), z: z + rnd(-spread, spread) }
     : { x: x + rnd(-spread, spread), z: Math.round((z + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3) };
 }
-function losBlocked(p, tx, tz) {
+function losBlocked(p, tx, tz, y = 1.2) {
   const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(14, Math.ceil(Math.min(d, 90) / 6));
-  for (let i = 1; i <= n; i++) { const t = (i / n) * Math.min(1, 90 / d); if (solidAt(p.x + dx * t, p.z + dz * t, 1.2)) return true; }
+  for (let i = 1; i <= n; i++) { const t = (i / n) * Math.min(1, 90 / d); if (solidAt(p.x + dx * t, p.z + dz * t, 1.2, y)) return true; }
+  return false;
+}
+// Does the interchange itself stand between a car at grade and (tx, tz)? The embankments are the one obstacle the
+// sight line and the car disagree about: a pursuer looks over the low end of a ramp and sees the player on the far
+// side, while the concrete under it still stops the car, and that is what used to send it off on a tour of the
+// block. Only the mound is tested here - a building or a parked truck in the way is the grid waypoint's business,
+// because that is what the waypoint is for, and rerouting every chase past a hydrant into the at-grade lane would
+// be worse than the bug.
+function moundInWay(p, f, tx, tz) {
+  const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(24, Math.ceil(d / 5));
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = alongOf(f, p.x + dx * t, p.z + dz * t), v = latOf(f, p.x + dx * t, p.z + dz * t);
+    if (Math.abs(u) > FLY.deckHalf - 1 && Math.abs(u) < FLY.rampEnd + 3 && Math.abs(v) < FLY.halfW + 1 && rampHeight(u) > p.y + 0.7) return true;
+  }
   return false;
 }
 function navWaypoint(p, tx, tz) {
@@ -29,6 +44,7 @@ function navWaypoint(p, tx, tz) {
   else { if (Math.abs(p.x - rx) < Math.abs(p.z - rz)) { wx = rx; wz = p.z; } else { wx = p.x; wz = rz; } }
   p.navX = wx; p.navZ = wz;
 }
+const _ramp = { x: 0, z: 0 }, _lane = { x: 0, z: 0 };
 export function policeAI(p, dt) {
   // ---------- STATIONARY ROADBLOCK ----------
   // Parked across the road with the handbrake on, lights still flashing (handled generically by the main loop).
@@ -45,7 +61,7 @@ export function policeAI(p, dt) {
   if (p.seeT <= 0) {
     p.seeT = 0.2 + Math.random() * 0.12;
     const range = lerp(115, 80, env.night) * DIFF.aggr;           // night vision reduced; difficulty affects range
-    p.sees = d < HEAR_R || (d < range && !losBlocked(p, player.x, player.z));
+    p.sees = d < HEAR_R || (d < range && !losBlocked(p, player.x, player.z, Math.max(p.y, player.y) + 1.2));
   }
   if (p.sees) reportSighting();                                    // radio: everyone knows
   const k = sight.t >= p.tip.t ? sight : p.tip;                    // freshest info
@@ -75,7 +91,7 @@ export function policeAI(p, dt) {
     p.searchT -= dt;
     if (!p.search || p.searchT <= 0 || Math.hypot(p.search.x - p.x, p.search.z - p.z) < 14) {
       p.searchT = rnd(4, 7);
-      if (!p.arrived && Math.hypot(ex - p.x, ez - p.z) > 28) p.search = solidAt(ex, ez, 3) ? roadPointNear(ex, ez, 25) : { x: ex, z: ez };
+      if (!p.arrived && Math.hypot(ex - p.x, ez - p.z) > 28) p.search = solidAt(ex, ez, 3, player.y) ? roadPointNear(ex, ez, 25) : { x: ex, z: ez };
       else { p.arrived = true; p.search = roadPointNear(ex, ez, 75); }
     }
     tx = p.search.x; tz = p.search.z;
@@ -90,6 +106,7 @@ export function policeAI(p, dt) {
     }
     tx += sx * 9; tz += sz * 9;
   }
+  const aimX = tx, aimZ = tz;   // the aim before the grid waypoint below replaces it: the interchange rules test the road against this
   p.navT -= dt;
   if (p.navT <= 0) {
     p.navT = 0.25 + Math.random() * 0.14;
@@ -97,12 +114,88 @@ export function policeAI(p, dt) {
     if (p.navOn) navWaypoint(p, tx, tz);
   }
   if (p.navOn) { tx = p.navX; tz = p.navZ; if (Math.hypot(tx - p.x, tz - p.z) < 9) p.navT = 0; }
+  // ---------- THE BRIDGE ----------
+  // A player who gets up on a flyover used to be untouchable: every pursuer at grade drove under the deck and
+  // milled about below it, because the embankment read as a wall on every probe the AI could make. Two things
+  // fixed that. The probes and the sight lines now carry the height of the car asking (see solidAt), so a car on
+  // the structure sees clear road ahead of it; and a pursuer that is at grade on the flying road now heads for
+  // its own lane in front of the ramp's foot instead of straight at the player, so it lines up and climbs. Up on
+  // the structure the same lane is held, which is what stops cars from ending up scraping along the parapets.
+  // The other two rules below carry the chase back down, and both of them come from the same complaint — police
+  // "circling" beside a flyover while a player hides next to the structure at grade:
+  //  * a pursuer that ends up on the structure with the player *not* on it drives on to the ramp (rampExit)
+  //    instead of steering across the parapets at a target beside the road below. Without it a car on the deck
+  //    pins itself to a parapet, the stuck-escape reverses it, and it shuttles across the carriageway for as long
+  //    as the player stays there — it never reaches the ground at all;
+  //  * a pursuer at grade with the structure between it and the player takes the at-grade lane beside it, which
+  //    is the way past the interchange on the ground (the flying road's own lanes at grade end at the abutment).
+  //    It runs its own lane out past the end of the structure first when it is still alongside it, then crosses
+  //    to the lane on the player's side: the structure's own retaining wall runs the whole length of the ramp, so
+  //    a diagonal aim across it just scrapes along the wall.
+  let bridgeTurn = false;
+  const pf = flyoverNear(player.x, player.z);
+  if (pf && player.y > 2) {                                // the player is up on the structure
+    if (p.y > 1.2) {                                        // already up there: hold the lane it is driving in
+      const want = laneOffsetOn(pf.axis, Math.sign(pf.axis === 'z' ? p.vz : p.vx) || 1, 2.5);
+      const verr = want - latOf(pf, p.x, p.z);
+      tx += (pf.axis === 'z' ? 0 : verr) * 2.2; tz += (pf.axis === 'z' ? verr : 0) * 2.2;
+    } else if (!ramming && rampApproach(pf, p.x, p.z, 2.5, 9, _ramp)) { tx = _ramp.x, tz = _ramp.z; }
+  } else {
+    const onF = !ramming && p.y > FLY.on && surfaceAt(p.x, p.z, p.y) > 0 ? flyoverNear(p.x, p.z) : null;
+    if (onF) {                                             // this one is up on the structure, the player is not: come down
+      rampExit(onF, p.x, p.z, onF.axis === 'z' ? Math.cos(p.h) : Math.sin(p.h), 2.5, 9, _lane);
+      tx = _lane.x; tz = _lane.z;
+    } else if (!ramming && player.y <= 2) {                 // both on the ground: the structure may be in between
+      const nf = flyoverNear(p.x, p.z, roadEdge() + 16);
+      if (nf && moundInWay(p, nf, aimX, aimZ)) {
+        // The flying road's own lanes at grade end at the abutment, so the way past the structure is the at-grade
+        // lane beside it — which runs the whole length of the block and through the junction. Getting there from
+        // the wrong half of the road means crossing the avenue's own lanes, and the only places that can be done
+        // at grade are the junction box under the deck (between the abutments) and the ground beyond either
+        // ramp's foot, where the retaining walls end: alongside the wall itself there is no gap to slip through,
+        // and a diagonal aim at the lane on the far side just scrapes down the wall.
+        const u = alongOf(nf, p.x, p.z), v = latOf(nf, p.x, p.z);
+        const tu = alongOf(nf, aimX, aimZ), tv = latOf(nf, aimX, aimZ);
+        const my = v >= 0 ? 1 : -1;
+        const want = Math.abs(tv) > FLY.halfW ? (tv > 0 ? 1 : -1) : my;   // the lane on the player's side, or its own when the player is under the road itself
+        const beside = Math.abs(u) > FLY.deckHalf && Math.abs(u) < FLY.rampEnd + 3;
+        // Which way along the road the car is facing, and the first crossing point of the avenue in front of it:
+        // the junction box under the deck while that is still ahead, otherwise the ground past the ramp's foot,
+        // where the retaining walls end. Everything below aims at a point in front of the car, so a pursuer never
+        // turns round for a crossing it has already passed.
+        const dirU = (nf.axis === 'z' ? Math.cos(p.h) : Math.sin(p.h)) >= 0 ? 1 : -1;
+        // Along the road, the aim is the player's own position - never less than a car length in front of the car,
+        // so a crossing point or a car that has just come off a ramp is not asked to reverse on the spot - and
+        // never a point that runs on ahead of the car either: an aim that keeps the distance while the car drives
+        // is what walked pursuers away from the structure, down the lane they happened to be pointing along.
+        const tgtU = tu > u ? Math.max(tu, u + 12) : Math.min(tu, u - 12);
+        const cross = dirU * (u * dirU < FLY.deckHalf ? FLY.deckHalf - 2 : FLY.rampEnd + 5);
+        if (Math.abs(v) < FLY.halfW + 1) {                    // still on the road's own lanes: out into the at-grade lane
+          // In the junction box the full width is open, so it can step out where it stands; past the box there is a
+          // wall of concrete where the ramp rises out of the ground, and the only clear place to step out is the
+          // lane just outside the ramp's foot - a fixed point, so the aim cannot walk out from under a car that is
+          // still crossing. A car that has been carried onto the low end of a ramp is taken off it the same way.
+          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, my * laneOffset(), _lane);
+          else laneAim(nf, Math.sign(u || 1) * (FLY.rampEnd + 6), my * laneOffset(), _lane);
+          tx = _lane.x; tz = _lane.z; bridgeTurn = true;
+        } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
+          laneAim(nf, beside ? cross : u, (beside ? my : want) * laneOffset(), _lane);   //   its own lane up to the crossing, then straight across
+          tx = _lane.x; tz = _lane.z;
+        } else if (Math.abs(tu - u) >= 14) {                  // in the lane that helps, but not yet level with the player
+          laneAim(nf, tgtU, want * laneOffset(), _lane);                          //   close along the lane
+          tx = _lane.x; tz = _lane.z;
+        }                                                     // in the lane that helps with the player in it: the aim straight at him already stands
+      }
+    }
+  }
   const desired = Math.atan2(tx - p.x, tz - p.z), diff = wrapAngle(desired - p.h), vf = p.vf;
   let steer = clamp(diff * (p.tier >= 4 ? 2.8 : 2.35), -1, 1), throttle = 1;
   if (Math.abs(diff) > 1.0 && vf > (p.tier >= 4 ? 30 : 22)) throttle = -0.1;
+  // Brake for the tight turn off a ramp; do not rely on sliding through the parapet.
+  if (bridgeTurn && Math.abs(diff) > 0.65 && vf > 12) throttle = -1;
   if (blockerHold) throttle = vf > 2 ? -1 : 0;
   if (d > 14) {
-    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2); };
+    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
     if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
     else if (l) { steer = -1; p.avoidDir = 0; } else if (r) { steer = 1; p.avoidDir = 0; } else p.avoidDir = 0;

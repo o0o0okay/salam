@@ -7,6 +7,7 @@ import { createCar } from './vehicle.js';
 import { solidAt, nearChunks } from './world.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
+import { isFlyoverNode } from './flyover.js';
 
 const CIV_KINDS = [
   'sedan', 'sedan', 'sedan',
@@ -108,7 +109,11 @@ export function civAI(c, dt) {
   const node = Math.round(along / CHUNK) * CHUNK;
   if (Math.abs(along - node) < 2.5 && c.lastNode !== node) {
     c.lastNode = node;
-    if (Math.random() < 0.4) {
+    // Nobody turns at the interchange: the avenue is up on the bridge and the crossing street runs underneath, so
+    // there is no at-grade movement to turn into. A car that turned there would either drive off the deck or
+    // appear through the embankment, so the junction is straight-through for both roads.
+    const ixN = c.axis === 'z' ? c.road : node, izN = c.axis === 'z' ? node : c.road;
+    if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN)) {
       c.axis = c.axis === 'z' ? 'x' : 'z';
       c.dir = Math.random() < 0.5 ? 1 : -1;
       c.road = node;
@@ -131,9 +136,12 @@ export function civAI(c, dt) {
   }
 
   const L = 6 + Math.max(0, sp) * 0.4;
-  if (solidAt(c.x + s * L, c.z + co * L, 1.2)) {
+  // The look-ahead is asked from the car's own height: on a flyover the embankment below the ramp is not a wall,
+  // and a car at grade beside the structure is still told it is there. Asking from the ground was what used to
+  // send climbing cars swerving off to the edges of the bridge.
+  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y)) {
     target = Math.min(target, 3);
-    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2) ? -1 : 1;
+    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y) ? -1 : 1;
   }
 
   {

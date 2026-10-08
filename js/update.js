@@ -11,7 +11,7 @@ import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
+import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
@@ -159,12 +159,17 @@ export function update(dt) {
     if (f.life <= 0) fires.splice(i, 1);
   }
   /* --- collisions --- */
-  for (const c of cars) { if (c.dead) continue; collideSolids(c); collideProps(c); }
+  for (const c of cars) { if (c.dead) continue; collideSolids(c); collideFlyover(c); collideProps(c); }
   tickPumpFuses(sdt);                                          // dispensers that caught the fire
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const A = cars[i], B = cars[j]; if (A.dead || B.dead) continue;
+    // Two cars at different levels are not touching: one on the flyover deck passes over one on the crossing
+    // street below it, and the pair must not shove each other about.
+    if (Math.abs(A.y - B.y) > 2.0) continue;
     const dx = A.x - B.x, dz = A.z - B.z, rr = A.box.e1 + B.box.e1 + 1; if (dx * dx + dz * dz > rr * rr) continue; carCar(A, B);
   }
+  // Pair separation can push a car back into the parapet: resolve it before drawing this frame.
+  for (const c of cars) if (!c.dead) collideFlyover(c);
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
   updateFlying(sdt);
@@ -179,7 +184,9 @@ export function update(dt) {
   /* --- pickups, near misses & pinned logic (player only, while playing) --- */
   if (playing) {
     for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
-      if (pk.taken) continue; const dx = pk.x - player.x, dz = pk.z - player.z;
+      if (pk.taken) continue;
+      if (Math.abs(player.y - 1.4) > 2.2) continue;                    // no collecting through the deck above
+      const dx = pk.x - player.x, dz = pk.z - player.z;
       if (dx * dx + dz * dz < 12) {
         pk.taken = true; pk.mesh.visible = false;
         if (pk.kind === 'cash') { game.cash += 25; sfx.blip(1040); toast('+$25'); for (let i = 0; i < 6; i++) emit(pk.x, 1.4, pk.z, rnd(-3, 3), rnd(2, 6), rnd(-3, 3), 0xffd23b, 0.25, 0.6, 12); }

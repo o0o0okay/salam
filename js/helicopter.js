@@ -7,9 +7,13 @@ import { game, player, sight, reportSighting } from './state.js';
 import { DIFF, HELI_V } from './config.js';
 import { env } from './environment.js';
 import { toast } from './ui.js';
+import { AIM_Y, poolPoint, aimPoint, followAim, beaconStrobe, beaconTint, beaconPulse } from './heliLight.js';
 
 export let helicopter = null;   // live binding: other modules always see the current value
 const _est = { x: 0, z: 0 };
+const _pool = { x: 0, z: 0, y: AIM_Y }, _aim = { x: 0, z: 0, y: AIM_Y, ok: false }, _aimPt = { x: 0, z: 0, y: AIM_Y };
+const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
+const LIGHT_DROP = 0.4;   // the searchlight hangs under the nose
 
 export function ensureHelicopter() {
   if (helicopter) return helicopter;
@@ -33,7 +37,9 @@ export function ensureHelicopter() {
 export function setHelicopterVisible(on) {
   if (!helicopter) return;
   helicopter.visible = on; helicopter.group.visible = on; helicopter.beam.visible = on;
-  if (!on) helicopter.light.intensity = 0;
+  if (!on) { helicopter.light.intensity = 0; _aim.ok = false; }   // next call re-aims the beam outright
+  // note: light.visible is never toggled — a change in the visible light count makes three.js recompile every
+  // material's shader, which is exactly the hitch this file is careful to avoid (intensity 0 is enough)
 }
 
 export function updateHelicopter(dt, active) {
@@ -41,6 +47,7 @@ export function updateHelicopter(dt, active) {
   const h = ensureHelicopter();
   if (!h.visible) { // enter from behind player
     h.x = player.x - Math.sin(player.h) * 140; h.z = player.z - Math.cos(player.h) * 140; h.entry = 4; sight.heliLock = 0;
+    _aim.ok = false;   // fresh arrival: put the beam straight on the car, do not fly it in from the old spot
   }
   setHelicopterVisible(true);
   // --- lock logic (hysteresis): locks when close, breaks when pulled away ---
@@ -63,13 +70,30 @@ export function updateHelicopter(dt, active) {
   if (dd > 0.01) { h.x += (tx - h.x) / dd * spd * dt; h.z += (tz - h.z) / dd * spd * dt; }
   h.entry = Math.max(0, h.entry - dt);
   h.y = lerp(h.y, ty, 1 - Math.exp(-dt * 2.2));
-  // light: locked = cool blue-white on player; lost = warm light sweeping guessed area
-  const ax = tracking ? px : _est.x + Math.sin(game.t * 1.3) * 12, az = tracking ? pz : _est.z + Math.cos(game.t * 1.1) * 12;
-  h.light.intensity = 30 + 190 * env.night; h.beam.material.opacity = 0.1 + 0.12 * env.night;
-  h.light.color.setHex(tracking ? 0xbfe9ff : 0xffe0a8); h.beam.material.color.setHex(tracking ? 0xbfe9ff : 0xffd98a);
+  // light: locked = the pool of light is held on the player's car; lost = the beam sweeps the guessed area
+  const strobe = beaconStrobe(game.t);
+  let gx, gz, ay;
+  if (tracking) {
+    // The pool follows the car itself — no velocity lead — with a small hand-flown sway around it and a light
+    // trailing filter, so a hard turn sweeps the circle over the car instead of teleporting it.
+    poolPoint(game.t, player.x, player.z, player.h, _pool);   // the car itself, never a lead position
+    followAim(_aim, _pool, dt, player.vx, player.vz);
+    gx = _aim.x; gz = _aim.z; ay = _aim.y;
+  } else {
+    _aim.ok = false;   // the next lock-on takes the beam outright
+    gx = _est.x + Math.sin(game.t * 1.3) * 12; gz = _est.z + Math.cos(game.t * 1.1) * 12; ay = AIM_Y * 0.4;
+  }
+  // Aim short of that ground point by the projection the cone makes on its way down, so the middle of the lit
+  // circle lands on the car rather than a metre past its nose.
+  aimPoint(h.x, h.y - LIGHT_DROP, h.z, gx, ay, gz, _aimPt);
+  const pulse = beaconPulse(strobe), tint = beaconTint(strobe, tracking, tracking ? 1 : 0.55);
+  h.light.intensity = (30 + 190 * env.night) * pulse;
+  h.beam.material.opacity = (0.1 + 0.12 * env.night) * pulse;
+  h.light.color.setHex(tint); h.beam.material.color.setHex(tint);   // leans blue / red like the light bars
   h.group.position.set(h.x, h.y, h.z); h.group.rotation.y = Math.atan2(tx - h.x, tz - h.z); h.rotor.rotation.y += dt * 24;
-  h.target.position.set(ax, 0.3, az); h.light.position.set(h.x, h.y - .4, h.z); h.light.target = h.target;
-  const ddx = h.x - ax, ddy = h.y - .25, ddz = h.z - az, len = Math.hypot(ddx, ddy, ddz), radius = Math.tan(h.light.angle) * len;
-  h.beam.position.set((h.x + ax) * .5, (h.y + .25) * .5, (h.z + az) * .5); h.beam.scale.set(radius, len, radius);
-  h.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(ddx / len, ddy / len, ddz / len));
+  h.target.position.set(_aimPt.x, _aimPt.y, _aimPt.z); h.light.position.set(h.x, h.y - LIGHT_DROP, h.z); h.light.target = h.target;
+  // the visible cone runs from the searchlight down to the middle of the pool on the road
+  const bdx = h.x - gx, bdy = h.y - LIGHT_DROP - 0.12, bdz = h.z - gz, len = Math.hypot(bdx, bdy, bdz), radius = Math.tan(h.light.angle) * len;
+  h.beam.position.set((h.x + gx) * .5, (h.y - LIGHT_DROP + 0.12) * .5, (h.z + gz) * .5); h.beam.scale.set(radius, len, radius);
+  h.beam.quaternion.setFromUnitVectors(_up, _dir.set(bdx / len, bdy / len, bdz / len));
 }

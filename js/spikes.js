@@ -34,7 +34,7 @@ export function deploySpike() {
     if (Math.abs(along - node) < 20) along = node + (along >= node ? 22 : -22); // never inside an intersection
     const lat = rc + (Math.random() < 0.5 ? -4 : 4);     // 14 m strip on a 16 m road: a gap stays open on one side
     const x = axisZ ? lat : along, z = axisZ ? along : lat;
-    if (Math.hypot(x - player.x, z - player.z) < 70 || solidAt(x, z, 7)) continue;
+    if (Math.hypot(x - player.x, z - player.z) < 70 || solidAt(x, z, 7, 0)) continue;
     if (spikes.some(o => Math.hypot(o.x - x, o.z - z) < 30)) continue;
     const mesh = makeSpikeMesh(axisZ); mesh.position.set(x, 0.02, z); scene.add(mesh);
     spikes.push({ x, z, axisZ, mesh, life: 50 });

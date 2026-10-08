@@ -130,6 +130,8 @@ export function updateParking(dt = 1 / 60) {
     }
     // ---- fire station: three to five appliances, on station from the first frame ----
     if (ch.fireSlots && ch.fireSlots.length) staffSlots(ch, ch.fireSlots, ch.fireSlots.length);
+    // ---- school bus stand: the yellow fleet stands in its bays, and a wrecked bus is never replaced ----
+    if (ch.busSlots && ch.busSlots.length) staffSlots(ch, ch.busSlots, ch.busSlots.length);
   }
   for (const [key, lot] of LOTS) if (!seen.has(key)) LOTS.delete(key);   // forget blocks that streamed away
 }

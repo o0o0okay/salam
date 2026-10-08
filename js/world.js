@@ -8,6 +8,19 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover } from './flyover.js';
+// A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
+// painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
+// the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
+// like a flat rectangle laid over it. Used by the crossings beside a cut corner (`FLY.chamfer`).
+const ROAD_COAT = (() => {
+  if (typeof document === 'undefined') return mat(0x3b3f4a);   // the audits run with assets.js stubbed and no canvas
+  const c = document.createElement('canvas'); c.width = c.height = 4;
+  const g = c.getContext('2d'); g.fillStyle = '#3b3f4a'; g.fillRect(0, 0, 4, 4);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const m = ASSET.roadMat.clone(); m.map = t;
+  return m;
+})();
 import { env } from './environment.js';
 export const chunks = new Map();
 // ---- Car-park occupancy ----
@@ -119,6 +132,15 @@ function mergeStandalone(g) {
   }
   return out;
 }
+// A merged stand-alone piece — one street prop, one bus shelter, one scaffold, one shop window, one fuel
+// dispenser — is built for one block and nobody else ever draws it again. Its merged geometry is *owned* by
+// that block and has to be handed back when the block streams out: `own()` registers it. Without this the
+// block's merged pieces were never disposed, so every block the player drove past left its vertex buffers in
+// the GPU for the rest of the session (see the streaming notes in tools/sidewalk-checks/README.md).
+function own(ch, obj) {
+  obj.traverse(o => { if (o.isMesh && o.geometry) ch.owned.push(o.geometry); });
+  return obj;
+}
 // ---- Bus stop shelter (several color liveries) ----
 const BUSSTOP_W = 4.4, BUSSTOP_D = 1.8;
 const BUS_LIVERIES = [
@@ -156,12 +178,20 @@ function buildBusStopMesh(v) {
 // The sidewalk is a ring around every block: a kerb stone standing 0.16 m out of the asphalt, a stone-slab
 // walking field, a slab border course against the kerb, and a low kerb wall along the building line.
 // Street trees grow out of soil beds edged with kerb stone, so the planting reads as real "جدولبندی".
-const PAVE_IN = 8.0;                 // road edge: 8 m each side of the centre line = a 16 m street
-const PAVE_OUT = 12.6;               // building line — the pavements in front of it start at ±13.5
+export const PAVE_IN = 8.0;          // road edge: 8 m each side of the centre line = a 16 m street
+export const PAVE_OUT = 12.6;        // where a block's paving ends: the kerb stone stands at PAVE_IN..PAVE_IN+0.5,
+                                     // the walk behind it PAVE_IN+0.5..PAVE_OUT, and the block's own ground begins
+                                     // here. On a side that carries an interchange's at-grade lane the kerb steps
+                                     // out by `FLY.atGrade` (that strip is carriageway: the lane) and the far side of
+                                     // the paving by `FLY.frontage`, so the lane's width comes out of the frontage
+                                     // and the walk behind the kerb keeps the width it has
 const CURB_H = 0.16, WALK_Y = 0.18;  // kerb height above the road, top of the paving
 const BORDER_W = 1.3, KERB_W = 0.35;
 const BED = 0.85, BED_EDGE = 0.15;   // tree-pit soil bed (half size) and the width of its kerb edging
 const PIT_IN = 9.9;                  // distance from the road centre line to the centre of a tree pit
+export const PAD_IN = PAVE_OUT - 0.6;   // where a block's own ground cover (lot, grass, concrete pad) stops:
+                                     // the buildings of a block stand on the outer 0.6 m of the paving's border
+                                     // course, and beside an at-grade lane the whole line moves out by FLY.frontage
 const CURB_TILE = 1, PAVE_TILE = 4.8, BORDER_TILE = 2.6;
 // `dy` lifts two of the four strips by 2 mm: neighbouring strips overlap at the block corners, and this
 // decides the winner there without any visible step (same material, same pattern).
@@ -192,39 +222,95 @@ function pickSidewalkStyle(type, rng) {
   if (type === 'fire') return 'panel';                                    // a fire station apron is plain concrete
   if (type === 'fuel') return 'panel';                                    // a forecourt is plain concrete too
   if (type === 'shops') return rng() < 0.5 ? 'brick' : 'slab';           // a shopping street gets brick or stone
+  if (type === 'school') return rng() < 0.55 ? 'slab' : 'panel';      // a school frontage is plain paved stone
   return rng() < 0.5 ? 'slab' : 'panel';                                  // parks mix the two paved styles
 }
 // Empty box lists for one chunk's sidewalk ring. Each entry is then merged into a single mesh per material.
+// How far a pavement strip stops short of the junction at one of its ends, and how much further the cut corner
+// takes off it. `(ix, iz)` is the neighbouring block that shares that junction, `si` the side the strip runs on.
+// The pavement uses this, and so does everything planted along it — trees, hedges, lights, hydrants — so a prop
+// and the paving it stands on always start from one and the same answer.
+function stripStops(ix, iz, cx, cz, si) {
+  const lane = atGradeSide(cx, cz, si);
+  const onLaneRoad = (ix === 0 && (atGradeSide(cx, cz, 0) || atGradeSide(cx, cz, 1)))
+    || (iz === 0 && (atGradeSide(cx, cz, 2) || atGradeSide(cx, cz, 3)));
+  const stop = (!lane && (nodeAt(ix, iz) || onLaneRoad)) ? roadEdge() : PAVE_IN;
+  return { stop, cut: besideFlyover(ix, iz) ? FLY.chamfer : 0 };
+}
 function sidewalkPieces(cx, cz, style) {
   const bx = cx * CHUNK + 40, bz = cz * CHUNK + 40, E = CHUNK / 2, PH = CURB_H + 0.04;
+  const x0 = bx - E, z0 = bz - E;                       // the block's own corners, for the chamfered ones
   const st = SW_STYLES[style] || SW_STYLES.slab;
   const out = { bx, bz, style, st, curb: [], walk: [], grass: [], border: [], kerb: [], bed: [], bedEdge: [] };
-  for (const s of SIDEWALK_SIDES) {
+  for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
+    const s = SIDEWALK_SIDES[si];
+    // A side that fronts a flyover gives the outer `FLY.atGrade` metres of its pavement back to the street: that
+    // strip is the at-grade lane beside the structure, so the kerb (and the whole sidewalk ring) steps back here.
+    // The frontage steps back with it (`FLY.frontage`): the lane takes its width out of the frontage, not out of
+    // the walkway behind the kerb, so the pavement there keeps its width and the buildings sit a little further
+    // back — which is what makes room for a full-width lane under the deck.
+    const lane = atGradeSide(cx, cz, si), gap = lane ? FLY.atGrade : 0, edge = PAVE_IN + gap;
+    const line = PAVE_OUT + (lane ? FLY.frontage : 0);
     // Strips stop PAVE_IN from each chunk edge: that is exactly where the crossing street's asphalt ends,
-    // so no paving or kerb stone can stick out into an intersection.
-    const a0 = (s.along === 'z' ? cz : cx) * CHUNK + PAVE_IN;
-    const len = CHUNK - PAVE_IN * 2, mid = a0 + len / 2;
+    // so no paving or kerb stone can stick out into an intersection. At an interchange it is not always enough:
+    // the at-grade lane runs *through* the junction (that is the whole point of it — it is the way under the
+    // deck), so a strip on the side that does not carry the lane has to stop `roadEdge()` out instead, or its
+    // kerb and paving would lie across the lane and the lane would dead-end at a raised kerb every block.
+    // The junctions at the strip's two ends: the strip faces the street its own block edge stands on, and runs
+    // from one end of that edge to the other, so one end of it is always a junction with a crossing street.
+    const rx = cx + (s.along === 'z' && s.fixed > 0 ? 1 : 0), rz = cz + (s.along === 'x' && s.fixed > 0 ? 1 : 0);
+    const ends = s.along === 'z' ? [[rx, cz], [rx, cz + 1]] : [[cx, rz], [cx + 1, rz]];
+    // ... nor where this block carries a lane along the road the end stands on: the lane runs the whole length of
+    // the block, so the far end of a strip that meets the flying road has to clear it just the same (the lane
+    // does not stop twenty metres short of the next junction).
+    const stops = ends.map(([ix, iz]) => stripStops(ix, iz, cx, cz, si).stop);
+    // A junction beside a flyover has its corners cut on the diagonal (`FLY.chamfer`): the strip stops that far
+    // short of it, and the piece the cut takes off comes back as a rotated twin below (`chamferCorner`), so the
+    // kerb, the paving and the border course all turn 45° together and the pavement reads as a mouth rather
+    // than as a square. The cut is measured from the road edge along each kerb, i.e. from the strip's own kerb.
+    const cuts = ends.map(([ix, iz]) => stripStops(ix, iz, cx, cz, si).cut);
+    const a0 = (s.along === 'z' ? cz : cx) * CHUNK + stops[0] + cuts[0];
+    const len = CHUNK - stops[0] - stops[1] - cuts[0] - cuts[1], mid = a0 + len / 2;
     const at = (radial, along) => s.along === 'z'
       ? { x: bx + s.fixed * radial, z: along }
       : { x: along, z: bz + s.fixed * radial };
     const C = s.along === 'z';                          // true when the strip runs along z (length on z)
+    // ... and the twin itself: the strip's piece turned 45° across the corner. `radial` is the piece's own
+    // offset from the block centre, `w` its thickness (its radial extent), so its outer face lands on the
+    // diagonal and the piece comes back behind it by its own width. `sx`/`sz` say which side of the junction
+    // this block is on, which is what turns the diagonal's own sense.
+    const chamferCorner = (arr, w, h, radial, y, end) => {
+      const [jx, jz] = [ends[end][0] * CHUNK, ends[end][1] * CHUNK];
+      const sx = jx === x0 ? 1 : -1, sz = jz === z0 ? 1 : -1;
+      const ex = PAVE_IN + (atGradeSide(cx, cz, sx > 0 ? 0 : 1) ? FLY.atGrade : 0);
+      const ez = PAVE_IN + (atGradeSide(cx, cz, sz > 0 ? 2 : 3) ? FLY.atGrade : 0);
+      // `place` hands radial offsets over as distances from the block centre, so the piece's own distance from
+      // the road centre line — which is what the corner, and so the diagonal, is measured against — is `E - radial`.
+      const edge = C ? ex : ez;                            // this strip's own kerb, in its radial direction
+      const k = ((E - radial) - edge) / Math.SQRT2;        // its own offset behind the diagonal, along and across
+      const R = ex + FLY.chamfer / 2 + k, A = ez + FLY.chamfer / 2 + k;   // the twin's centre, off the corner
+      const L = FLY.chamfer * Math.SQRT2;                  // its length along the cut, end to end
+      const x = jx + sx * R, z = jz + sz * A;
+      arr.push({ w: L, h, d: w, x, y: y + s.dy, z, rot: sx * sz * PI / 4 });
+    };
     const place = (arr, w, h, d, radial, y) => {
       const p = at(radial, mid);
       arr.push({ w: C ? w : len, h, d: C ? len : w, x: p.x, y: y + s.dy, z: p.z });
+      for (const end of [0, 1]) if (cuts[end]) chamferCorner(arr, w, h, radial, y, end);
     };
     // `place` takes the offset from the block centre: 0 = middle of the block, CHUNK/2 = road centre line,
     // so a distance `d` measured from the road is passed as E - d.
-    place(out.curb, 0.5, CURB_H, 0, E - (PAVE_IN + 0.25), CURB_H / 2);                  // kerb stone out of the road
-    let inner = PAVE_IN + 0.5;                                                          // inner face of the kerb stone
-    if (st.verge) {                                                                     // grass verge, slightly proud
+    place(out.curb, 0.5, CURB_H, 0, E - (edge + 0.25), CURB_H / 2);                     // kerb stone out of the road
+    let inner = edge + 0.5;                                                             // inner face of the kerb stone
+    if (st.verge && !gap) {                                                             // grass verge, slightly proud
       place(out.grass, st.verge, 0.3, 0, E - (inner + st.verge / 2), WALK_Y + 0.015 - 0.15);
       inner += st.verge;
     }
-    const walkW = PAVE_OUT - inner;                                                     // paved walking field
+    const walkW = line - inner;                                                         // paved walking field
     place(out.walk, walkW, PH, 0, E - (inner + walkW / 2), WALK_Y - PH / 2);
-    if (!st.verge) {                                                                    // stone edging only when paved to the kerb
-      place(out.border, BORDER_W, 0.025, 0, E - (PAVE_OUT - BORDER_W / 2), WALK_Y + 0.0125);
-      place(out.kerb, 0.6, 0.26, 0, E - (PAVE_OUT - BORDER_W - 0.3), WALK_Y + 0.13);
+    if (!st.verge && !gap) {                                                            // stone edging only when paved to the kerb
+      place(out.border, BORDER_W, 0.025, 0, E - (line - BORDER_W / 2), WALK_Y + 0.0125);
+      place(out.kerb, 0.6, 0.26, 0, E - (line - BORDER_W - 0.3), WALK_Y + 0.13);
     }
   }
   return out;
@@ -253,7 +339,13 @@ function bakeRing(list, material, tile, cast, ch) {
   if (!list.length) return null;
   const geos = list.map(m => {
     const g = new THREE.BoxGeometry(1, 1, 1);
-    g.applyMatrix4(new THREE.Matrix4().makeScale(m.w, m.h, m.d).setPosition(m.x, m.y, m.z));
+    // A piece may carry `rot` (radians about its own centre, for the chamfered corners that turn 45°); the
+    // scale has to be applied in the piece's own frame and the rotation about the piece's own centre, so the
+    // matrix is T * R * S rather than the plain scale-and-translate every other piece uses.
+    const M = new THREE.Matrix4().makeScale(m.w, m.h, m.d);
+    if (m.rot) M.premultiply(new THREE.Matrix4().makeRotationY(m.rot));
+    M.setPosition(m.x, m.y, m.z);
+    g.applyMatrix4(M);
     const uv = g.attributes.uv;
     for (const f of [[0, m.d, m.h], [1, m.w, m.d], [2, m.w, m.h]]) {
       const su = Math.max(1, Math.round(f[1] / tile)), sv = Math.max(1, Math.round(f[2] / tile));
@@ -679,17 +771,247 @@ function buildFireStationMesh(bx, bz, rng) {
     ],
   };
 }
+// ---- School ----
+// A neighbourhood school on its own block: a two-storey classroom wing with a glazed gym beside it, a grass
+// yard behind a chain-link fence, a playground and basketball court in that yard, and a lot out front where the
+// yellow school buses stand nose-out along the kerb. The fence is real geometry (posts, rails, a light mesh
+// panel and a concrete plinth) and real collision, with a gate at the walkway and a service gate for the yard.
+export function buildSchoolMesh(bx, bz, rng) {
+  const g = new THREE.Group(), solids = [], bays = [], paint = [], fence = [], playground = [];
+  const M = {
+    brick: mat(0xd8c9a8), brickDark: mat(0xc2b18d), trim: mat(0xf0ece1), band: mat(0xe6e2d6),
+    glass: mat(0x3f7fb5), glassDark: mat(0x2b5f8c), frame: mat(0xf7f9fa), roof: mat(0x9aa0a6),
+    door: mat(0x2f4a63), steel: mat(0x9aa2a8), fenceMesh: mat(0x9aa79f, { transparent: true, opacity: 0.22 }),
+    plinth: mat(0xb9b6ad), walk: mat(0xc9ccce), court: mat(0x4b5058), line: mat(0xe9e8df),
+    yellow: mat(0xf7b500), red: mat(0xd6503f), blue: mat(0x3f7fd0), green: mat(0x4ca85c),
+    sand: mat(0xe0cf9a), mulch: mat(0xb08a5c), playBlue: mat(0x4a8fd0), playRed: mat(0xd05a4a), playYellow: mat(0xe8c33a),
+    busBay: mat(0xf7b500), pole: mat(0x6d747c),
+  };
+  const B = (w, h, d, m, x, y, z, cast = true) => g.add(box(w, h, d, m, x, y, z, cast));
+  const R = (bw, bh, bd, m, x, y, z, rx, rz) => { const o = box(bw, bh, bd, m, x, y, z, false); if (rx) o.rotation.x = rx; if (rz) o.rotation.z = rz; g.add(o); return o; };
+  const C = (rt, rb, h, seg, m, x, y, z) => { const o = cyl(rt, rb, h, seg, m, x, y, z, false); g.add(o); return o; };   // returns the cylinder: g.add() returns the group
+  const Y = 0.25;                                          // yard and lot surface height
+  const solid = (x, z, hx, hz) => solids.push({ x: bx + x, z: bz + z, hx, hz, kind: 'building' });
+  const mark = (x, z, name) => playground.push({ name, x: bx + x, z: bz + z });
+
+  // ================= the school building: classroom wing, gym and entrance =================
+  const A = { x: -10, z: -24, w: 34, d: 8, h: 8.4 };                       // two-storey classroom wing
+  B(A.w, A.h, A.d, M.brick, A.x, Y + A.h / 2, A.z);
+  B(A.w + 0.5, 0.5, A.d + 0.5, M.trim, A.x, Y + A.h + 0.25, A.z, false);   // parapet
+  B(A.w + 0.3, 0.9, A.d + 0.3, M.brickDark, A.x, Y + 0.45, A.z, false);    // plinth course
+  for (let f = 0; f < 2; f++) {
+    const y = Y + 2.3 + f * 3.2;
+    B(A.w - 2, 1.5, 0.16, M.glass, A.x, y, A.z + A.d / 2 + 0.09, false);   // band of classroom windows
+    B(A.w - 2, 0.16, 0.2, M.frame, A.x, y + 0.83, A.z + A.d / 2 + 0.12, false);
+    B(A.w - 2, 0.16, 0.2, M.frame, A.x, y - 0.83, A.z + A.d / 2 + 0.12, false);
+    for (let c = 0; c < 9; c++) B(0.22, 1.5, 0.2, M.frame, A.x - (A.w - 2) / 2 + 0.6 + c * (A.w - 3.2) / 8, y, A.z + A.d / 2 + 0.14, false);
+  }
+  solid(A.x, A.z, A.w / 2, A.d / 2);
+
+  const G = { x: 17, z: -23, w: 20, d: 10, h: 10 };                        // gymnasium / hall
+  B(G.w, G.h, G.d, M.brickDark, G.x, Y + G.h / 2, G.z);
+  B(G.w + 0.5, 0.6, G.d + 0.5, M.trim, G.x, Y + G.h + 0.3, G.z, false);
+  for (let c = 0; c < 5; c++) B(2.4, 2.2, 0.16, M.glassDark, G.x - 7 + c * 3.5, Y + 7.4, G.z + G.d / 2 + 0.09, false);   // clerestory
+  B(G.w - 2, 2.6, 0.16, M.glass, G.x, Y + 1.9, G.z + G.d / 2 + 0.09, false);                                              // tall hall windows
+  B(G.w, 0.8, 0.24, M.brick, G.x, Y + 5.6, G.z + G.d / 2 + 0.06, false);
+  const gymSign = textBlocks('GYMNASIUM', M.trim, 1.0, 0.16, 0.35);
+  gymSign.position.set(G.x, Y + 8.9, G.z + G.d / 2 + 0.4); g.add(gymSign);
+  solid(G.x, G.z, G.w / 2, G.d / 2);
+
+  // entrance: projecting lobby with a canopy, steps, a clock and the SCHOOL board
+  const E = { x: -10, z: -19.2, w: 11, d: 2.6, h: 4.4 };
+  B(E.w, E.h, E.d, M.trim, E.x, Y + E.h / 2, E.z);
+  B(E.w - 2, 2.3, 0.14, M.door, E.x, Y + 1.25, E.z + E.d / 2 + 0.08, false);
+  B(3.0, 2.3, 0.1, M.glass, E.x, Y + 1.25, E.z + E.d / 2 + 0.12, false);
+  B(E.w + 4, 0.36, 4.2, M.trim, E.x, Y + E.h + 0.18, E.z + 1.2, false);    // canopy
+  for (const sx of [-1, 1]) C(0.16, 0.16, E.h, 8, M.steel, E.x + sx * (E.w / 2 + 1.4), Y + E.h / 2, E.z + 3.1);
+  B(E.w + 1.6, 2.4, 0.45, M.brick, E.x, Y + E.h + 1.6, E.z + 0.4, false);  // the board above the doors
+  const sign = textBlocks('SCHOOL', M.trim, 1.35, 0.18, 0.5);
+  sign.position.set(E.x, Y + E.h + 1.6, E.z + 0.66); g.add(sign);
+  C(0.95, 0.95, 0.16, 14, M.trim, E.x + 3.6, Y + E.h + 1.7, E.z + 0.5);    // clock
+  C(0.8, 0.8, 0.06, 14, M.brickDark, E.x + 3.6, Y + E.h + 1.7, E.z + 0.6);
+  B(0.1, 0.42, 0.06, M.trim, E.x + 3.6, Y + E.h + 1.86, E.z + 0.62, false);
+  B(0.32, 0.1, 0.06, M.trim, E.x + 3.72, Y + E.h + 1.7, E.z + 0.62, false);
+  for (let i = 0; i < 2; i++) B(E.w + 3, 0.16, 0.5, M.walk, E.x, Y - 0.02 - i * 0.14, E.z + E.d / 2 + 1.1 + i * 0.5, false);   // steps
+  mark(E.x, E.z, 'entrance');
+  solid(E.x, E.z, E.w / 2, E.d / 2);
+
+  // ================= yard, fence and gates =================
+  const YARD_Z = 0, GATE = { a: -3, b: 3 }, SERVICE = { a: 19, b: 23 };
+  // Chain-link run: posts every 3 m, two rails, a light mesh panel and a concrete plinth. The plinth is poured
+  // into the block like any other concrete; the fence itself is built as separate pieces (up to 7 m each) and
+  // handed to the collision system as stand-alone kits, so a real hit tears a panel off its base and the yard
+  // opens up — see breakFence() in js/collisions.js.
+  const fenceRuns = [];
+  const fenceRun = (ax, az, bx2, bz2) => {
+    const len = Math.hypot(bx2 - ax, bz2 - az), alongX = Math.abs(bx2 - ax) > Math.abs(bz2 - az);
+    const cx = (ax + bx2) / 2, cz = (az + bz2) / 2;
+    if (alongX) B(len, 0.22, 0.16, M.plinth, cx, Y + 0.11, cz, false);
+    else B(0.16, 0.22, len, M.plinth, cx, Y + 0.11, cz, false);
+    const dir = alongX ? (Math.sign(bx2 - ax) || 1) : (Math.sign(bz2 - az) || 1);   // which way the run is laid
+    const segs = Math.max(1, Math.round(len / 7)), segLen = len / segs, pieces = [];
+    for (let i = 0; i < segs; i++) {
+      const mid = (-len / 2 + (i + 0.5) * segLen) * dir;              // the piece's centre, along the run
+      const grp = new THREE.Group();
+      const F = (w, h, d, m, x, y, z) => grp.add(box(w, h, d, m, x, y, z, false));
+      if (alongX) {
+        F(segLen, 1.8, 0.04, M.fenceMesh, 0, Y + 1.12, 0);
+        F(segLen, 0.08, 0.08, M.steel, 0, Y + 2.02, 0);
+        F(segLen, 0.06, 0.06, M.steel, 0, Y + 0.72, 0);
+      } else {
+        F(0.04, 1.8, segLen, M.fenceMesh, 0, Y + 1.12, 0);
+        F(0.08, 0.08, segLen, M.steel, 0, Y + 2.02, 0);
+        F(0.06, 0.06, segLen, M.steel, 0, Y + 0.72, 0);
+      }
+      pieces.push({ group: grp, x: bx + cx + (alongX ? mid : 0), z: bz + cz + (alongX ? 0 : mid),
+        hx: alongX ? segLen / 2 : 0.12, hz: alongX ? 0.12 : segLen / 2, alongX, segLen, run: fenceRuns.length, mesh: null });
+    }
+    // posts every 3 m from the run's start, plus one at the far end so the run closes: each post lands in the
+    // piece that stands over it, and travels with that piece when the fence comes down
+    const posts = [];
+    for (let d = 0; d < len - 1e-6; d += 3) posts.push(d);
+    posts.push(len);
+    for (const d of posts) {
+      const i = Math.min(segs - 1, Math.floor(d / segLen + 1e-9));
+      const off = (d - (i + 0.5) * segLen) * dir;                     // distance from that piece's own centre
+      pieces[i].group.add(alongX ? box(0.1, 2.05, 0.1, M.steel, off, Y + 1.02, 0, false)
+                                 : box(0.1, 2.05, 0.1, M.steel, 0, Y + 1.02, off, false));
+    }
+    fenceRuns.push({ pieces });
+    fence.push({ x: bx + cx, z: bz + cz, hx: alongX ? len / 2 : 0.14, hz: alongX ? 0.14 : len / 2 });
+  };
+  fenceRun(-28, YARD_Z, GATE.a, YARD_Z);                    // front, west of the main gate
+  fenceRun(GATE.b, YARD_Z, SERVICE.a, YARD_Z);              // front, between the gates
+  fenceRun(SERVICE.b, YARD_Z, 28, YARD_Z);                  // front, east of the service gate
+  fenceRun(-28, YARD_Z, -28, -20);                          // west side, up to the classroom wing
+  fenceRun(-28, -20, -27, -20);                             // return to the wing's corner
+  fenceRun(28, YARD_Z, 28, -18);                            // east side, up to the gym
+  fenceRun(28, -18, 27, -18);                               // return to the gym's corner
+  // gate posts and the little roofs over the gates
+  for (const gx of [GATE.a, GATE.b, SERVICE.a, SERVICE.b]) { B(0.24, 2.4, 0.24, M.brick, gx, Y + 1.2, YARD_Z, false); C(0.3, 0.3, 0.14, 8, M.trim, gx, Y + 2.5, YARD_Z); }
+
+  // ================= playground (inside the fence, east half of the yard) =================
+  const play = { x: 12, z: -9 };
+  paint.push({ w: 26, d: 17, m: M.mulch, x: bx + play.x, z: bz + play.z });         // soft safety surface
+  for (let i = 0; i < 8; i++) {                                                      // coloured tiles around the gear
+    const px = play.x - 10 + (i % 4) * 6.4, pz = play.z - 6 + Math.floor(i / 4) * 9;
+    paint.push({ w: 3.2, d: 3.2, m: [M.playBlue, M.playRed, M.playYellow, M.green][i % 4], x: bx + px, z: bz + pz });
+  }
+  // swing set: two braced A-frames with a top bar and two hanging seats
+  const SW = { x: play.x - 6, z: play.z - 3 };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.12, 2.8, 0.12, M.pole, SW.x + sx * 3.1, Y + 1.4, SW.z + sz * 0.5, false);
+  for (const sx of [-1, 1]) B(0.1, 0.1, 1.15, M.pole, SW.x + sx * 3.1, Y + 2.72, SW.z, false);
+  C(0.08, 0.08, 6.4, 8, M.pole, SW.x, Y + 2.76, SW.z).rotation.z = PI / 2;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) C(0.02, 0.02, 1.9, 5, M.steel, SW.x + sx * 0.8 + sz * 0.24, Y + 1.75, SW.z);
+    B(0.62, 0.06, 0.26, M.playRed, SW.x + sx * 0.8, Y + 0.78, SW.z, false);
+  }
+  mark(SW.x, SW.z, 'swing set');
+  // slide: ladder, platform, blue chute
+  const SL = { x: play.x + 3, z: play.z - 4 };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.12, 2.3, 0.12, M.playBlue, SL.x + sx * 0.7, Y + 1.15, SL.z + sz * 0.7, false);
+  B(1.7, 0.12, 1.7, M.playYellow, SL.x, Y + 2.3, SL.z, false);
+  for (const sx of [-1, 1]) B(0.08, 1.0, 0.08, M.pole, SL.x + sx * 0.7, Y + 2.8, SL.z - 0.7, false);
+  B(1.5, 0.08, 0.08, M.pole, SL.x, Y + 3.25, SL.z - 0.7, false);
+  for (let i = 0; i < 5; i++) B(1.3, 0.07, 0.09, M.pole, SL.x, Y + 0.4 + i * 0.42, SL.z - 1.05, false);      // ladder rungs
+  for (const sx of [-1, 1]) B(0.09, 0.09, 2.9, M.playBlue, SL.x + sx * 0.55, Y + 1.5, SL.z - 1.2, false);
+  R(1.0, 0.1, 3.2, M.playRed, SL.x, Y + 1.15, SL.z + 0.75, -0.52, 0);                                       // the chute
+  for (const sx of [-1, 1]) R(0.09, 0.34, 3.2, M.playRed, SL.x + sx * 0.5, Y + 1.36, SL.z + 0.75, -0.52, 0);
+  mark(SL.x, SL.z, 'slide');
+  // climbing frame with a roof, a scramble net and a fireman's pole
+  const CF = { x: play.x + 9, z: play.z - 1 };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 2.5, 0.14, M.green, CF.x + sx * 1.4, Y + 1.25, CF.z + sz * 1.4, false);
+  B(3.1, 0.14, 3.1, M.playYellow, CF.x, Y + 2.5, CF.z, false);
+  R(1.9, 0.14, 1.9, M.green, CF.x, Y + 3.35, CF.z, 0, PI / 4);                                              // roof, turned 45 degrees
+  for (let i = 0; i < 4; i++) B(2.6, 0.08, 0.08, M.playBlue, CF.x, Y + 0.65 + i * 0.5, CF.z + 1.4, false);   // rungs up one side
+  for (const sx of [-1, 1]) B(0.08, 0.08, 2.4, M.playBlue, CF.x + sx * 1.3, Y + 0.4, CF.z, false);
+  C(0.09, 0.09, 2.4, 6, M.playRed, CF.x + 1.75, Y + 1.2, CF.z - 1.2);
+  mark(CF.x, CF.z, 'climbing frame');
+  // see-saw, sandbox and two spring riders
+  const SS = { x: play.x - 4, z: play.z + 4 };
+  B(0.3, 0.9, 0.5, M.pole, SS.x, Y + 0.45, SS.z, false);
+  R(0.34, 0.1, 3.6, M.playBlue, SS.x, Y + 0.95, SS.z, 0, 0.09);
+  for (const sz of [-1, 1]) { B(0.34, 0.08, 0.08, M.playRed, SS.x, Y + 1.28, SS.z + sz * 1.55, false); B(0.06, 0.36, 0.06, M.playRed, SS.x, Y + 1.12, SS.z + sz * 1.55, false); }
+  mark(SS.x, SS.z, 'see-saw');
+  const SB = { x: play.x + 4, z: play.z + 5 };
+  for (const sx of [-1, 1]) B(4.4, 0.3, 0.3, M.brickDark, SB.x + sx * 2.05, Y + 0.15, SB.z, false);
+  for (const sz of [-1, 1]) B(0.3, 0.3, 4.4, M.brickDark, SB.x, Y + 0.15, SB.z + sz * 2.05, false);
+  B(3.8, 0.1, 3.8, M.sand, SB.x, Y + 0.12, SB.z, false);
+  mark(SB.x, SB.z, 'sandbox');
+  for (const [rx2, rz2, col] of [[play.x - 8, play.z + 6, M.playRed], [play.x - 6, play.z + 8, M.playYellow]]) {
+    C(0.12, 0.12, 0.5, 8, M.steel, rx2, Y + 0.25, rz2);
+    B(0.9, 0.34, 0.3, col, rx2, Y + 0.62, rz2, false);
+    B(0.34, 0.3, 0.3, col, rx2, Y + 0.88, rz2 - 0.3, false);
+    for (const sz of [-1, 1]) B(0.06, 0.28, 0.06, M.pole, rx2 + 0.24, Y + 0.82, rz2 + sz * 0.2, false);
+    mark(rx2, rz2, 'spring rider');
+  }
+
+  // ================= basketball court (west half of the yard) =================
+  const CT = { x: -18, z: -11, w: 15, d: 10 };
+  paint.push({ w: CT.w + 0.6, d: CT.d + 0.6, m: M.court, x: bx + CT.x, z: bz + CT.z });
+  paint.push({ w: 0.18, d: CT.d, m: M.line, x: bx + CT.x - CT.w / 2, z: bz + CT.z });
+  paint.push({ w: 0.18, d: CT.d, m: M.line, x: bx + CT.x + CT.w / 2, z: bz + CT.z });
+  paint.push({ w: CT.w, d: 0.18, m: M.line, x: bx + CT.x, z: bz + CT.z - CT.d / 2 });
+  paint.push({ w: CT.w, d: 0.18, m: M.line, x: bx + CT.x, z: bz + CT.z + CT.d / 2 });
+  paint.push({ w: 0.18, d: CT.d, m: M.line, x: bx + CT.x, z: bz + CT.z });
+  C(2.6, 2.6, 0.04, 20, M.line, CT.x, Y + 0.05, CT.z, false);
+  for (const [hx2, dir] of [[CT.x - CT.w / 2 - 1.1, 1], [CT.x + CT.w / 2 + 1.1, -1]]) {
+    C(0.1, 0.12, 3.6, 8, M.pole, hx2, Y + 1.8, CT.z + 0.5);
+    B(1.1, 0.1, 0.1, M.pole, hx2 + dir * 0.6, Y + 3.5, CT.z + 0.5, false);       // arm over the baseline
+    B(0.1, 1.15, 1.85, M.trim, hx2 + dir * 1.15, Y + 3.3, CT.z + 0.5, false);    // backboard
+    C(0.24, 0.24, 0.05, 10, mat(0xe8703a), hx2 + dir * 1.35, Y + 2.95, CT.z + 0.5);
+    mark(hx2, CT.z + 0.5, 'basketball hoop');
+  }
+
+  // paths: gate to the entrance, along the yard, and the apron in front of the lobby
+  paint.push({ w: 2.6, d: 16.5, m: M.walk, x: bx + 0, z: bz - 8.2 });
+  paint.push({ w: 12.5, d: 4.2, m: M.walk, x: bx + E.x, z: bz - 17.6 });
+  paint.push({ w: 21, d: 2.2, m: M.walk, x: bx + 10, z: bz - 0.9 });
+  // flagpole and a couple of benches inside the yard
+  C(0.09, 0.12, 8.5, 8, M.trim, -4.4, Y + 4.25, -3.6);
+  C(0.5, 0.5, 0.2, 10, M.plinth, -4.4, Y + 0.1, -3.6);
+  B(1.5, 0.9, 0.03, M.red, -3.65, Y + 7.8, -3.6, false);
+  B(0.55, 0.35, 0.03, M.trim, -4.12, Y + 7.8, -3.6, false);
+  mark(-4.4, -3.6, 'flagpole');
+
+  // ================= the lot out front: staff rows and the bus stand =================
+  // three rows of staff bays (filled by the day/night curve like any other lot) ...
+  const stallW = 4.6, perRow = 10, startX = -(perRow * stallW) / 2;
+  [4.2, 11.6, 19.0].forEach((rz, ri) => {
+    for (let i = 0; i <= perRow; i++) paint.push({ w: 0.16, d: 5.0, m: M.line, x: bx + startX + i * stallW, z: bz + rz });
+    for (let i = 0; i < perRow; i++) {
+      bays.push({ x: bx + startX + (i + 0.5) * stallW, z: bz + rz, rotY: rng() < 0.5 ? 0 : PI, hx: 1.25, hz: 2.6, bus: false });
+    }
+  });
+  // ... and the bus stand: three long yellow bays along the kerb, marked out and signed
+  for (const bxp of [-16, -3, 10]) {
+    paint.push({ w: 11.6, d: 3.4, m: M.busBay, x: bx + bxp, z: bz + 25.4 });
+    bays.push({ x: bx + bxp, z: bz + 25.4, rotY: PI / 2, hx: 5.3, hz: 1.5, bus: true });
+  }
+  const busMark = textBlocks('BUS', mat(0x2b2b2b), 1.5, 0.1, 0.4);
+  busMark.rotation.x = -PI / 2; busMark.position.set(bx - 7, Y + 0.045, bz + 25.4); g.add(busMark);
+  B(0.9, 2.4, 0.16, M.yellow, 23.6, Y + 1.2, 25.4, false);                      // BUS STOP blade by the lane
+  const busSign = textBlocks('BUS', mat(0x2b2b2b), 0.5, 0.1, 0.3);
+  busSign.position.set(23.6, Y + 1.9, 25.5); g.add(busSign);
+
+  return {
+    group: g, solids, bays, paint, fence, fenceRuns, playground,
+    yard: { x: bx, z: bz + (YARD_Z - 20) / 2, hx: 28, hz: 10 },                 // the fenced yard, block-local centre
+    lot: { x: bx, z: bz + 13.7, hx: 28, hz: 13.7 },
+  };
+}
 // Pre-build every sign the world can show, at boot, while nothing is moving: the first time a string is used its
 // letters have to be merged, and paying for that at boot is what keeps a shopping street from hitching the frame
 // the player first drives past it.
 export function warmTextCache() {
-  const G = ['REG', 'MID', 'PREM', 'OPEN 24', 'OPEN', 'HOSPITAL', 'EMERGENCY', 'FIRE STATION', 'H'];
+  const G = ['REG', 'MID', 'PREM', 'OPEN 24', 'OPEN', 'HOSPITAL', 'EMERGENCY', 'FIRE STATION', 'H', 'SCHOOL', 'GYMNASIUM', 'BUS'];
   for (const t of SHOP_TYPES) for (const h of [0.46, 0.72, 0.82]) textGeometry(t.name, h, h * 0.22, h * 0.5);
   for (const t of SHOP_TYPES) textGeometry(t.blade, 0.26, 0.06, 0.18);
   for (const t of PARADE_TITLES) textGeometry(t, 0.42, 0.1, 0.34);
   for (const b of FUEL_BRANDS) for (const h of [0.46, 0.72, 0.82]) textGeometry(b.name, h, h * 0.22, h * 0.5);
   for (const t of G) textGeometry(t, 0.3, 0.1, 0.26);
   textGeometry('H', 4.2, 0.14, 0.6);
+  textGeometry('OVERPASS', 0.42, 0.12, 0.3);          // the interchange's direction plates
 }
 // ---- Fuel station ----
 // Procedural forecourt in the style of a modern filling station: a big flat canopy with a lit underside and
@@ -973,7 +1295,10 @@ function buildShopParadeMesh(shops, rng, opts = {}) {
   B(len + 7, h, depth, wall, 0, h / 2, -depth / 2);                                  // the parade box, towers included
   B(len + 7.4, 0.42, depth + 0.5, trim, 0, h + 0.21, -depth / 2, false);             // parapet
   B(len, 0.5, 0.3, trim, 0, 0.25, 0.15, false);                                      // base course
-  for (let i = 0; i < 3; i++) B(1.9, 0.95, 1.7, roofM, -len / 4 + len / 2 * i, h + 0.75, -depth + 1.4);   // roof plant
+  // Roof plant: three boxes at -len/4, 0 and +len/4 along the parade. The stride has to be len/4 — a stride of
+  // len/2 put the third box at +3len/4, i.e. 7.75 m past the end of the building, so a grey box hung in mid-air
+  // over the street beside every parade (reported as the box that is attached to nothing).
+  for (let i = 0; i < 3; i++) B(1.9, 0.95, 1.7, roofM, (i - 1) * len / 4, h + 0.75, -depth + 1.4);   // roof plant
   for (const sx of [-1, 1]) {                                                        // corner towers
     const tx = sx * (len / 2 + 2.4);
     B(0.35, h + 2.8, depth + 0.9, trim, tx - sx * 1.45, (h + 2.8) / 2, -depth / 2 - 0.45, false);   // end pilaster
@@ -991,22 +1316,67 @@ function buildShopParadeMesh(shops, rng, opts = {}) {
     B(0.26, h, 0.3, trim, x - shopW / 2, h / 2, 0.15, false);                        // pilaster between shops
     const kit = buildShopFrontMesh(shop, shopW - 0.3, h, rng, opts);
     kit.body.position.x = x; g.add(kit.body);
-    kit.glass.position.x = x; glasses.push({ group: kit.glass, x, w: shopW - 0.3, name: shop.name, kind: shop.kind });
+    // the kit's glass stays at its own origin: the block places each shop's pane at that shop's world
+    // position below. Offsetting it here as well used to move every pane twice, which left the two end
+    // windows of every parade standing out in the street as 7.6 x 2.35 m pale sheets.
+    glasses.push({ group: kit.glass, x, w: shopW - 0.3, name: shop.name, kind: shop.kind });
     list.push({ name: shop.name, kind: shop.kind, x, w: shopW - 0.3 });
   });
   B(0.26, h, 0.3, trim, len / 2, h / 2, 0.15, false);                                // closing pilaster
   return { group: g, glasses, shops: list, len, depth, h, shopW };
 }
+// Compact splitter-nose protection, facing local +z (approaching traffic). Shared geometry is baked into
+// the owning quarter's chunk; no textures, remote models or per-frame allocations are needed.
+export function buildFlyoverNoseGuard() {
+  const g = new THREE.Group();
+  const yellow = mat(0xffc928), black = mat(0x252a30), white = mat(0xf5f4e9);
+  const red = mat(0xe93827), blue = mat(0x1767c8), steel = mat(0x858e94);
+  const B = (w, h, d, m, x, y, z) => { const b = box(w, h, d, m, x, y, z); g.add(b); return b; };
+  // Yellow impact barrel with a broad foot, lid and black warning panels on its approach face.
+  g.add(cyl(0.65, 0.68, 0.12, 12, black, 0, 0.06, 0));
+  g.add(cyl(0.59, 0.63, 0.94, 12, yellow, 0, 0.59, 0));
+  g.add(cyl(0.64, 0.64, 0.10, 12, yellow, 0, 1.10, 0));
+  for (const x of [-0.31, 0.31]) B(0.17, 0.70, 0.055, black, x, 0.58, 0.56);
+  B(0.11, 1.2, 0.11, steel, 0, 1.65, -0.12);
+  // Red/white upward chevrons under a blue "pass either side" sign, as on a splitter island.
+  B(0.80, 0.65, 0.075, white, 0, 1.53, 0.02);
+  for (const y of [1.36, 1.63]) for (const side of [-1, 1]) {
+    const b = B(0.43, 0.105, 0.018, red, side * 0.18, y, 0.069);
+    b.rotation.z = -side * Math.PI / 6;
+  }
+  const disk = cyl(0.43, 0.43, 0.08, 24, white, 0, 2.25, 0.02);
+  disk.rotation.x = Math.PI / 2; g.add(disk);
+  const face = cyl(0.395, 0.395, 0.018, 24, blue, 0, 2.25, 0.071);
+  face.rotation.x = Math.PI / 2; g.add(face);
+  // Two diagonal downward arrows, made of solid geometry so they stay legible without canvas textures.
+  for (const side of [-1, 1]) {
+    const shaft = B(0.075, 0.38, 0.014, white, side * 0.12, 2.25, 0.087);
+    shaft.rotation.z = side * Math.PI / 4;
+    B(0.18, 0.065, 0.014, white, side * 0.20, 2.115, 0.087);
+    B(0.065, 0.18, 0.014, white, side * 0.265, 2.175, 0.087);
+  }
+  return g;
+}
+function buildFlyoverDelineator() {
+  const g = new THREE.Group(), orange = mat(0xff5824), white = mat(0xf6f4e9);
+  g.add(cyl(0.18, 0.21, 0.06, 10, orange, 0, 0.03, 0));
+  g.add(cyl(0.055, 0.075, 1.0, 10, orange, 0, 0.56, 0));
+  for (const y of [0.64, 0.87]) g.add(cyl(0.068, 0.071, 0.13, 10, white, 0, y, 0));
+  return g;
+}
+
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
   const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
   const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
   const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], shops: [], parades: [], geos: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], spill: [], lotStanding: [] };
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
-  const solid = (x, z, hx, hz, kind) => ch.solids.push({ x, z, hx, hz, kind, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
+  // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
+  // for a car at grade under the bridge and gone for a car standing on the deck above them.
+  const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
   // Sidewalk ring occupies these distances from the block centre (kerb stone up to the inner kerb).
   const WALK_LO = CHUNK / 2 - PAVE_OUT, WALK_HI = CHUNK / 2 - PAVE_IN;
   const onWalk = (x, z) => {
@@ -1015,10 +1385,12 @@ function generateChunk(cx, cz, defer = false) {
     return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
   };
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    const d = PROP_DEFS[kind], m = mergeStandalone(d.make()); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
+    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
+    const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
     ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false });
   };
   const tree = (x, z, y = 0.2) => {
+    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
     const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
     solid(x, z, 0.65, 0.65, 'tree');
     const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
@@ -1045,9 +1417,10 @@ function generateChunk(cx, cz, defer = false) {
     const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
     const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
     const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
+    if (onAtGradeLane(x, z, 1.2)) return;                      // the flyover's at-grade lane runs through there
     const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
     const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
-    const g = mergeStandalone(buildBusStopMesh(variant)); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
+    const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
     const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
     const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
     solid(x, z, hx, hz, 'busstop');
@@ -1057,7 +1430,7 @@ function generateChunk(cx, cz, defer = false) {
   };
   // Construction scaffolding against a building — a real destructible solid, randomized size/style per instance.
   const scaffold = (x, z, rotY, o) => {
-    const g = mergeStandalone(buildScaffoldMesh(o)); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
+    const g = own(ch, mergeStandalone(buildScaffoldMesh(o))); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
     const swap = Math.abs(Math.cos(rotY)) < 0.5;
     const hx = swap ? o.d / 2 + 0.3 : o.w / 2 + 0.3, hz = swap ? o.w / 2 + 0.3 : o.d / 2 + 0.3;
     solid(x, z, hx, hz, 'scaffold');
@@ -1065,10 +1438,183 @@ function generateChunk(cx, cz, defer = false) {
     sEntry.scaffold = { mesh: g, x, z, broken: false, solid: sEntry };
   };
   const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
+  // The block's own ground cover: the lot asphalt, the grass of a suburb or a park, a forecourt's concrete. Every
+  // one of them stops at the building line, and on a side that carries an interchange's at-grade lane that line
+  // stands `FLY.frontage` further out: without this the pad would lie over the pavement behind the lane (and, on
+  // the wider lots, poke into the lane itself) — which is exactly the strip the lane's widening is not allowed to
+  // eat. A pad that does not reach the line is left exactly where it was, so only the lane sides change.
+  const padBox = (w, d, m, ox = 0, oz = 0, y = 0.2, h = 0.1) => {
+    const lo = si => (si < 2 ? x0 : z0) + PAD_IN + (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const hi = si => (si < 2 ? x0 : z0) + CHUNK - PAD_IN - (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const a = Math.max(bx + ox - w / 2, lo(0)), b = Math.min(bx + ox + w / 2, hi(1));
+    const c = Math.max(bz + oz - d / 2, lo(2)), e = Math.min(bz + oz + d / 2, hi(3));
+    if (b - a < 0.2 || e - c < 0.2) return;
+    ch.pads.push({ x: (a + b) / 2, z: (c + e) / 2, w: b - a, d: e - c });      // for the suite: where a block's ground stops
+    add(box(b - a, h, e - c, m, (a + b) / 2, y, (c + e) / 2, false));
+  };
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
-  buildIntersection(x0, z0, group);
+  buildIntersection(x0, z0, group, ch);
+  // ---- Grade-separated interchanges ----
+  // The city's two main roads carry flyovers every few junctions (js/flyover.js decides where): the road climbs
+  // an embankment, crosses the junction it meets on a deck 7.2 m above the ground, and comes back down on the
+  // far side, while the street it crosses keeps running at grade underneath it with its own signals. The blocks
+  // around a junction each raise their own quarter — half the carriageway on their side of the centre line,
+  // half the length on their side of the junction — so no block needs to know what its neighbours are doing. A
+  // block can front two of them, hence the loop.
+  const fly = ch.flyover = ch.flyover || { pieces: [] };
+  for (const Q of flyoverQuadrants(cx, cz)) {
+    const W = FLY.halfW, th = Math.atan2(FLY.deckH, RAMP_RUN);
+    const sinT = Math.sin(th), cosT = Math.cos(th), slopeLen = Math.hypot(RAMP_RUN, FLY.deckH);
+    const alongX = Q.axis === 'x';                                 // the road that flies runs along x here
+    const midU = Q.su * (FLY.deckHalf + FLY.rampEnd) / 2, midH = FLY.deckH / 2;
+    const conc = mat(0xb4b8bc), coping = mat(0xd3d0c8), asphalt = mat(0x3b3f4a), paint = mat(0xffcf2e), hazard = mat(0x1e2126);
+    // Local (u out from the junction along the flying road, v across it from its centre line, both signed by the
+    // quarter's own signs) to world coordinates.
+    const at = (u, y, v) => alongX ? [Q.node + u, y, Q.road + v] : [Q.road + v, y, Q.node + u];
+    // One piece of the structure: `w` across, `h` tall, `d` along, laid on the ramp when `tilt` is set. Every
+    // piece is recorded as it is built, so the shape can be checked in the Node suite without a graphics device
+    // (see run.mjs section 2c-3): the concrete and the contract in js/flyover.js have to stay in step.
+    const P = (w, h, d, m, u, y, v, tilt, role) => {
+      const p = at(u, y, v);
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      let rot = 0;
+      if (tilt) { rot = alongX ? -Q.su * th : Q.su * th; if (alongX) b.rotation.z = rot; else b.rotation.x = rot; }
+      add(b); fly.pieces.push({ role, axis: Q.axis, road: Q.road, node: Q.node, su: Q.su, sv: Q.sv, u, y, v, w, h, d, rot });
+      return b;
+    };
+    // Points on the ramp, offset along the ramp's own normal (negative = sunk below the surface). Using the
+    // normal is what keeps a sloped slab's *surface* exactly on the line js/flyover.js hands the cars.
+    const WEAR = 0.08;
+    const sunk = (d, u0 = midU, y0 = midH) => [u0 + Q.su * sinT * d, y0 + cosT * d];
+    // The approach: an embankment slab sunk into the ground, so only its top (the ramp) and its retaining walls
+    // show, with a wearing course laid on top of it.
+    const SLAB_T = 8;                                              // ... deep enough that its underside stays buried
+                                                                   // under a deck as tall as `FLY.deckH`
+    let q = sunk(-(SLAB_T / 2 + WEAR)); P(W, SLAB_T, slopeLen, conc, q[0], q[1], Q.sv * W / 2, true, 'embankment');
+    q = sunk(-WEAR / 2); P(W, WEAR, slopeLen, asphalt, q[0], q[1], Q.sv * W / 2, true, 'approach');
+    // The deck over the crossing street: slab + wearing course, its parapets and copings on the outside edge.
+    // This quarter builds the half between the junction's centre line and the end of the deck, so the two halves
+    // meet exactly over the middle of the crossing street and there is no gap to fall through. There is no pier
+    // in the middle either: the 24 m span sits on the two embankments, so the crossing street keeps its whole
+    // carriageway clear underneath.
+    const halfDeck = FLY.deckHalf;
+    P(W, FLY.slab, halfDeck, conc, Q.su * halfDeck / 2, FLY.deckH - WEAR - FLY.slab / 2, Q.sv * W / 2, false, 'deck');
+    P(W, WEAR, halfDeck, asphalt, Q.su * halfDeck / 2, FLY.deckH - WEAR / 2, Q.sv * W / 2, false, 'deck-wear');
+    // The height of the parapet above the driving surface. The parapet stands on the surface (so its underside
+    // is at 0 and its top at PH) and the coping caps it: its underside is at PH and its top at PH + 0.12. The
+    // coping's inboard face is flush with the parapet's, so the lane keeps its whole 15.1 m of clear width and
+    // nothing leans out over the road. On the ramp both ride the surface's own normal, which is what keeps the
+    // top of the parapet a constant height above the asphalt all the way up.
+    const PH = 1.0;
+    const pV = Q.sv * (W - FLY.parapet / 2), cV = Q.sv * (W - FLY.parapet + 0.31);
+    P(FLY.parapet, PH, halfDeck, conc, Q.su * halfDeck / 2, FLY.deckH + PH / 2, pV, false, 'parapet-deck');
+    P(0.62, 0.12, halfDeck, coping, Q.su * halfDeck / 2, FLY.deckH + PH + 0.06, cV, false, 'coping-deck');
+    q = sunk(PH / 2); P(FLY.parapet, PH, slopeLen, conc, q[0], q[1], pV, true, 'parapet-ramp');
+    q = sunk(PH + 0.06); P(0.62, 0.12, slopeLen, coping, q[0], q[1], cV, true, 'coping-ramp');
+    // The centre line: the same yellow dashes the road texture paints, carried up over the approach and across
+    // the bridge, so the main road reads as one road that happens to be in the air for 114 m.
+    for (const t of [1.5, 7.75]) P(0.39, 0.05, 3.4, paint, Q.su * t, FLY.deckH + 0.03, Q.sv * 0.195, false, 'dash');
+    for (let t = FLY.deckHalf + 1.5; t < FLY.rampEnd - 1.5; t += 6.25) {
+      P(0.39, 0.05, 3.4, paint, Q.su * t, rampHeight(t) + 0.03, Q.sv * 0.195, true, 'dash');
+    }
+    // Hazard boards across the abutment face — the face that looks back along the ramp — so a driver at grade
+    // can read the closed lanes rather than a plain wall of concrete. The face leans (the embankment is a tilted
+    // slab), so the boards sit just in front of where that face is at their own height.
+    const lean = (FLY.deckH - 3.3) * sinT / cosT;
+    for (let i = 0; i < 6; i++) P(W / 6, 0.9, 0.14, i % 2 ? paint : hazard, Q.su * (FLY.deckHalf - lean - 0.07), 3.3, Q.sv * (i + 0.5) * (W / 6), false, 'hazard');
+    // Solids. Three things are solid here, and every one of them is only real below the height a car at grade
+    // can reach, so a car up on the structure drives over them freely:
+    //  - the embankment's body, in slices along the ramp. A slice tops out FLY.solidDrop below the ramp surface
+    //    at its own downhill end: a car on the ramp rides above the slices under it, and the drop is more than
+    //    the longest vehicle's half length times the ramp's slope, so even the buses clear every slice they
+    //    straddle. The slices near the ramp's foot are lower than the road and stop nothing, which is right:
+    //    the foot is where traffic climbs on.
+    //  - the abutment's end face, which closes the flying road's own lanes at grade where the deck begins.
+    const NS = FLY.slices, slice = RAMP_RUN / NS;
+    for (let i = 0; i < NS; i++) {
+      const u0 = FLY.deckHalf + i * slice, u1 = u0 + slice, cu = Q.su * (u0 + u1) / 2;
+      const p = at(cu, 0, Q.sv * W / 2), top = rampHeight(u1) - FLY.solidDrop;
+      ch.solids.push({ x: p[0], z: p[2], hx: alongX ? slice / 2 : W / 2, hz: alongX ? W / 2 : slice / 2, kind: 'flyover', maxY: top,
+        box: { x: p[0], z: p[2], ux: 1, uz: 0, vx: 0, vz: 1, e1: alongX ? slice / 2 : W / 2, e2: alongX ? W / 2 : slice / 2 } });
+    }
+    //  - the retaining wall down each flank. It sits *inside* the structure's own edge, so the at-grade lane runs
+    //    clear along its face: a car that is not going over the bridge has a lane of its own all the way.
+    const side = at(Q.su * (FLY.deckHalf + RAMP_RUN / 2), 0, Q.sv * (W - 0.25));
+    ch.solids.push({ x: side[0], z: side[2], hx: alongX ? RAMP_RUN / 2 + 0.5 : 0.2, hz: alongX ? 0.2 : RAMP_RUN / 2 + 0.5, kind: 'flyover', maxY: 2.0,
+      box: { x: side[0], z: side[2], ux: 1, uz: 0, vx: 0, vz: 1, e1: alongX ? RAMP_RUN / 2 + 0.5 : 0.2, e2: alongX ? 0.2 : RAMP_RUN / 2 + 0.5 } });
+    const ap = at(Q.su * (FLY.deckHalf - 0.5), 0, Q.sv * W / 2);
+    ch.solids.push({ x: ap[0], z: ap[2], hx: alongX ? 0.5 : W / 2, hz: alongX ? W / 2 : 0.5, kind: 'flyover', maxY: 2.0,
+      box: { x: ap[0], z: ap[2], ux: 1, uz: 0, vx: 0, vz: 1, e1: alongX ? 0.5 : W / 2, e2: alongX ? W / 2 : 0.5 } });
+    // Nothing else is planted, parked or dropped inside the structure.
+    const kp = at(Q.su * FLY.rampEnd / 2, 0, Q.sv * (W / 2 + 1.2));
+    ch.keepouts.push(alongX ? { x: kp[0], z: kp[2], hx: FLY.rampEnd / 2 + 0.6, hz: W / 2 + 1.2 }
+      : { x: kp[0], z: kp[2], hx: W / 2 + 1.2, hz: FLY.rampEnd / 2 + 0.6 });
+    // Protect every exposed parapet nose, on both sides of both approaches. Keep the assembly on the
+    // splitter line, behind the neighbouring crossing; the centre lanes and the at-grade lane remain open.
+    const guardU = Q.su * (FLY.rampEnd + 1.4), guardV = Q.sv * (W - 0.70);
+    const gp = at(guardU, 0, guardV), guard = buildFlyoverNoseGuard();
+    guard.position.set(gp[0], 0, gp[2]);
+    guard.rotation.y = alongX ? Q.su * PI / 2 : Q.su > 0 ? 0 : PI;
+    add(guard);
+    solid(gp[0], gp[2], 0.65, 0.65, 'flyover-guard', 1.15);
+    const guardRecord = { axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: gp[0], z: gp[2],
+      u: guardU, v: guardV, radius: 0.68, heading: guard.rotation.y, posts: [] };
+    (fly.guards = fly.guards || []).push(guardRecord);
+    for (const dist of [3.0, 4.3, 5.6]) {
+      const dp = at(Q.su * (FLY.rampEnd + dist), 0, guardV);
+      const post = own(ch, mergeStandalone(buildFlyoverDelineator()));
+      post.position.set(dp[0], 0, dp[2]); group.add(post);
+      // Flexible delineators break on impact through the existing prop system, unlike the solid drum.
+      ch.props.push({ mesh: post, x: dp[0], z: dp[2], r: 0.12, drag: 0.99,
+        color: 0xff5824, kind: 'delineator', broken: false });
+      guardRecord.posts.push({ x: dp[0], z: dp[2], u: Q.su * (FLY.rampEnd + dist) });
+    }
+    const protect = at(Q.su * (FLY.rampEnd + 3.2), 0, guardV);
+    ch.keepouts.push({ x: protect[0], z: protect[2], hx: alongX ? 3.0 : 0.9, hz: alongX ? 0.9 : 3.0 });
+    // A direction plate beside one approach, facing the traffic coming up to the junction. It stands on the
+    // pavement behind the at-grade lane (`roadEdge()` + 1.3: it used to be planted 9.3 m off the centre line,
+    // which was the old kerb line and is now inside the lane — a sign to hit rather than to read).
+    if (Q.sv > 0) {
+      const sp = at(Q.su * (FLY.rampEnd + 8), 0, roadEdge() + 1.3);
+      const g = new THREE.Group(); g.position.set(sp[0], WALK_Y, sp[2]);
+      g.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
+      g.add(box(3.0, 0.95, 0.14, mat(0x1b4f9c), 0, 2.7, 0, false));
+      const txt = textBlocks('OVERPASS', mat(0xf2e9d8), 0.42, 0.12, 0.3); txt.position.set(0, 2.7, 0.09); g.add(txt);
+      for (const ox of [-1.1, 1.1]) g.add(box(0.14, 2.2, 0.14, mat(0x9aa1a8), ox, 1.1, 0, false));
+      add(g);
+      ch.keepouts.push({ x: sp[0], z: sp[2], hx: 1.9, hz: 1.9 });
+      (fly.signs = fly.signs || []).push({ x: sp[0], z: sp[2] });   // for the suite: it stands on the pavement
+    }
+  }
+  // Where a block's own buildings stand. On a side that carries an interchange's at-grade lane the building line
+  // is `FLY.frontage` further out, and the pinned campuses (hospital, fire station, school, filling station) are
+  // laid out by their own builders, which know nothing about lanes: a campus drawn from the block's geometric
+  // centre would put its wall on the pavement behind the lane. Feeding the builders this offset instead moves the
+  // mesh, the solids, the bays and the fences together, and it is zero on every block that has no lane.
+  const bxo = bx + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const bzo = bz + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const onLaneSide = bxo !== bx || bzo !== bz;
+  // How far the kerb stands from the block edge (= the road's own centre line) on a side: the usual road edge,
+  // or `roadEdge()` on a side that carries an interchange's at-grade street. Everything laid against a kerb —
+  // parked cars, roadside trash, streetlights, hydrants, mailboxes — measures from this, so when the street
+  // beside the structure widened they all moved out with the kerb instead of being left standing in the lane.
+  const kerbIn = si => PAVE_IN + (atGradeSide(cx, cz, si) ? FLY.atGrade : 0);
+  // The flyover opens the corners of this block where a junction beside it meets the street (`FLY.chamfer`): the
+  // pavement is cut back on the diagonal there, so the corner is road now. Anything the block stands near a
+  // corner — a light, a hydrant, a bin, a post-box, a hedge, a tree — has to stand behind that cut, and this is
+  // the one question all of them ask before they are placed.
+  const cutClear = (x, z, margin) => {
+    for (const [jx, jz, sx, sz] of [
+      [x0, z0, 1, 1], [x0, z0 + CHUNK, 1, -1], [x0 + CHUNK, z0, -1, 1], [x0 + CHUNK, z0 + CHUNK, -1, -1],
+    ]) {
+      if (!besideFlyover(jx / CHUNK, jz / CHUNK)) continue;
+      const kx = kerbIn(sx > 0 ? 0 : 1), kz = kerbIn(sz > 0 ? 2 : 3);
+      if ((x - jx) * sx + (z - jz) * sz < kx + kz + FLY.chamfer + margin) return false;
+    }
+    return true;
+  };
   const t = rng();
   // Keep shopping centers near the fixed spawn so the new district is visible immediately.
   const nearSpawn = (cx === 0 && cz === 0) || (cx === 1 && cz === 0);
@@ -1079,15 +1625,20 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === 0 && cz === -1) ? 'fire'                          // the block the player starts beside
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
     : (cx === 1 && cz === -1) ? 'shops'                        // a shopping street on the fourth corner of the spawn
+    : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
-    : t < 0.875 ? 'fire' : t < 0.9 ? 'fuel' : t < 0.93 ? 'shops' : t < 0.96 ? 'hospital' : 'industrial';
+    : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'hospital'
+    : t < 0.975 ? 'school' : 'industrial';
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
   const sw = sidewalkPieces(cx, cz, swStyle);
   const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
   if (type === 'downtown') {
+    // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole
+    // pavement: a high-street shopfront projects up to 2.5 m from its wall (awning, outdoor display, its base),
+    // and without the offset that projection would stand in the at-grade lane.
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
-      const lx = bx0 + 14 + i * 28, lz = bz0 + 14 + j * 28;
+      const lx = bx0 + 14 + i * 28 + (bxo - bx), lz = bz0 + 14 + j * 28 + (bzo - bz);
       if (rng() < 0.12) { // plaza
         add(box(24, 0.1, 24, mat(0xd9d2c3), lx, 0.2, lz, false));
         tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
@@ -1118,7 +1669,7 @@ function generateChunk(cx, cz, defer = false) {
         const sz = alongX ? lz + off : faceAt + faceAxis * 0.05;
         const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
         const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
-        const gm = mergeStandalone(kit.glass);
+        const gm = own(ch, mergeStandalone(kit.glass));
         gm.position.set(sx, 0.15, sz); gm.rotation.y = rotY; group.add(gm);
         const hx = alongX ? 0.24 : shopWide / 2 - 0.2, hz = alongX ? shopWide / 2 - 0.2 : 0.24;
         solid(sx, sz, hx, hz, 'shopfront');
@@ -1154,10 +1705,12 @@ function generateChunk(cx, cz, defer = false) {
       }
     }
   } else if (type === 'suburb') {
-    add(box(56, 0.1, 56, mat(0x7bc96f), bx, 0.2, bz, false));
+    padBox(56, 56, mat(0x7bc96f), bxo - bx, bzo - bz);
     const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
+    // The house grid starts from the block's own building line, which steps back on a side that carries a
+    // flyover's at-grade lane: otherwise a house's jitter can put its wall inside the stepped-back line.
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-      const lx = bx0 + 9.33 + i * 18.67, lz = bz0 + 9.33 + j * 18.67;
+      const lx = bx0 + 9.33 + i * 18.67 + (bxo - bx), lz = bz0 + 9.33 + j * 18.67 + (bzo - bz);
       const w = r(8, 10), d = r(7, 9), h = r(4.5, 6), ox = r(-1, 1), oz = r(-1, 1), hx = lx + ox, hz = lz + oz;
       const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
       add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
@@ -1170,10 +1723,10 @@ function generateChunk(cx, cz, defer = false) {
       tree(lx + cs * 7.6, lz + cs2 * 7.6);
       if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
     }
-    for (const side of [-1, 1]) for (let x = -25.5; x <= 26; x += 4.2) if (rng() > 0.25) prop('fence', bx + x, bz + side * 28.6, 0, 0.2);
+    for (const side of [-1, 1]) for (let x = -25.5; x <= 26; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + (bxo - bx), bz + side * 28.6 + (bzo - bz), 0, 0.2);
   } else if (type === 'park') {
-    add(box(56, 0.1, 56, mat(0x78c46c), bx, 0.2, bz, false));
-    add(box(56, 0.04, 3.4, mat(0xe3d6b0), bx, 0.27, bz, false)); add(box(3.4, 0.04, 56, mat(0xe3d6b0), bx, 0.27, bz, false));
+    padBox(56, 56, mat(0x78c46c));
+    padBox(56, 3.4, mat(0xe3d6b0), 0, 0, 0.27, 0.04); padBox(3.4, 56, mat(0xe3d6b0), 0, 0, 0.27, 0.04);
     const pw = r(10, 15), pd = r(8, 11), px = bx + (rng() < 0.5 ? -1 : 1) * r(10, 14), pz = bz + (rng() < 0.5 ? -1 : 1) * r(11, 16);
     add(box(pw, 0.06, pd, mat(0x58b6e8), px, 0.27, pz, false));
     ch.keepouts.push({ x: px, z: pz, hx: pw / 2, hz: pd / 2 });
@@ -1188,47 +1741,50 @@ function generateChunk(cx, cz, defer = false) {
     prop('bench', bx - 8, bz - 2.5, 0, 0.3); prop('bench', bx + 9, bz + 2.5, PI, 0.3); prop('bench', bx - 2.5, bz + 10, PI / 2, 0.3);
     for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), bx + r(-26, 26), 0.4, bz + r(-26, 26), false));
   } else if (type === 'commercial') {
+    // The whole mall ensemble — the building, its wing, the lot's painted rows and the bays — stands on the
+    // block's own building line, so on a side that carries a flyover's at-grade lane it steps back with it.
+    const mbx = bxo, mbz = bzo;
     // A neighborhood shopping center with a glass landmark, retail wing and marked parking rows.
     const lotSurfaceY = 0.25;
     const asphalt = mat(0x4b5058), concrete = mat(0xc6c9c8), parkingPaint = mat(0xe9e8df);
     const aqua = mat(0x19b9ca), mallWhite = mat(0xe5e8e9), mallYellow = mat(0xf4c928);
-    add(box(58, 0.1, 58, asphalt, bx, 0.2, bz, false));
+    padBox(58, 58, asphalt, bxo - bx, bzo - bz);
     // Raised pedestrian walkways frame the lot and connect the entrance to the parking area.
     const walkY = lotSurfaceY + 0.07;
-    add(box(58, 0.12, 1.5, concrete, bx, walkY, bz - 28.25, false));
-    add(box(58, 0.12, 1.5, concrete, bx, walkY, bz + 28.25, false));
-    add(box(1.5, 0.12, 58, concrete, bx - 28.25, walkY, bz, false));
-    add(box(1.5, 0.12, 58, concrete, bx + 28.25, walkY, bz, false));
+    padBox(58, 1.5, concrete, bxo - bx, -28.25 + (bzo - bz), walkY, 0.12);
+    padBox(58, 1.5, concrete, bxo - bx, 28.25 + (bzo - bz), walkY, 0.12);
+    padBox(1.5, 58, concrete, -28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
+    padBox(1.5, 58, concrete, 28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
 
-    const mallZ = bz - 7, baseW = 29, baseD = 22, baseH = 4.8;
+    const mallZ = mbz - 7, baseW = 29, baseD = 22, baseH = 4.8;
     const frontZ = mallZ + baseD / 2;
-    add(box(baseW, baseH, baseD, mallWhite, bx, lotSurfaceY + baseH / 2, mallZ));
+    add(box(baseW, baseH, baseD, mallWhite, mbx, lotSurfaceY + baseH / 2, mallZ));
     // Bright retail frontage, broad glass storefront and a projecting entrance canopy.
-    add(box(baseW + 0.12, 0.85, 0.22, aqua, bx, lotSurfaceY + 0.95, frontZ + 0.12, false));
-    add(box(17, 2, 0.14, mat(0x263e4a), bx, 3.3, frontZ + 0.14, false));
-    add(box(4.2, 2.8, 0.18, mat(0x172a35), bx, 1.65, frontZ + 0.2, false));
-    add(box(14, 0.38, 2.8, aqua, bx, lotSurfaceY + baseH + 0.18, frontZ + 1.15, false));
-    for (const side of [-1, 1]) add(box(0.5, 4.75, 0.5, mat(0xdce1e2), bx + side * 6.2, lotSurfaceY + baseH / 2, frontZ + 2.05, false));
+    add(box(baseW + 0.12, 0.85, 0.22, aqua, mbx, lotSurfaceY + 0.95, frontZ + 0.12, false));
+    add(box(17, 2, 0.14, mat(0x263e4a), mbx, 3.3, frontZ + 0.14, false));
+    add(box(4.2, 2.8, 0.18, mat(0x172a35), mbx, 1.65, frontZ + 0.2, false));
+    add(box(14, 0.38, 2.8, aqua, mbx, lotSurfaceY + baseH + 0.18, frontZ + 1.15, false));
+    for (const side of [-1, 1]) add(box(0.5, 4.75, 0.5, mat(0xdce1e2), mbx + side * 6.2, lotSurfaceY + baseH / 2, frontZ + 2.05, false));
 
     // Upper glazed floors, pale roof cap and the yellow crown visible in the reference.
     const towerW = 21.5, towerD = 17.5, towerH = 14.2;
     const towerGeo = makeBuildingGeo(towerW, towerH, towerD), glassMat = ASSET.windowMats[2];
     const tower = new THREE.Mesh(towerGeo, [glassMat, glassMat, ASSET.roofMat, ASSET.roofMat, glassMat, glassMat]);
-    tower.position.set(bx, lotSurfaceY + baseH + towerH / 2, mallZ);
+    tower.position.set(mbx, lotSurfaceY + baseH + towerH / 2, mallZ);
     tower.castShadow = true; tower.receiveShadow = true; group.add(tower); ch.geos.push(towerGeo);
     for (let floor = 1; floor < 4; floor++) {
-      add(box(towerW + 0.22, 0.18, towerD + 0.22, mat(0xb9c2c7), bx, lotSurfaceY + baseH + floor * 3.45, mallZ, false));
+      add(box(towerW + 0.22, 0.18, towerD + 0.22, mat(0xb9c2c7), mbx, lotSurfaceY + baseH + floor * 3.45, mallZ, false));
     }
     const towerTop = lotSurfaceY + baseH + towerH;
-    add(box(towerW + 1.1, 0.45, towerD + 1.1, mat(0xf1f2ee), bx, towerTop + 0.225, mallZ, false));
-    add(box(towerW + 1.25, 0.24, 0.28, mallYellow, bx, towerTop + 0.36, mallZ + towerD / 2 + 0.62, false));
-    add(box(0.28, 0.24, towerD + 1.25, mallYellow, bx + towerW / 2 + 0.62, towerTop + 0.36, mallZ, false));
-    add(box(3.4, 1.1, 2.6, mat(0x969da1), bx - 4, towerTop + 0.95, mallZ - 1, false));
-    add(box(2.2, 0.8, 2.1, mat(0xaeb4b7), bx + 5, towerTop + 0.8, mallZ + 2, false));
-    solid(bx, mallZ, baseW / 2, baseD / 2, 'building');
+    add(box(towerW + 1.1, 0.45, towerD + 1.1, mat(0xf1f2ee), mbx, towerTop + 0.225, mallZ, false));
+    add(box(towerW + 1.25, 0.24, 0.28, mallYellow, mbx, towerTop + 0.36, mallZ + towerD / 2 + 0.62, false));
+    add(box(0.28, 0.24, towerD + 1.25, mallYellow, mbx + towerW / 2 + 0.62, towerTop + 0.36, mallZ, false));
+    add(box(3.4, 1.1, 2.6, mat(0x969da1), mbx - 4, towerTop + 0.95, mallZ - 1, false));
+    add(box(2.2, 0.8, 2.1, mat(0xaeb4b7), mbx + 5, towerTop + 0.8, mallZ + 2, false));
+    solid(mbx, mallZ, baseW / 2, baseD / 2, 'building');
 
     // Low supermarket wing to one side gives the center a stepped, multi-building silhouette.
-    const wingW = 10.5, wingD = 20.5, wingH = 4.1, wingX = bx + 19.5, wingZ = mallZ + 0.3;
+    const wingW = 10.5, wingD = 20.5, wingH = 4.1, wingX = mbx + 19.5, wingZ = mallZ + 0.3;
     const wingFrontZ = wingZ + wingD / 2;
     add(box(wingW, wingH, wingD, mat(0xd8dcdd), wingX, lotSurfaceY + wingH / 2, wingZ));
     add(box(wingW + 0.4, 0.34, wingD + 0.4, mat(0xf3f2ed), wingX, lotSurfaceY + wingH + 0.17, wingZ, false));
@@ -1238,20 +1794,20 @@ function generateChunk(cx, cz, defer = false) {
     solid(wingX, wingZ, wingW / 2, wingD / 2, 'building');
 
     // Pedestrian approaches and small planted islands at the front corners.
-    add(box(36, 0.08, 3.2, concrete, bx, lotSurfaceY + 0.06, bz + 7.8, false));
-    add(box(34, 0.08, 2, concrete, bx, lotSurfaceY + 0.06, bz - 20, false));
+    add(box(36, 0.08, 3.2, concrete, mbx, lotSurfaceY + 0.06, mbz + 7.8, false));
+    add(box(34, 0.08, 2, concrete, mbx, lotSurfaceY + 0.06, mbz - 20, false));
     for (const side of [-1, 1]) {
-      const px = bx + side * 25, pz = bz + 8.5;
+      const px = mbx + side * 25, pz = mbz + 8.5;
       add(box(3.8, 0.1, 3.8, mat(0x79b86d), px, lotSurfaceY + 0.05, pz, false));
       tree(px, pz, lotSurfaceY);
     }
 
     // Painted bays on three sides; cars use the same destructible parked-car system as curbside vehicles.
-    const stallCount = 6, stallW = 8.8, startX = bx - stallCount * stallW / 2;
+    const stallCount = 6, stallW = 8.8, startX = mbx - stallCount * stallW / 2;
     const parkingRows = [
-      { z: bz + 15.2, rotY: PI },
-      { z: bz + 24.2, rotY: 0 },
-      { z: bz - 24.3, rotY: 0 },
+      { z: mbz + 15.2, rotY: PI },
+      { z: mbz + 24.2, rotY: 0 },
+      { z: mbz - 24.3, rotY: 0 },
     ];
     const parkedColors = PARKED_COLORS, parkedKinds = PARKED_KINDS;
     // ---- Occupancy ----
@@ -1294,7 +1850,7 @@ function generateChunk(cx, cz, defer = false) {
       ch.lotStanding.push({ car, slot: { x, z, rotY, y: lotSurfaceY - 0.05, hx: 1.15, hz: 2.35 } });
     }
     // Extra perpendicular bays along the open west side of the mall.
-    const sideParkingX = bx - 23.5, sideStartZ = bz - 16;
+    const sideParkingX = mbx - 23.5, sideStartZ = mbz - 16;
     for (let i = 0; i <= 3; i++) {
       add(box(5.8, 0.035, 0.12, parkingPaint, sideParkingX, lotSurfaceY + 0.0275, sideStartZ + i * 8, false));
     }
@@ -1310,19 +1866,19 @@ function generateChunk(cx, cz, defer = false) {
     // A hospital campus with its own car park. The ambulance bays are occupied for good, the ordinary bays
     // follow the day/night curve exactly like the mall lots do.
     const lotSurfaceY = 0.25;
-    add(box(54, 0.1, 58, mat(0x4b5058), bx, 0.2, bz, false));
-    const H = buildHospitalMesh(bx, bz, rng);
-    H.group.position.set(bx, 0, bz);
+    padBox(54, 58, mat(0x4b5058), bxo - bx, bzo - bz);
+    const H = buildHospitalMesh(bxo, bzo, rng);
+    H.group.position.set(bxo, 0, bzo);
     bake(ch, H.group);                       // merged with the rest of the block, in slices
     // Rotors merge on their own so each one can turn about its own mast. The builder works in block-local
     // coordinates, so the chunk-level rotor meshes have to be lifted to world space by the block origin.
     const bladesMain = mergeStandalone(H.heliMain);
-    bladesMain.position.set(bx + H.heliMast[0], H.heliMast[1], bz + H.heliMast[2]); group.add(bladesMain);
+    bladesMain.position.set(bxo + H.heliMast[0], H.heliMast[1], bzo + H.heliMast[2]); group.add(bladesMain);
     const bladesTail = mergeStandalone(H.heliTail);
-    bladesTail.position.set(bx + H.heliTailPos[0], H.heliTailPos[1], bz + H.heliTailPos[2]); group.add(bladesTail);
+    bladesTail.position.set(bxo + H.heliTailPos[0], H.heliTailPos[1], bzo + H.heliTailPos[2]); group.add(bladesTail);
     for (const m of [...bladesMain.children, ...bladesTail.children]) ch.geos.push(m.geometry);   // freed with the chunk
-    ch.heli = { rotor: bladesMain, tail: bladesTail, beacons: H.heliBeacons, padR: H.padR, rotorR: H.rotorR, padX: bx + H.padX, padZ: bz + H.padZ, padY: H.padY, x: bx + H.heliPos[0], y: H.heliPos[1], z: bz + H.heliPos[2],
-      volumes: H.volumes.map(v => ({ ...v, x: bx + v.x, z: bz + v.z })) };
+    ch.heli = { rotor: bladesMain, tail: bladesTail, beacons: H.heliBeacons, padR: H.padR, rotorR: H.rotorR, padX: bxo + H.padX, padZ: bzo + H.padZ, padY: H.padY, x: bxo + H.heliPos[0], y: H.heliPos[1], z: bzo + H.heliPos[2],
+      volumes: H.volumes.map(v => ({ ...v, x: bxo + v.x, z: bzo + v.z })) };
     for (const sv of H.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
     for (const pt of H.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
     const ambulanceSlots = [];
@@ -1353,14 +1909,14 @@ function generateChunk(cx, cz, defer = false) {
       ch.lotStanding.push({ car, slot: b });
     }
     // Low planting and benches along the car-park edge.
-    for (const sx of [-1, 1]) { tree(bx + sx * 21, bz + 24.5, lotSurfaceY + 0.02); prop('bench', bx + sx * 8, bz + 24, PI, lotSurfaceY + 0.15); }
+    for (const sx of [-1, 1]) { tree(bxo + sx * 21, bzo + 24.5, lotSurfaceY + 0.02); prop('bench', bxo + sx * 8, bzo + 24, PI, lotSurfaceY + 0.15); }
   } else if (type === 'fire') {
     // Fire station with its appliance apron. The fleet stands on the apron from the first frame and is
     // never replaced: a run that wrecks an appliance leaves the burnt hulk in its bay.
     const lotSurfaceY = 0.25;
-    add(box(50, 0.1, 46, mat(0x5a6068), bx, 0.2, bz, false));
-    const F = buildFireStationMesh(bx, bz, rng);
-    F.group.position.set(bx, 0, bz);
+    padBox(50, 46, mat(0x5a6068), bxo - bx, bzo - bz);
+    const F = buildFireStationMesh(bxo, bzo, rng);
+    F.group.position.set(bxo, 0, bzo);
     bake(ch, F.group);
     for (const sv of F.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
     ch.fireSlots = F.bays;
@@ -1371,23 +1927,80 @@ function generateChunk(cx, cz, defer = false) {
       b.car = ch.solids[ch.solids.length - 1].parked;
       b.car.fade = 1;                                            // on station from the first frame
     }
-    for (const sx of [-1, 1]) tree(bx + sx * 22, bz + 20.5, lotSurfaceY + 0.02);
-    prop('bench', bx - 6, bz + 19.5, 0, lotSurfaceY + 0.15);
+    for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 20.5, lotSurfaceY + 0.02);
+    prop('bench', bxo - 6, bzo + 19.5, 0, lotSurfaceY + 0.15);
+  } else if (type === 'school') {
+    // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
+    // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.
+    const lotSurfaceY = 0.25;
+    padBox(56, 28, mat(0x4b5058), bxo - bx, 13.7 + (bzo - bz));    // the bus and staff lot
+    padBox(56, 20, mat(0x7bc96f), bxo - bx, -10 + (bzo - bz));     // the fenced yard: grass
+    const S = buildSchoolMesh(bxo, bzo, rng);
+    S.group.position.set(bxo, 0, bzo);
+    bake(ch, S.group);
+    // The schoolyard fence is handed over panel by panel: every panel is its own solid, so a hit takes down the
+    // panel it lands on and leaves the rest of the line standing, and every panel is a stand-alone mesh that can
+    // leave the block and tumble off on its own (breakFence() in js/collisions.js). Nothing of it is baked into
+    // the block — a baked panel could never be torn off.
+    for (const fr of S.fenceRuns) for (const pc of fr.pieces) {
+      const pm = own(ch, mergeStandalone(pc.group));
+      pm.position.set(pc.x, 0, pc.z);
+      group.add(pm);
+      pc.mesh = pm;
+      pc.broken = false;
+      solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
+      const sEntry = ch.solids[ch.solids.length - 1];
+      sEntry.fence = true;                                            // the yard fence, for the checks and for the map
+      sEntry.fencePiece = pc;
+      pc.solid = sEntry;
+      ch.fencePanels.push(pc);
+    }
+    for (const sv of S.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+    for (const pt of S.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
+    ch.schoolYard = S.yard;
+    ch.schoolPlayground = S.playground;
+    ch.schoolFence = S.fence;
+    ch.schoolPaint = S.paint;                      // bay markings and court lines, for the map and the checks
+    const busSlots = [];
+    for (const b of S.bays) {
+      const slot = { kind: b.bus ? 'schoolbus' : null, color: 0xf7b500, x: b.x, z: b.z, rotY: b.rotY, y: lotSurfaceY - 0.05, hx: b.hx, hz: b.hz, bus: !!b.bus, car: null };
+      if (b.bus) busSlots.push(slot); else ch.parking.push(slot);
+    }
+    // The bus stand is occupied from the first frame and never refilled once wrecked: a run that wrecks a bus
+    // leaves the burnt hulk in its bay, exactly like the hospital's ambulances and the fire fleet.
+    ch.busSlots = busSlots;
+    for (const slot of busSlots) {
+      parkedCar(slot.x, slot.z, slot.hx, slot.hz, slot.rotY, 'schoolbus', 0xf7b500, slot.y);
+      slot.car = ch.solids[ch.solids.length - 1].parked;
+      slot.car.fade = 1;
+    }
+    ch.parkingTotal = S.bays.length;
+    ch.parkingFixed = busSlots.length;                     // room reserved for the buses, counted in the ceiling
+    ch.parkingFloor = 2;                                   // a couple of staff cars, day and night
+    const present = lotCars(ch.parkingTotal, busSlots.length, env.phase, ch.parkingFloor);
+    for (let i = 0; i < present && ch.parking.length; i++) {
+      const b = ch.parking.splice(Math.floor(rng() * ch.parking.length), 1)[0];
+      const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+      ch.lotStanding.push({ car, slot: b });
+    }
+    for (const sx of [-1, 1]) tree(bxo + sx * 25.5, bzo + 26.5, lotSurfaceY + 0.02);
+    prop('bench', bxo + 4, bzo + 1.6, PI, lotSurfaceY + 0.15);
+    prop('bench', bxo - 12, bzo + 1.6, PI, lotSurfaceY + 0.15);
   } else if (type === 'fuel') {
     // A filling station: lit canopy, two pump islands, convenience store and a price pylon on the kerb.
     // The four dispensers are registered one by one as their own destructible solids (ch.pumps), so a hit
     // knocks a pump off its island and the spill burns.
     const fuelY = 0.25;
-    add(box(52, 0.1, 48, mat(0x60666d), bx, 0.2, bz, false));                 // forecourt pad
-    add(box(50, 0.04, 46, mat(0x74797f), bx, 0.27, bz, false));               // lighter topping
-    const FS = buildFuelStationMesh(bx, bz, rng);
-    FS.group.position.set(bx, 0, bz);
+    padBox(52, 48, mat(0x60666d), bxo - bx, bzo - bz);                      // forecourt pad
+    padBox(50, 46, mat(0x74797f), bxo - bx, bzo - bz, 0.27, 0.04);          // lighter topping
+    const FS = buildFuelStationMesh(bxo, bzo, rng);
+    FS.group.position.set(bxo, 0, bzo);
     bake(ch, FS.group);
     for (const sv of FS.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
     for (const p of FS.pumps) {
-      const pm = mergeStandalone(p.group);
-      pm.position.set(bx + p.x, p.y, bz + p.z); pm.rotation.y = p.rotY; group.add(pm);
-      const x = bx + p.x, z = bz + p.z;
+      const pm = own(ch, mergeStandalone(p.group));
+      pm.position.set(bxo + p.x, p.y, bzo + p.z); pm.rotation.y = p.rotY; group.add(pm);
+      const x = bxo + p.x, z = bzo + p.z;
       solid(x, z, 0.6, 0.52, 'pump');                       // the body, hoses and nozzles included
       const sEntry = ch.solids[ch.solids.length - 1];
       sEntry.pump = { mesh: pm, x, z, broken: false, solid: sEntry };
@@ -1398,11 +2011,11 @@ function generateChunk(cx, cz, defer = false) {
     // the street. The day/night curve keeps two of them busy at every hour (ch.parkingFloor).
     const bays = [];
     for (const sx of [-1, 1]) for (const sz of [-1, 1])
-      bays.push({ x: bx + sx * 7.8, z: bz + FS.canopy.z + sz * 3.4, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+      bays.push({ x: bxo + sx * 7.8, z: bzo + FS.canopy.z + sz * 3.4, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
     for (const sx of [-1, 1]) for (const dz of [-2.5, 2.5])
-      bays.push({ x: bx + sx * 14.2, z: bz + FS.store.z + dz, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+      bays.push({ x: bxo + sx * 14.2, z: bzo + FS.store.z + dz, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
     for (const dx of [-18, -12, -6, 0, 6, 12, 18])
-      bays.push({ x: bx + dx, z: bz + 21, rotY: PI / 2, y: fuelY - 0.05, hx: 2.45, hz: 1.25 });
+      bays.push({ x: bxo + dx, z: bzo + 21, rotY: PI / 2, y: fuelY - 0.05, hx: 2.45, hz: 1.25 });
     ch.parkingTotal = bays.length;
     ch.parkingFloor = 2;
     const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
@@ -1414,58 +2027,61 @@ function generateChunk(cx, cz, defer = false) {
         ch.lotStanding.push({ car, slot: b });
       } else ch.parking.push(b);                                              // kept free for later arrivals
     }
-    for (const sx of [-1, 1]) prop('trashcan', bx + sx * 9.8, bz + 15.6);
+    for (const sx of [-1, 1]) prop('trashcan', bxo + sx * 9.8, bzo + 15.6);
   } else if (type === 'shops') {
+    // The parades stand on the block's own building line, so on a side that carries a flyover's at-grade lane the
+    // whole shopping street steps back with it (a parade's awning projects ~2.5 m from the wall behind it).
+    const sbx = bxo, sbz = bzo;
     // A shopping street: two parades of shops facing each other across a parking court, with a little green
     // square in the middle. Each parade carries five different businesses, so a drive down the block passes
     // ten shopfronts with their own names, colours, awnings and window displays.
     const lotY = 0.25;
     const asphalt = mat(0x4b5058), concrete = mat(0xc9ccca), grass = mat(0x5aa04a), parkingPaint = mat(0xe9e8df);
-    add(box(54, 0.1, 54, asphalt, bx, 0.2, bz, false));                                 // the court
-    for (const sx of [-1, 1]) add(box(3.6, 0.14, 54, concrete, bx + sx * 18, lotY, bz, false));   // aprons in front of the shops
-    add(box(54, 0.14, 3.6, concrete, bx, lotY, bz - 18, false));
-    add(box(54, 0.14, 3.6, concrete, bx, lotY, bz + 18, false));
+    padBox(54, 54, asphalt, bxo - bx, bzo - bz);                                         // the court
+    for (const sx of [-1, 1]) add(box(3.6, 0.14, 54, concrete, sbx + sx * 18, lotY, sbz, false));   // aprons in front of the shops
+    padBox(54, 3.6, concrete, bxo - bx, -18 + (bzo - bz), lotY, 0.14);
+    padBox(54, 3.6, concrete, bxo - bx, 18 + (bzo - bz), lotY, 0.14);
     const title = PARADE_TITLES[Math.floor(rng() * PARADE_TITLES.length)];
-    const faces = [bx - 18, bx + 18];                                                   // west and east parade fronts
+    const faces = [sbx - 18, sbx + 18];                                                   // west and east parade fronts
     const ordered = SHOP_TYPES.slice().sort(() => rng() - 0.5);                          // shuffled once per block
     for (let side = 0; side < 2; side++) {
       const shops = ordered.slice(side * nShop, side * nShop + nShop);
       const rotY = side === 0 ? PI / 2 : -PI / 2;                                       // fronts face the court
       const P = buildShopParadeMesh(shops, rng, { title, shopW, h: 4.4, depth: 8.5, wall: side ? 0xd2cfc6 : 0xc9c6bd });
-      P.group.position.set(faces[side], lotY, bz); P.group.rotation.y = rotY;
+      P.group.position.set(faces[side], lotY, sbz); P.group.rotation.y = rotY;
       bake(ch, P.group);                          // the parade merges with the block, not in a pass of its own
       // The parade is built with its front at local +z, so after the rotation a shop sitting at local x
-      // lands at bz - x on the west side and bz + x on the east side. The mesh and its collision box must
+      // lands at sbz - x on the west side and sbz + x on the east side. The mesh and its collision box must
       // use that same mapping or the windows would never break where they look like they are.
-      solid(faces[side] + (side === 0 ? -4.8 : 4.8), bz, 3.7, P.len / 2 + 4.3, 'building');
+      solid(faces[side] + (side === 0 ? -4.8 : 4.8), sbz, 3.7, P.len / 2 + 4.3, 'building');
       for (const gl of P.glasses) {
-        const x = faces[side], z = side === 0 ? bz - gl.x : bz + gl.x;   // matches the mesh's own rotation
+        const x = faces[side], z = side === 0 ? sbz - gl.x : sbz + gl.x;   // matches the mesh's own rotation
         solid(x, z, 0.24, gl.w / 2, 'shopfront');
         const sEntry = ch.solids[ch.solids.length - 1];
-        const gm = mergeStandalone(gl.group);
+        const gm = own(ch, mergeStandalone(gl.group));
         gm.position.set(x, lotY, z); gm.rotation.y = rotY; group.add(gm);
         sEntry.shop = { mesh: gm, x, z, w: gl.w, name: gl.name, kind: gl.kind, broken: false, solid: sEntry };
         ch.shops.push(sEntry.shop);
       }
-      ch.parades.push({ x: faces[side], z: bz, rotY, title, shops: P.shops.map(o => o.name), len: P.len });
+      ch.parades.push({ x: faces[side], z: sbz, rotY, title, shops: P.shops.map(o => o.name), len: P.len });
     }
     // the court: eighteen perpendicular bays in two rows, plus the green square with market stalls
     const bays = [];
     for (const sx of [-1, 1]) for (let i = 0; i < 9; i++)
-      bays.push({ x: bx + sx * 12.5, z: bz - 20 + i * 5, rotY: PI / 2, y: lotY - 0.05, hx: 2.45, hz: 1.25 });
-    add(box(9.4, 0.16, 9.4, grass, bx, lotY + 0.02, bz, false));                        // the little square
-    add(box(9.8, 0.26, 9.8, mat(0x9aa0a6), bx, lotY, bz, false));
-    add(box(9.4, 0.14, 9.4, grass, bx, lotY + 0.1, bz, false));
-    tree(bx - 3.1, bz - 3.1, lotY); tree(bx + 3.1, bz + 3.1, lotY); tree(bx + 3.1, bz - 3.1, lotY); tree(bx - 3.1, bz + 3.1, lotY);
-    for (const [kx, kz] of [[bx - 6.6, bz], [bx + 6.6, bz]]) {                          // two market stalls
+      bays.push({ x: sbx + sx * 12.5, z: sbz - 20 + i * 5, rotY: PI / 2, y: lotY - 0.05, hx: 2.45, hz: 1.25 });
+    add(box(9.4, 0.16, 9.4, grass, sbx, lotY + 0.02, sbz, false));                        // the little square
+    add(box(9.8, 0.26, 9.8, mat(0x9aa0a6), sbx, lotY, sbz, false));
+    add(box(9.4, 0.14, 9.4, grass, sbx, lotY + 0.1, sbz, false));
+    tree(sbx - 3.1, sbz - 3.1, lotY); tree(sbx + 3.1, sbz + 3.1, lotY); tree(sbx + 3.1, sbz - 3.1, lotY); tree(sbx - 3.1, sbz + 3.1, lotY);
+    for (const [kx, kz] of [[sbx - 6.6, sbz], [sbx + 6.6, sbz]]) {                          // two market stalls
       add(box(3.4, 0.9, 2.2, mat(0x9a7a52), kx, lotY + 0.45, kz));
       add(box(4.0, 1.5, 2.6, mat(0xd8452f), kx, lotY + 1.6, kz, false));
       add(box(4.2, 0.2, 2.8, mat(0xf2e9d8), kx, lotY + 2.35, kz, false));
       add(box(3.0, 0.1, 1.8, mat(0xf4f1e6), kx, lotY + 0.95, kz, false));
     }
-    prop('bench', bx - 4.4, bz + 5.2, PI); prop('bench', bx + 4.4, bz - 5.2, 0);
-    prop('trashcan', bx + 5.4, bz + 3.2); prop('trashcan', bx - 5.4, bz - 3.2);
-    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) prop('streetlight', bx + sx * 14.5, bz - 16 + i * 10.5);
+    prop('bench', sbx - 4.4, sbz + 5.2, PI); prop('bench', sbx + 4.4, sbz - 5.2, 0);
+    prop('trashcan', sbx + 5.4, sbz + 3.2); prop('trashcan', sbx - 5.4, sbz - 3.2);
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) prop('streetlight', sbx + sx * 14.5, sbz - 16 + i * 10.5);
     ch.parkingTotal = bays.length;
     ch.parkingFloor = 2;
     const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
@@ -1478,12 +2094,12 @@ function generateChunk(cx, cz, defer = false) {
       } else ch.parking.push(b);
     }
     for (const sx of [-1, 1]) for (let i = 0; i < 6; i++)
-      add(box(4.6, 0.03, 0.14, parkingPaint, bx + sx * 12.5, lotY + 0.03, bz - 20 + i * 5 - 2.5, false));
+      add(box(4.6, 0.03, 0.14, parkingPaint, sbx + sx * 12.5, lotY + 0.03, sbz - 20 + i * 5 - 2.5, false));
   } else { // industrial
-    add(box(56, 0.1, 56, mat(0x9b9da4), bx, 0.2, bz, false));
+    padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
     const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];
     for (let i = 0; i < 2; i++) {
-      const x = bx0 + 15 + i * 27, z = bz0 + 17, h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
+      const x = bx0 + 15 + i * 27 + (bxo - bx), z = bz0 + 17 + (bzo - bz), h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
       add(box(26, h, 30, mat(col), x, h / 2 + 0.25, z)); add(box(26.6, 0.8, 30.6, mat(0x5a5f68), x, h + 0.65, z));
       for (let k = -1; k <= 1; k++) add(box(6, 4.2, 0.2, mat(0x30343b), x + k * 8, 2.35, z + 15.1, false));
       add(cyl(0.6, 0.6, 3, 8, mat(0x888d96), x + r(-8, 8), h + 2.4, z + r(-8, 8)));
@@ -1492,19 +2108,26 @@ function generateChunk(cx, cz, defer = false) {
     const cc = [0xd9534f, 0x3b82c4, 0xf2b134, 0x4caf50, 0xe8e8e8];
     for (let row = 0; row < 2; row++) for (let c = 0; c < 3; c++) {
       if (rng() < 0.2) continue;
-      const x = bx0 + 9 + c * 19 + r(-2, 2), z = bz0 + (row ? 52 : 39.5);
+      const x = bx0 + 9 + c * 19 + r(-2, 2) + (bxo - bx), z = bz0 + (row ? 52 : 39.5) + (bzo - bz);
       add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x, 1.55, z));
       if (rng() < 0.4) add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x + r(-1, 1), 4.15, z));
       solid(x, z, 6, 1.25, 'container');
     }
-    for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50), bz0 + r(34.5, 37.5) + (i % 2) * 8.5, 0, 0.2);
+    for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
     if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
   }
   // Streetlights
   for (const s of [-1, 1]) for (const o of [-16, 16]) {
-    if (rng() < 0.8) { prop('streetlight', bx + s * 30.4, bz + o, 0); prop('streetlight', bx + o, bz + s * 30.4, 0); }
-    if (rng() < 0.45) prop('hydrant', bx + s * 30.6, bz - o * 0.45, 0, 0.15);
-    if (rng() < 0.45) prop('hydrant', bx - o * 0.45, bz + s * 30.6, 0, 0.15);
+    const kx = kerbIn(s < 0 ? 0 : 1), kz = kerbIn(s < 0 ? 2 : 3);      // the kerb on the side the prop is on
+    // ... and none of them where a flyover has opened the corner: a light left there would stand in the mouth
+    // the cut made rather than on the pavement the cut leaves.
+    const lampA = [bx + s * (CHUNK / 2 - kx - 1.35), bz + o], lampB = [bx + o, bz + s * (CHUNK / 2 - kz - 1.35)];
+    if (rng() < 0.8) {
+      if (cutClear(lampA[0], lampA[1], 1.2)) prop('streetlight', lampA[0], lampA[1], 0);
+      if (cutClear(lampB[0], lampB[1], 1.2)) prop('streetlight', lampB[0], lampB[1], 0);
+    }
+    if (rng() < 0.45 && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
+    if (rng() < 0.45 && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
   }
   if (!safe) {
     // Bus stops — occasional, on the sidewalk; reserves a clear zone so no car parks in front of it
@@ -1520,10 +2143,19 @@ function generateChunk(cx, cz, defer = false) {
     const parkKinds = ['civ', 'hatchback', 'suv', 'oldclassic'];
     for (const side of [0, 1, 2, 3]) {
       if (rng() > 0.09) continue;
+      // No kerbside parking on a side that carries an interchange's at-grade street either: that street is the
+      // through route past the structure (and under the deck), so a car left standing at its kerb would be a
+      // car left standing in the way — the same reason no tree pit is planted there.
+      if (atGradeSide(cx, cz, side)) continue;
       const along = r(14, 66), alongX = side >= 2;
       if (busReserved.some(b => b.side === side && Math.abs(b.along - along) < 11)) continue;
-      const x = side === 0 ? x0 + 6.9 : side === 1 ? x0 + 73.1 : x0 + along;   // parallel-parked along the kerb
-      const z = side === 2 ? z0 + 6.9 : side === 3 ? z0 + 73.1 : z0 + along;
+      const x = side === 0 ? x0 + kerbIn(0) - 1.35 : side === 1 ? x0 + CHUNK - kerbIn(1) + 1.35 : x0 + along;   // parallel-parked along the kerb
+      const z = side === 2 ? z0 + kerbIn(2) - 1.35 : side === 3 ? z0 + CHUNK - kerbIn(3) + 1.35 : z0 + along;
+      // ... nor inside the interchange, nor anywhere in its at-grade street: `insideFootprint` only knows the
+      // keepouts of the blocks already built, and a car parked on the crossing street beside the structure can
+      // land in the lane while the block that holds the flyover's own keepout is not built yet. The lane test is
+      // pure geometry, so it cannot be missed that way.
+      if (insideFootprint(x, z, 2.2) || onAtGradeLane(x, z, 2.2)) continue;
       const rotY = alongX ? (rng() < 0.5 ? PI / 2 : -PI / 2) : (rng() < 0.5 ? 0 : PI);
       const kind = parkKinds[Math.floor(rng() * parkKinds.length)];
       parkedCar(x, z, alongX ? 2.1 : 1.0, alongX ? 1.0 : 2.1, rotY, kind, carCols[Math.floor(rng() * carCols.length)]);
@@ -1532,8 +2164,9 @@ function generateChunk(cx, cz, defer = false) {
     for (const side of [0, 1, 2, 3]) {
       if (rng() > 0.45) continue;
       const along = r(14, 66);
-      const cx = side === 0 ? x0 + 10.4 : side === 1 ? x0 + 69.6 : x0 + along;
-      const cz = side === 2 ? z0 + 10.4 : side === 3 ? z0 + 69.6 : z0 + along;
+      const cx = side === 0 ? x0 + kerbIn(0) + 2.4 : side === 1 ? x0 + CHUNK - kerbIn(1) - 2.4 : x0 + along;
+      const cz = side === 2 ? z0 + kerbIn(2) + 2.4 : side === 3 ? z0 + CHUNK - kerbIn(3) - 2.4 : z0 + along;
+      if (!cutClear(cx, cz, 1.0)) continue;                      // never in the mouth a cut corner opened
       const roll = rng();
       const n = roll < 0.4 ? 1 : roll < 0.72 ? 2 : roll < 0.9 ? 3 : 4;
       const mix = ['trashcan', 'trashbag', 'trashbag', 'cardboard'];
@@ -1553,9 +2186,29 @@ function generateChunk(cx, cz, defer = false) {
       const start = r(16, 38), len = r(12, 22);
       const at = off => vert ? [fixed, alongBase + off] : [alongBase + off, fixed];
       const style = Math.floor(rng() * 4);
-      const patchCol = [0x57514a, 0x6b5a46, 0x2c2e33, 0x8a8a82][style];
-      const [mx, mz] = at(start + len * 0.5);
-      add(box(vert ? 3.2 : len + 2, 0.05, vert ? len + 2 : 3.2, mat(patchCol), mx, 0.09, mz, false));
+      // The interchange's embankment stands in the avenue's inner lanes where it passes over the junction, and a
+      // roadworks site laid inside it would bury its slabs and cones in the concrete: find a free lane instead.
+      const midX = vert ? fixed : alongBase + start + len / 2, midZ = vert ? alongBase + start + len / 2 : fixed;
+      if (!insideFootprint(midX, midZ, 4)) {
+      // The resurfaced lane. This used to be one clean rectangle in warm greys and browns, 5 cm thick and 9 cm
+      // proud of the asphalt: in daylight that read as a beige sheet lying on the road, with the lane markings
+      // cut off at its edge and nothing to say what it was. A repair is now laid the way a real one is — a few
+      // dark tarmac slabs end to end, with seams, a little sideways jitter and the ends marked by a cone taper —
+      // and it sits flush (2 cm proud, 4 cm thick) so it reads as a lane that was milled and re-laid.
+      const tarmac = [0x2f323a, 0x33363d, 0x2b2e35, 0x373a42];
+      const slabCount = 3 + Math.floor(rng() * 3), slabLen = (len + 2) / slabCount;
+      const site = { x: vert ? fixed : alongBase + start + len / 2, z: vert ? alongBase + start + len / 2 : fixed, vert, len, style, slabs: [] };
+      for (let i = 0; i < slabCount; i++) {
+        const seg = r(0.88, 1.04);                                  // each slab its own length: seams where they meet
+        const along = start + len / 2 + (i + 0.5 - slabCount / 2) * slabLen + r(-0.45, 0.45);
+        const lat = r(-0.3, 0.3);
+        const [sxa, sza] = at(along);
+        const w = 3.2, d = slabLen * seg, col = tarmac[Math.floor(rng() * tarmac.length)];
+        const px = vert ? sxa + lat : sxa, pz = vert ? sza : sza + lat;
+        add(box(vert ? w : d, 0.04, vert ? d : w, mat(col), px, 0.021, pz, false));
+        site.slabs.push({ x: px, z: pz, w: vert ? w : d, d: vert ? d : w, h: 0.04, y: 0.021, col });
+      }
+      ch.roadworks.push(site);
       const [sgx, sgz] = at(start - 3.2);
       prop('sign', sgx, sgz, vert ? 0 : PI / 2, 0);
       if (style === 0) { // simple cone taper
@@ -1576,6 +2229,8 @@ function generateChunk(cx, cz, defer = false) {
         const [d1x, d1z] = at(start - 1.4); prop('drum', d1x, d1z, 0, 0);
         const [d2x, d2z] = at(start + len + 1.4); prop('drum', d2x, d2z, 0, 0);
         for (let n = 0; n < 3; n++) { const [crx, crz] = at(start + r(2, len - 2)); prop(rng() < 0.5 ? 'crate' : 'barrel', crx + r(-0.5, 0.5), crz + r(-0.5, 0.5), rng(), 0); }
+        for (let d = -1.6; d <= len + 1.6; d += r(3.4, 4.4)) { const [px, pz] = at(start + d); prop('cone', px, pz, rng() * PI, 0); }
+      }
       }
     }
     // Pickups (cash lines, repair kits, nitro canisters)
@@ -1583,8 +2238,15 @@ function generateChunk(cx, cz, defer = false) {
     for (let n = 0; n < nLines + extra; n++) {
       const vert = rng() < 0.5, lane = (rng() < 0.5 ? -1 : 1) * 4, start = r(20, 45);
       const kr = rng();
-      if (kr < 0.3) { const px = vert ? x0 + lane : x0 + start, pz = vert ? z0 + start : z0 + lane; addPickup(ch, kr < 0.12 ? 'repair' : 'nitro', px, pz); continue; }
-      for (let i = 0; i < 5; i++) addPickup(ch, 'cash', vert ? x0 + lane : x0 + start + i * 4, vert ? z0 + start + i * 4 : z0 + lane);
+      if (kr < 0.3) {
+        const px = vert ? x0 + lane : x0 + start, pz = vert ? z0 + start : z0 + lane;
+        if (!insideFootprint(px, pz, 1.5)) addPickup(ch, kr < 0.12 ? 'repair' : 'nitro', px, pz);
+        continue;
+      }
+      for (let i = 0; i < 5; i++) {
+        const px = vert ? x0 + lane : x0 + start + i * 4, pz = vert ? z0 + start + i * 4 : z0 + lane;
+        if (!insideFootprint(px, pz, 1.5)) addPickup(ch, 'cash', px, pz);            // never inside the embankment
+      }
     }
   }
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
@@ -1594,23 +2256,28 @@ function generateChunk(cx, cz, defer = false) {
   if (type === 'downtown' || type === 'commercial') {
     const n = 2 + Math.floor(rng() * 3);
     for (let i = 0; i < n; i++) {
-      const s = SIDEWALK_SIDES[Math.floor(rng() * 4)];
+      const swi = Math.floor(rng() * 4), s = SIDEWALK_SIDES[swi];
       const along = (s.along === 'z' ? cz : cx) * CHUNK + 16 + rng() * (CHUNK - 32);
-      const d = PAVE_IN + (rng() < 0.55 ? 1.15 : 2.1);          // distance from the road centre line
+      const d = kerbIn(swi) + (rng() < 0.55 ? 1.15 : 2.1);      // just behind the kerb of its own side
       const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : along;
       const z = s.along === 'z' ? along : bz + s.fixed * (CHUNK / 2 - d);
-      if (occupied(x, z, 1.1)) continue;
+      if (occupied(x, z, 1.1) || !cutClear(x, z, 1.0)) continue;
       const kind = rng() < 0.36 ? 'mailbox' : rng() < 0.62 ? 'meter' : 'sandwich';
       prop(kind, x, z, Math.atan2(s.along === 'z' ? s.fixed : 0, s.along === 'z' ? 0 : s.fixed), 0);
     }
   }
   // ---- Suburban front hedges, set back in the yards along the walk ----
   if (type === 'suburb') {
-    for (const s of SIDEWALK_SIDES) {
+    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
+      const s = SIDEWALK_SIDES[si];
       if (rng() > 0.6) continue;
-      const d = PAVE_OUT + 0.35;                                 // in the yard strip, tight against the walk
+      const d = PAVE_OUT + (atGradeSide(cx, cz, si) ? FLY.frontage : 0) + 0.35;   // in the yard strip, behind the walk
       const edge0 = (s.along === 'z' ? cz : cx) * CHUNK;
-      for (let a = edge0 + PAVE_IN + 6; a < edge0 + CHUNK - PAVE_IN - 6; a += 3.4) {
+      // The hedge line starts where the pavement itself resumes at each end, so a hedge never stands in the
+      // mouth a cut corner opened either.
+      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
+      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
+      for (let a = edge0 + keep[0] + 6; a < edge0 + CHUNK - keep[1] - 6; a += 3.4) {
         if (rng() < 0.28) continue;                              // gaps read as driveways and gateways
         const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : a;
         const z = s.along === 'z' ? a : bz + s.fixed * (CHUNK / 2 - d);
@@ -1621,17 +2288,28 @@ function generateChunk(cx, cz, defer = false) {
   }
   // ---- Street trees ----
   // Verge blocks grow them in the grass strip; the paved styles plant them in kerb-edged soil beds.
+  // A side that carries an interchange's at-grade lane gets no tree line at all: the lane took the outer strip of
+  // that pavement, and a soil bed (which is what the pit is) would stand in the middle of the lane.
   if (type !== 'industrial') {
     const inVerge = sw.st.verge > 0;
     const offset = CHUNK / 2 - (inVerge ? PAVE_IN + 0.5 + sw.st.verge / 2 : PIT_IN);
     const step = inVerge ? 12.5 : 15.5;
-    for (const s of SIDEWALK_SIDES) {
+    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
+      const s = SIDEWALK_SIDES[si];
+      if (atGradeSide(cx, cz, si)) continue;
       const edge = (s.along === 'z' ? cz : cx) * CHUNK;
-      const first = edge + PAVE_IN + 6, last = edge + CHUNK - PAVE_IN - 6;   // clear of both intersections
+      // Clear of both junctions, and clear again of the corner cuts a flyover opens at either end: the trees move
+      // back with the pavement, so no tree pit is left standing in a mouth that is road now.
+      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
+      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
+      const first = edge + keep[0] + 6, last = edge + CHUNK - keep[1] - 6;
       for (let a = first + r(-2, 2); a < last; a += step) {
         const x = s.along === 'z' ? bx + s.fixed * offset : a;
         const z = s.along === 'z' ? a : bz + s.fixed * offset;
         if (occupied(x, z, 1.6)) continue;   // never inside a building, the pond or a parked car
+        // tree() refuses to plant one in the interchange's at-grade lane; the pit has to go with it, or a kerb-edged
+        // soil bed would be left lying in the lane with no tree in it
+        if (onAtGradeLane(x, z, 1.6)) continue;
         if (!inVerge) treePit(sw, s, offset, a);   // pits are only needed where the ground is paved
         tree(x, z, inVerge ? WALK_Y + 0.03 : WALK_Y + 0.02);
       }
@@ -1646,7 +2324,77 @@ function generateChunk(cx, cz, defer = false) {
   bakeRing(sw.bed, ASSET.soilMat, 2, false, ch);
   bakeRing(sw.bedEdge, ASSET.curbMat, 2, true, ch);
   buildTreeInstances(ch);
-  if (defer) {
+  // ---- The crossings a flyover's lane needs ----
+  // The road texture marks every junction the same way: a row of stripes across each arm, standing 53 texels out
+  // from the junction's edge, and a yellow centre line whose dashes start 70 texels out. Both were measured for a
+  // street whose kerb stands `PAVE_IN` from its centre line, and that is exactly as far as the texture's stripes
+  // march — 48 texels, 7.5 m. Beside a flyover the street gains its at-grade lane (the kerb steps out by
+  // `FLY.atGrade`) and the pavement corners are cut on the diagonal, so at those junctions the paint has to be
+  // carried on, and where the wide carriageway has swallowed it, taken back off again, all of it in the texture's
+  // own sizes, so a driver meets here the same crossing he meets anywhere else in the city:
+  //   * a row is laid off the kerb across the street it crosses, and stands a step further out where that corner
+  //     is cut. It reaches out along the street it crosses to that street's own kerb — the block's own kerb, not
+  //     the kerb facing it across the junction, which at the mouth of a lane has not stepped out — in the
+  //     texture's own stripe, size and step, so the row reads as one crossing and not a stub of stripes adrift in
+  //     the middle of the carriageway;
+  //   * the row the texture painted for the un-widened street — the one that now stands inside the lane — is
+  //     covered first with a coat of the road's own asphalt, out to the row that moved with the kerb;
+  //   * the narrow road's yellow centre line, swallowed by the lane the same way, is covered with it, out to the
+  //     crossing, so the line stops at the junction's edge as it does at every other junction in the city. The
+  //     coat runs on to the end of any dash it lands in, so the first dash left showing is a whole one.
+  const paint = mat(0xe9e8df), tar = ROAD_COAT;
+  const TX = CHUNK / 512;                                     // the road tile is 512 texels across one block
+  const STRIPE = 6 * TX, STEP = 10 * TX, DEEP = 8 * TX;       // a stripe: 6 texels along the row, 8 across it, every 10
+  const FIRST = 2 * TX + STRIPE / 2, TEX_END = 48 * TX;       // the centre of the texture's first stripe, and of its last
+  const TEX_LINE = 53 * TX + DEEP / 2;                        // the line the texture stands its rows on
+  const GAP = TEX_LINE - PAVE_IN;                             // how far a row clears the kerb it belongs to
+  const DASH0 = 70 * TX, DASH_W = 2.5 * TX, DASH_LEN = 22 * TX, DASH_PITCH = 40 * TX;   // the line: first dash, its width, its length, its pitch
+  const DASH1 = DASH0 + DASH_LEN;                             // ... and where that first dash ends
+  const DASH_LAST = 452 * TX;                                 // the texture's dashes end 452 texels from the tile's far edge
+  const COVER_OUT = 8.8, COVER_LAP = 0.4;                     // a cover spans the texture's own row: its stripes on either side
+  const ROW_LEN = COVER_OUT + COVER_LAP;                      // ... and laps the junction line so the two blocks' covers meet
+  for (const [jx, jz, sx, sz] of [[x0, z0, 1, 1], [x0, z0 + CHUNK, 1, -1], [x0 + CHUNK, z0, -1, 1], [x0 + CHUNK, z0 + CHUNK, -1, -1]]) {
+    const kx = kerbIn(sx > 0 ? 0 : 1), kz = kerbIn(sz > 0 ? 2 : 3);      // the two kerbs that meet at this corner
+    const cut = besideFlyover(jx / CHUNK, jz / CHUNK) ? FLY.chamfer : 0; // the pavement's tip is road at a junction beside a flyover
+    // The row stands off the edge of the carriageway it runs along, and that edge is the wider of the two kerbs
+    // that face each other there: the block across the other street has the other half of this junction's mouth,
+    // and at a junction a lane opens into, one of the two has stepped out while the other has not. A row set off
+    // one side's kerb alone would stand inside the lane on the other side of the junction.
+    const kxWide = Math.max(kx, PAVE_IN + (atGradeSide(cx, cz + (sz > 0 ? -1 : 1), sx > 0 ? 0 : 1) ? FLY.atGrade : 0));
+    const kzWide = Math.max(kz, PAVE_IN + (atGradeSide(cx + (sx > 0 ? -1 : 1), cz, sz > 0 ? 2 : 3) ? FLY.atGrade : 0));
+    const line = [kzWide + cut + GAP, kxWide + cut + GAP];               // 0: over the avenue, 1: over the cross street
+    for (const across of [0, 1]) {
+      const k = across ? kz : kx;
+      const moved = line[across] > TEX_LINE + 0.05;                      // the texture did not paint its row out here
+      if (moved) add(across                                                 // so its row comes off the asphalt first
+        ? box(1.6, 0.02, ROW_LEN, tar, jx + sx * TEX_LINE, 0.02, jz + sz * ((COVER_OUT - COVER_LAP) / 2), false)
+        : box(ROW_LEN, 0.02, 1.6, tar, jx + sx * ((COVER_OUT - COVER_LAP) / 2), 0.02, jz + sz * TEX_LINE, false));
+      // The stripes stand on the texture's own centres — half a stripe in from its first one, every step of ten
+      // texels — so the row carries the texture's own stripes on in the same size and step, and stops a kerb's
+      // reach short of the kerb, exactly as the texture's rows do at a plain junction.
+      for (let u = FIRST; u + STRIPE / 2 <= k - 0.4; u += STEP) {
+        if (!moved && u + STRIPE / 2 <= TEX_END + 0.02) continue;        // the texture's own stripes already run there
+        add(across
+          ? box(DEEP, 0.03, STRIPE, paint, jx + sx * line[across], 0.03, jz + sz * u, false)
+          : box(STRIPE, 0.03, DEEP, paint, jx + sx * u, 0.03, jz + sz * line[across], false));
+      }
+    }
+    // The wide street's carriageway has swallowed the other street's centre line the same way: the dashes inside
+    // it come off, out to the crossing that moved out with the kerb, and the line keeps its dashes beyond that.
+    // The coat is laid square over the junction's centre line — the width of a dash either way — so each block's
+    // coat takes the half of the line on its own side and not a hairline of it is left lying across the street.
+    for (const o of [0, 1]) {
+      let far = line[o] + DEEP / 2 + 0.2;                          // out past the crossing that moved with the kerb
+      if (far <= DASH0) continue;                                  // the kerb never reached the dashes: nothing to lift
+      const phase = (o ? sx : sz) > 0 ? DASH0 : CHUNK - DASH_LAST; // the dashes this block paints, measured outward
+      const into = (far - phase) % DASH_PITCH;
+      if (into >= 0 && into < DASH_LEN) far += DASH_LEN - into;    // never stop the coat inside a dash: the stub would show
+      const to = Math.max(far, DASH1);                             // the first dash comes off whole, not half of it
+      add(o
+        ? box(to - (DASH0 - 1.6), 0.02, DASH_W + 0.2, tar, jx + sx * ((DASH0 - 1.6 + to) / 2), 0.02, jz + sz * (DASH_W + 0.2) / 2, false)
+        : box(DASH_W + 0.2, 0.02, to - (DASH0 - 1.6), tar, jx + sx * (DASH_W + 0.2) / 2, 0.02, jz + sz * ((DASH0 - 1.6 + to) / 2), false));
+    }
+  }  if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
     ch.mergeQ = ch.bakeList; ch.bakeList = null; ch.materialBag = new Map(); ch.merged = false;
@@ -1673,7 +2421,10 @@ function addPickup(ch, kind, x, z) {
   ch.pickups.push({ mesh: m, x, z, kind, taken: false, ph: Math.random() * 6 });
 }
 export function disposeChunk(ch) {
-  scene.remove(ch.group); ch.geos.forEach(g => g.dispose()); ch.insts.forEach(m => m.dispose());
+  scene.remove(ch.group); ch.geos.forEach(g => g.dispose());
+  for (const g of ch.owned) g.dispose();                       // the block's stand-alone pieces go with it
+  ch.owned.length = 0;
+  ch.insts.forEach(m => m.dispose());
   if (ch.materialBag) { for (const geos of ch.materialBag.values()) geos.forEach(g => g.dispose()); ch.materialBag.clear(); }
   if (ch.mergeQ) ch.mergeQ.length = 0;
   for (const p of ch.pumps || []) p.gone = true;               // a dismantled forecourt must not go on exploding
@@ -1771,8 +2522,15 @@ export function addParkedCarToChunk(ch, kind, color, slot) {
   ch.solids.push(entry);
   return parked;
 }
-export function solidAt(x, z, m) {
+// Is there something solid at (x, z), within `m` of the point? `y` is the height the question is asked from: a
+// solid that is only real for what is below it (`maxY` — the interchange's embankment walls) is skipped when the
+// asker is above it. That is what lets a car up on a flyover look down the road ahead of it and see clear
+// asphalt, while a car at grade beside the same spot is told the concrete is there.
+export function solidAt(x, z, m, y = 0) {
   const list = nearChunks(x, z);
-  for (const ch of list) for (const s of ch.solids) if (Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m) return true;
+  for (const ch of list) for (const s of ch.solids) {
+    if (s.maxY !== undefined && y > s.maxY) continue;
+    if (Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m) return true;
+  }
   return false;
 }

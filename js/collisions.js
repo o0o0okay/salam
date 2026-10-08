@@ -8,6 +8,8 @@ import { TREE_BREAK_V } from './config.js';
 import { DIFF, HULK_PARAMS } from './config.js';
 import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
 import { nearChunks, isHeavyParked, parkedShove, parkedDamage } from './world.js';
+import { insideFootprint, parapetPush } from './flyover.js';
+import { flyingFloor } from './flying.js';
 import { carBox, createCar } from './vehicle.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
@@ -19,6 +21,8 @@ const BUSSTOP_BREAK_V = 7;  // bus shelters are flimsy — break easily
 const SCAFFOLD_BREAK_V = 8; // scaffolding — a bit sturdier, still breaks on a real hit
 const PUMP_BREAK_V = 6;     // a fuel dispenser is light: a solid nudge shears it off its island
 const SHOPFRONT_BREAK_V = 5; // shop glass: it gives way to any real impact and sprays across the pavement
+const FENCE_BREAK_V = 4;    // a chain-link schoolyard fence: about 13 km/h in the player's car takes a panel down
+const FENCE_CHAIN_R = 5;    // the panels this close to the hit come down with it, so the hole is a car wide
 // A dispenser going up is a real blast, sized so it clears the forecourt: it takes the paint off everything
 // within PUMP_BLAST_R m (falling off with distance) and rips apart whatever is actually on top of it. At the
 // centre that is a pursuit sedan or a SWAT roadblock killed outright — the armoured bearcats only die to the
@@ -49,6 +53,9 @@ export function sat(A, B) {
   hit.nx = nx; hit.nz = nz; hit.depth = minO; return true;
 }
 export function overlapsAnything(b, self) {
+  // Nothing spawns inside the interchange: a car placed in the embankment would sit in the concrete, and the
+  // deck above is no place to drop traffic into mid-air either.
+  if (insideFootprint(b.x, b.z, 2 + b.e1)) return true;
   const list = nearChunks(b.x, b.z);
   for (const ch of list) for (const s of ch.solids) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
@@ -57,6 +64,7 @@ export function overlapsAnything(b, self) {
 export function collideSolids(c) {
   const list = nearChunks(c.x, c.z); const b = carBox(c);
   for (const ch of list) for (const s of ch.solids) {
+    if (s.maxY !== undefined && c.y > s.maxY) continue;          // a wall under a deck: only for what is under it
     if (Math.abs(s.x - c.x) > s.hx + c.box.e1 + c.box.e2 || Math.abs(s.z - c.z) > s.hz + c.box.e1 + c.box.e2) continue;
     if (!sat(b, s.box)) continue;
     if (s.tree && !s.tree.broken) {
@@ -87,6 +95,10 @@ export function collideSolids(c) {
       const vnS = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards scaffolding
       if (vnS > SCAFFOLD_BREAK_V / Math.sqrt(c.mass)) { breakScaffold(s.scaffold, c, vnS); continue; }
     }
+    if (s.fencePiece && !s.fencePiece.broken) {
+      const vnF = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards the schoolyard fence
+      if (vnF > FENCE_BREAK_V / Math.sqrt(c.mass)) { breakFence(s.fencePiece, c, vnF, hit.nx, hit.nz); continue; }
+    }
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
     const vn = c.vx * nx + c.vz * nz;
@@ -101,6 +113,30 @@ export function collideSolids(c) {
     }
     c.lastWall = game.time;
   }
+}
+// The flyover's parapets, for the cars that are actually up on the structure. A car on the deck is held inside
+// them like a wall (with a scrape, and a small hit if it arrives hard); a car at grade is never touched, so the
+// crossing street keeps passing under the deck and a car under the bridge is not stopped by a parapet up on
+// above its roof.
+const _pp = { hit: false };
+export function collideFlyover(c) {
+  const b = carBox(c);                                        // the box has to be this frame's heading, not the last
+  const p = parapetPush(c.x, c.z, c.y, b, _pp);
+  if (!p.hit) return;
+  const sz = p.axis === 'z', push = p.depth + 0.01;                    // sz: the road that flies runs along z
+  if (sz) c.x -= p.sv * push; else c.z -= p.sv * push;
+  c.box.x = c.x; c.box.z = c.z;
+  const vout = sz ? c.vx * p.sv : c.vz * p.sv;                         // closing on the parapet
+  if (vout > 0) {
+    const vn = vout, keep = 0.25;
+    if (sz) c.vx -= vn * (1 + keep) * p.sv; else c.vz -= vn * (1 + keep) * p.sv;
+    if (game.time - (c.lastFlyWall || -99) > 0.4) {
+      c.lastFlyWall = game.time;
+      impactFx(c.x + (sz ? p.sv * 0.9 : 0), c.z + (sz ? 0 : p.sv * 0.9), vn, sz ? p.sv : 0, sz ? 0 : p.sv, c.isPlayer);
+      if (vn > 6) { if (c.isPlayer) { hurtPlayer(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCar(c, Math.max(0, vn - 8) * 0.5); }
+    }
+  }
+  c.lastWall = game.time;
 }
 function breakTree(t, c, vn) {
   t.broken = true; t.solid.hx = t.solid.hz = -999;           // no longer solid (all loops ignore it)
@@ -293,6 +329,33 @@ function breakPump(pu, c, vn, nx, nz) {
     if (c.isPlayer) { sfx.crash(Math.min(34, vn + 8)); toast('PUMP DOWN!'); hurtPlayer(Math.max(0, vn - 10) * 0.25); }
     else hurtCar(c, Math.max(0, vn - 6) * 0.8);
   }
+}
+// ---- Schoolyard fences: a panel tears off its plinth and tumbles ----
+// The fence is the lightest thing on a block, so a real hit takes the panel down — rails, mesh and the posts
+// standing on it — and that panel stops being a wall, which is what opens the yard up to drive into. The panels
+// right beside the hit come down with it so the gap is always wide enough to drive through; the rest of the
+// line carries on standing. The concrete plinth stays where it was poured.
+function breakFence(pc, c, vn, nx, nz) {
+  const x = pc.x, z = pc.z;
+  for (const ch of nearChunks(x, z)) for (const other of ch.fencePanels || []) {
+    if (other.broken || Math.hypot(other.x - x, other.z - z) > FENCE_CHAIN_R) continue;
+    tearFencePanel(other, c, nx, nz);
+  }
+  debris(x, 1.2, z, 0x9aa79f, 14);
+  sparks(x, 1.3, z, 8, nx, nz, 8);
+  const f = 1 - 0.03 / c.mass; c.vx *= f; c.vz *= f;           // a wire fence barely slows a car down
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(Math.min(20, vn + 5)); toast('FENCE DOWN!'); }
+  else hurtCar(c, Math.max(0, vn - 8) * 0.3);
+}
+function tearFencePanel(pc, c, nx, nz) {
+  pc.broken = true;
+  if (pc.solid) pc.solid.hx = pc.solid.hz = -999;              // the gap really is a gap now
+  const m = pc.mesh; if (!m) return;
+  scene.add(m);                                                // off the chunk group, so it can tumble on its own
+  const probe = { hx: pc.hx, up: 2.35, down: 0.22, hz: pc.hz };
+  m.position.y = flyingFloor(m.rotation, probe);               // seated on its own floor, so it does not pop upward
+  flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(2, 5) + rnd(-1.5, 1.5), vy: rnd(4, 8),
+    vz: c.vz * 0.4 + nz * rnd(2, 5) + rnd(-1.5, 1.5), sx: rnd(-7, 7), sz: rnd(-7, 7), life: rnd(1.6, 2.4), probe });
 }
 function breakProp(pr, c) {
   pr.broken = true; const m = pr.mesh; scene.add(m);

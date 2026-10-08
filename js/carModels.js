@@ -1,5 +1,6 @@
 /* Low-poly car models (civilians, player, 5 police tiers + new variants) */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mat, box, cyl, ASSET, mixerMat } from './assets.js';
 
 
@@ -29,12 +30,48 @@ export const CAR_DIMS = {
   ambulance:  { e1: 2.75, e2: 1.2,  mass: 3.4,  hp: 180 },
   firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
+  schoolbus:  { e1: 4.6,  e2: 1.28, mass: 4.4,  hp: 200 },
 };
 
 
 export const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 
 
+// ---- SCHOOL BUS lettering ----
+// The classic 5x7 box-pixel face the street signs use (js/world.js) is not reachable from here without a module
+// cycle, so the six letters the bus boards need carry their own patterns. Every bus asks for the same string at
+// the same size, so the merged lettering geometry is cached and shared: each bus pays one draw call for it.
+const BUS_LETTERS = {
+  S: '01111,10000,10000,01110,00001,00001,11110', C: '01110,10001,10000,10000,10000,10001,01110',
+  H: '10001,10001,10001,11111,10001,10001,10001', O: '01110,10001,10001,10001,10001,10001,01110',
+  L: '10000,10000,10000,10000,10000,10000,11111', B: '11110,10001,10001,11110,10001,10001,11110',
+  U: '10001,10001,10001,10001,10001,10001,01110', ' ': '00000,00000,00000,00000,00000,00000,00000',
+};
+const busSignCache = new Map();
+const _busBox = new THREE.BoxGeometry(1, 1, 1);
+const _busM = new THREE.Matrix4();
+function busSignGeometry(str, h, depth, gap) {
+  const key = str + '|' + h + '|' + depth + '|' + gap;
+  let geo = busSignCache.get(key);
+  if (geo !== undefined) return geo;
+  const pw = h / 7, total = str.length * (pw + gap) - gap, geos = [];
+  for (let i = 0; i < str.length; i++) {
+    const rows = (BUS_LETTERS[str[i]] || BUS_LETTERS[' ']).split(',');
+    const x0 = -total / 2 + i * (pw + gap);
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
+      if (rows[r][c] !== '1') continue;
+      const g = _busBox.clone();
+      _busM.makeScale(pw * 1.02, pw * 1.02, depth);
+      _busM.setPosition(x0 + c * pw + pw / 2, (6 - r) * pw + pw / 2, 0);
+      g.applyMatrix4(_busM);
+      geos.push(g);
+    }
+  }
+  geo = geos.length ? mergeGeometries(geos, false) : null;
+  geos.forEach(g => g.dispose());
+  busSignCache.set(key, geo);
+  return geo;
+}
 export function buildCar(kind, color, detail = true) {
   if (!CAR_DIMS[kind]) kind = 'civ';                            // never throw on an unknown vehicle type
   const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);
@@ -56,6 +93,59 @@ export function buildCar(kind, color, detail = true) {
     inner.add(box(0.06, 1.7, 1.0, dark, -1.22, 1.15, 2.6, false));
     inner.add(box(2.42, 0.24, 9.02, mat(0x25282f), 0, 0.5, 0, false));
 
+  } else if (kind === 'schoolbus') {
+    // Yellow school bus in the classic conventional layout: bonnet, grille and chrome bumper in front, a long
+    // passenger box with a row of tall windows, three black rub rails down each flank, the SCHOOL BUS board over
+    // the windscreen with its four warning lamps, a folded stop arm on the driver's side and yellow hubs.
+    wheelZ = [-2.9, 2.9]; wheelX = 1.2; frontZ = 4.55; backZ = -4.72; lightY = 1.0; wheelY = 0.53; wheelScale = 1.18;
+    const yellow = mat(0xf7b500), deep = mat(0xd99e00), black = mat(0x1b1c1f), chrome = mat(0xc9cdd2), roofPanel = mat(0xe9ebea);
+    lights.red = new THREE.MeshBasicMaterial({ color: 0xff2d2d });
+    lights.amber = new THREE.MeshBasicMaterial({ color: 0xffa41f });
+    inner.add(box(2.42, 0.5, 8.7, black, 0, 0.68, -0.25));                        // chassis rail
+    inner.add(box(2.5, 1.92, 7.3, yellow, 0, 1.86, -1.35));                       // passenger box: z -5.0 .. 2.3
+    inner.add(box(2.14, 1.02, 2.3, yellow, 0, 1.33, 3.35));                       // bonnet
+    inner.add(box(1.86, 0.66, 0.16, black, 0, 1.2, 4.5));                         // grille
+    inner.add(box(2.36, 0.32, 0.34, chrome, 0, 0.72, 4.6));                       // front bumper
+    inner.add(box(2.3, 0.32, 0.28, chrome, 0, 0.72, -4.98));                      // rear bumper
+    inner.add(box(1.96, 0.06, 0.9, yellow, 0, 1.85, 3.4, false));                 // bonnet crown
+    for (const sx of [-1, 1]) {                                                   // black front fenders over the wheels
+      inner.add(box(0.1, 0.46, 1.7, black, sx * 1.3, 1.12, 2.9, false));
+      inner.add(box(0.06, 0.9, 0.5, deep, sx * 1.28, 1.5, 2.35, false));          // the entry-door pillar, yellow like the body
+    }
+    inner.add(box(1.94, 0.98, 0.12, glass, 0, 2.3, 2.3));                         // windscreen ...
+    inner.add(box(0.16, 0.98, 0.16, yellow, 0, 2.3, 2.34, false));                 // ... split by its centre pillar
+    for (const sx of [-1, 1]) inner.add(box(0.08, 0.72, 1.15, glass, sx * 1.27, 2.28, 1.5, false));   // cab door glass
+    for (const sx of [-1, 1]) {                                                   // the row of tall passenger windows
+      inner.add(box(0.08, 0.86, 6.5, glass, sx * 1.27, 2.42, -1.6, false));
+      for (let i = 0; i < 6; i++) inner.add(box(0.1, 0.86, 0.16, yellow, sx * 1.28, 2.42, -4.6 + i * 1.2, false));
+      for (const ry of [0.98, 1.4, 1.82]) inner.add(box(0.05, 0.1, 7.3, black, sx * 1.27, ry, -1.35, false));   // rub rails
+      inner.add(box(0.04, 0.6, 0.6, lights.red, sx * 1.31, 1.62, 0.55, false));   // folded stop arm on the driver's side
+      inner.add(box(0.06, 0.5, 0.06, black, sx * 1.31, 1.6, 0.2, false));
+      inner.add(box(0.09, 0.42, 0.42, deep, sx * 1.44, 0.53, 2.9, false));        // yellow hub caps
+      inner.add(box(0.09, 0.42, 0.42, deep, sx * 1.44, 0.53, -2.9, false));
+      inner.add(cyl(0.05, 0.05, 0.9, 6, black, sx * 1.5, 2.75, 3.1, false));       // mirror arm ...
+      inner.add(box(0.12, 0.42, 0.3, black, sx * 1.5, 2.4, 3.2, false));          // ... and its head
+    }
+    inner.add(box(2.54, 0.16, 7.4, roofPanel, 0, 2.86, -1.35, false));            // white roof panel
+    inner.add(box(2.4, 0.1, 7.1, yellow, 0, 2.78, -1.35, false));
+    inner.add(box(0.72, 0.14, 0.72, yellow, 0, 2.96, -2.4, false));               // roof hatch
+    inner.add(box(2.06, 0.8, 0.12, glass, 0, 2.42, -4.98, false));                // rear window
+    inner.add(box(0.96, 1.1, 0.14, yellow, 0, 1.1, -5.0, false));                 // emergency door
+    inner.add(box(0.8, 0.62, 0.1, glass, 0, 1.35, -5.06, false));
+    // the SCHOOL BUS boards, black on yellow, above the windscreen and above the rear window
+    const boardY = 2.62;
+    for (const [bz, flip] of [[2.36, 0], [-4.66, Math.PI]]) {
+      inner.add(box(1.98, 0.52, 0.1, yellow, 0, boardY, bz, false));
+      const sign = new THREE.Mesh(busSignGeometry('SCHOOL BUS', 0.32, 0.05, 0.09), black);
+      sign.position.set(0, boardY - 0.16, bz + (flip ? -0.09 : 0.09));
+      if (flip) sign.rotation.y = flip;
+      inner.add(sign);
+    }
+    // four warning lamps on each end (two red outboard, two amber inboard)
+    for (const [bz, flip] of [[2.32, 1], [-4.68, -1]]) for (const sx of [-1, 1]) {
+      inner.add(box(0.24, 0.24, 0.12, lights.red, sx * 1.0, 2.5, bz + flip * 0.06, false));
+      inner.add(box(0.24, 0.24, 0.12, lights.amber, sx * 0.66, 2.5, bz + flip * 0.06, false));
+    }
 
   } else if (kind === 'ambulance') {
     // White box ambulance with the red livery band, red crosses and a blue roof beacon — the reference art
@@ -393,7 +483,7 @@ export function buildCar(kind, color, detail = true) {
     w.castShadow = true; inner.add(w);
   }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = kind === 'bus' ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
   g.userData.inner = inner; g.userData.lights = lights;

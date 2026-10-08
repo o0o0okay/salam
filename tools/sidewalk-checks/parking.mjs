@@ -51,14 +51,15 @@ const liveAmbulances = ch => (ch.ambulanceSlots || []).filter(sl => sl.car && !s
 world.updateChunks(0, 0, 999);
 const fire = world.chunks.get(world.ck(0, -1));
 const mall = [...world.chunks.values()].find(ch => ch.parkingTotal && !ch.parkingFixed && !ch.fireSlots);
-const hospital = [...world.chunks.values()].find(ch => ch.parkingFixed);
-if (!fire || !mall || !hospital) { console.log('missing test blocks'); process.exit(1); }
+const hospital = [...world.chunks.values()].find(ch => (ch.ambulanceSlots || []).length);
+const school = [...world.chunks.values()].find(ch => (ch.busSlots || []).length);
+if (!fire || !mall || !hospital || !school) { console.log('missing test blocks'); process.exit(1); }
 const centreOf = ch => (world.PI, [ch.cx * 80 + 40, ch.cz * 80 + 40]);
 
 // ==== 0) every roster bay must name a vehicle, and the station fleet must hold its shape ====
 {
-  for (const ch of [fire, hospital, mall]) {
-    for (const sl of [...(ch.ambulanceSlots || []), ...(ch.fireSlots || [])]) {
+  for (const ch of [fire, hospital, mall, school]) {
+    for (const sl of [...(ch.ambulanceSlots || []), ...(ch.fireSlots || []), ...(ch.busSlots || [])]) {
       if (!sl.kind) bad(`chunk ${ch.cx},${ch.cz}: a roster bay has no vehicle type (the fill path would call buildCar(undefined))`);
     }
   }
@@ -130,6 +131,33 @@ const centreOf = ch => (world.PI, [ch.cx * 80 + 40, ch.cz * 80 + 40]);
     if (standingCar(mall) !== want) bad(`the car park never refilled (${standingCar(mall)} of ${want} cars)`);
     else ok('a fresh car takes the empty bay once the delay is up');
   }
+}
+
+// ==== 2b) the school bus stand: three yellow buses from the first frame, and a wreck is never replaced ====
+{
+  const [px, pz] = centreOf(school);
+  player.x = px; player.z = pz;
+  const live = () => (school.busSlots || []).filter(sl => sl.car && !sl.out).length;
+  if (live() !== school.busSlots.length) bad(`the school bus stand is not full on the first frame (${live()} of ${school.busSlots.length})`);
+  else ok(`school bus stand: ${live()} of ${school.busSlots.length} buses standing from the first frame`);
+  for (const sl of school.busSlots) if (sl.kind !== 'schoolbus') bad(`a school bus bay wants '${sl.kind}'`);
+  const slot = school.busSlots[0], bus = slot.car;
+  bus.broken = true; bus.wrecked = true;
+  step(2);
+  if (slot.car) bad('a wrecked school bus was still on the books after 2 s');
+  step(120);
+  if (slot.car) bad('the school replaced a wrecked bus: nothing is supposed to respawn');
+  else if (!slot.wreck || !slot.wreck.mesh.visible) bad('the burnt bus hulk was thrown away instead of staying in its bay');
+  else if (live() !== school.busSlots.length - 1) bad(`the school fleet did not stay down: ${live()} of ${school.busSlots.length} left`);
+  else ok('a wrecked school bus is never replaced: its burnt hulk stays in the bay');
+  // the rest of the lot keeps working: a school lot still parks ordinary cars within the ceiling
+  const bays = school.parkingTotal, cap = Math.floor(bays * 0.2);
+  const want = world.lotCars(bays, school.parkingFixed, 0.25, school.parkingFloor || 2);
+  step(20, 0.25);
+  const n = standingCar(school);
+  if (n !== want) bad(`the school lot stands ${n} cars at midday, expected ${want}`);
+  else ok(`school lot: ${n} staff cars at midday beside ${school.busSlots.length - 1} buses (ceiling ${cap})`);
+  if (n + (school.busSlots.length - 1) > cap) bad(`the school lot exceeds its 20% ceiling (${n + school.busSlots.length - 1} of ${cap})`);
 }
 
 // ==== 3) hospital ambulances hold the 2-3 range ====

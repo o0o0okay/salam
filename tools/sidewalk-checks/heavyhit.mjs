@@ -79,18 +79,20 @@ const hurtCar = (c, amt) => {
   if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; c.lastPlayerHit = game.time; }
 };
 const civPanic = () => {};
+// the interchange's maths, shared with the world module (the stitched sources strip their imports)
 const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
 const nearChunks = __world.nearChunks, addParkedCarToChunk = __world.addParkedCarToChunk;
+const CHUNK = __world.CHUNK;
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const CAR_DIMS = __world.CAR_DIMS;
 const env = { phase: 0.8, day: 0, night: 1, dusk: 0 };
 ${carBoxSrc}
-export { updateParking, collideSolids, carCar, tickHulks, wreckTick, tickPumpFuses, syncCarMesh, driveCar, sat, updateFlying, flyingFloor, hit, env, game, player, scene, flying, fires, cars };
+export { updateParking, collideSolids, collideFlyover, collideProps, carCar, tickHulks, wreckTick, tickPumpFuses, syncCarMesh, driveCar, sat, updateFlying, flyingFloor, hit, env, game, player, scene, flying, fires, cars, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, parapetPush, nodeAt, nearestNode, nodeBlock, isFlyoverNode, flyoverNear, alongOf, latOf, laneOffsetOn, rampApproach, roadEdge, onAtGradeLane };
 `;
 const file = path.join(os.tmpdir(), 'salam-heavyhit.test.mjs');
-fs.writeFileSync(file, stubs + '\n' + read('js/flying.js') + '\n' + read('js/wrecks.js') + '\n' + read('js/traffic.js') + '\n' + read('js/collisions.js') + '\n' + createSrc + '\n' + driveSrc + '\n' + syncSrc);
+fs.writeFileSync(file, stubs + '\n' + read('js/flyover.js') + '\n' + read('js/flying.js') + '\n' + read('js/wrecks.js') + '\n' + read('js/traffic.js') + '\n' + read('js/collisions.js') + '\n' + createSrc + '\n' + driveSrc + '\n' + syncSrc);
 const M = await import(file + '?v=' + Date.now());
 const fx = M.fx;
 const CAR_DIMS = world.CAR_DIMS;
@@ -120,10 +122,11 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 
 // ---- the world: hospital ambulance bays, fire station bays, and a shopping-centre lot ----
 world.updateChunks(0, 0, 999);
-const hospital = [...world.chunks.values()].find(ch => ch.parkingFixed && ch.ambulanceSlots);
+const hospital = [...world.chunks.values()].find(ch => ch.ambulanceSlots);
 const station = [...world.chunks.values()].find(ch => ch.fireSlots);
 const mall = [...world.chunks.values()].find(ch => ch.parkingTotal && !ch.parkingFixed && !ch.fireSlots);
-if (!hospital || !station || !mall) { console.log('missing test blocks'); process.exit(1); }
+const school = [...world.chunks.values()].find(ch => (ch.busSlots || []).length);
+if (!hospital || !station || !mall || !school) { console.log('missing test blocks'); process.exit(1); }
 const step = (seconds, phase) => {
   if (phase !== undefined) M.env.phase = phase;
   for (let t = 0; t < seconds * 60; t++) { M.game.time += 1 / 60; M.game.t = M.game.time; M.updateParking(1 / 60); }
@@ -209,11 +212,30 @@ let amb = null;
   }
 }
 
+// ==== 2b-2) the school bus is the heaviest thing in a lot: it barely moves and shrugs off a ram ====
+let schoolBus = null;
+{
+  // The buses stand nose-to-tail in a line, so only the one at the end of the row has a clear run-up:
+  // aim at it from the open end of the lot, or the rammer would just bump the neighbouring bus.
+  const slot = (school.busSlots || []).filter(sl => sl.car && !sl.out && !sl.car.wrecked).sort((a, b) => b.x - a.x)[0];
+  if (!slot) bad('no school bus standing in the stand to test');
+  else {
+    const r = ramInto(slot.car, 34, 6.2, 'front');
+    r.rate = r.damages / Math.max(1, r.impactSpeed - 4);
+    schoolBus = r;
+    if (!r.touched) bad('a full-speed ram did no damage to the school bus');
+    if (r.launched !== 0) bad('the rammed school bus was launched - a bus must stay on its wheels');
+    if (r.shift > 1.6) bad(`the school bus slid ${r.shift.toFixed(2)} m on impact`);
+    if (amb && r.rate >= amb.rate) bad(`the school bus takes ${r.rate.toFixed(2)} damage per m/s of ram, the ambulance ${amb.rate.toFixed(2)} - the bus is heavier`);
+    else if (amb) ok(`the school bus is heavier than the ambulance: it shifted ${r.shift.toFixed(2)} m and took ${r.rate.toFixed(2)} damage per m/s of ram`);
+  }
+}
+
 // ==== 2c) keep ramming: it burns where it stands, becomes a wreck, and is never replaced ====
 let hulkRef = null;
 {
   const game0 = { cash: M.game.cash };
-  const fresh = [...hospital.ambulanceSlots, ...station.fireSlots].filter(sl => sl.car && !sl.out && !sl.car.wrecked);
+  const fresh = [...hospital.ambulanceSlots, ...station.fireSlots, ...(school.busSlots || [])].filter(sl => sl.car && !sl.out && !sl.car.wrecked);
   const slot = fresh.find(sl => sl.car.hp === CAR_DIMS[sl.car.kind].hp) || fresh[0];
   const rec = hulkRef = slot.car;
   let rams = 0;
@@ -233,9 +255,9 @@ let hulkRef = null;
   if (rec.wrecked && M.flying.length) bad('the wreck was launched');
   const burning = { x: rec.mesh.position.x, z: rec.mesh.position.z };
   step(6, 0.8);                                                  // let the books settle after the crash
-  const ownedBefore = [...hospital.ambulanceSlots, ...station.fireSlots].filter(sl => sl.car).length;
+  const ownedBefore = [...hospital.ambulanceSlots, ...station.fireSlots, ...(school.busSlots || [])].filter(sl => sl.car).length;
   step(90, 0.8);                                                 // a minute and a half more of frames
-  const ownedAfter = [...hospital.ambulanceSlots, ...station.fireSlots].filter(sl => sl.car).length;
+  const ownedAfter = [...hospital.ambulanceSlots, ...station.fireSlots, ...(school.busSlots || [])].filter(sl => sl.car).length;
   if (ownedAfter !== ownedBefore) bad(`a replacement turned up after the wreck (${ownedAfter} of ${ownedBefore} units owned) - nothing is supposed to respawn`);
   else if (slot.wreck !== rec) bad('the burnt hulk was not kept against its bay');
   else if (slot.car) bad('the wrecked bay was refilled');
@@ -352,6 +374,74 @@ let hulkRef = null;
   }
 }
 
+// ==== 4b) the schoolyard fence: a slow roll-up stops, a normal bump takes the panel down ====
+{
+  const school = [...world.chunks.values()].find(ch => (ch.fencePanels || []).length);
+  if (!school) bad('no school block with fence panels in the lattice');
+  else {
+    // a panel on the front line: hit it head-on from the lot, so the run-up is clear of the parked cars
+    const front = school.fencePanels.filter(pc => pc.run < 3);
+    const panel = (front.length ? front : school.fencePanels).slice().sort((a, b) => Math.max(b.hx, b.hz) - Math.max(a.hx, a.hz))[0];
+    const alongX = panel.hx > panel.hz;                   // a wall running along x is hit head-on by driving along z
+    const PMASS = CAR_DIMS.player.mass;                    // the player's own car: 1.3
+    const car = (dist, speed, mass = PMASS) => {
+      const c = {
+        h: alongX ? 0 : -Math.PI / 2, mass, kind: 'player', isPlayer: true, hp: 100, wrecked: false,
+        vx: alongX ? 0 : -speed, vz: alongX ? -speed : 0,
+        box: { x: 0, z: 0, ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.player.e1, e2: CAR_DIMS.player.e2 },
+      };
+      c.x = alongX ? panel.x : panel.x + dist;
+      c.z = alongX ? panel.z + dist : panel.z;
+      return c;
+    };
+    const standing = () => school.fencePanels.filter(pc => !pc.broken).length;
+    const all = school.fencePanels.length;
+    const roll = (c, frames = 90) => { for (let i = 0; i < frames && !panel.broken; i += 1) { c.x += c.vx / 60; c.z += c.vz / 60; M.collideSolids(c); } };
+    // rolling up at walking pace (about 9 km/h) only stops the car: the fence holds
+    const gentle = car(CAR_DIMS.player.e1 + 1.2, 2.6);
+    roll(gentle);
+    if (panel.broken) bad('a 9 km/h roll-up tore a fence panel down - it should just stop the car');
+    else ok('rolling up at 9 km/h: the schoolyard fence stops the car');
+    // the bump the player will actually make (about 15 km/h) takes the panel off its plinth
+    const bump = car(CAR_DIMS.player.e1 + 1.2, 4.2);
+    roll(bump);
+    if (!panel.broken) bad('a 15 km/h bump in the player\'s car did not take the panel down - the fence has to give way');
+    else ok(`a 15 km/h bump takes the ${(Math.max(panel.hx, panel.hz) * 2).toFixed(1)} m panel off its plinth`);
+    if (panel.broken && !(panel.solid.hx < 0 && panel.solid.hz < 0)) bad('the broken panel is still a solid wall');
+    else if (panel.broken) ok('the gap really is a gap: the torn panel stops being solid');
+    const torn = all - standing();
+    if (torn < 1) bad('nothing came down with the hit');
+    else if (torn > 4) bad(`${torn} panels came down at once - a hit should take the panel it lands on`);
+    else ok(`the hit takes ${torn} panel(s) down and leaves ${standing()} of ${all} standing`);
+    if (!panel.broken || !M.flying.includes(M.flying[M.flying.length - 1])) bad('a torn panel did not tumble away');
+    else ok('the torn panel tumbles off as its own piece');
+    if (fx.debris === 0) bad('no debris on the fence hit');
+    // the rest of the line carries on standing, and stays a wall
+    const near = school.fencePanels.filter(pc => !pc.broken).sort((a, b) => Math.hypot(a.x - panel.x, a.z - panel.z) - Math.hypot(b.x - panel.x, b.z - panel.z))[0];
+    if (!near) bad('one hit brought the whole fence line down');
+    else if (!(near.solid.hx > 0 && near.solid.hz > 0)) bad('a panel away from the hit came down with it');
+    else if (Math.hypot(near.x - panel.x, near.z - panel.z) < 4) bad('the hit took the neighbouring panels as well - it should take the panel it lands on');
+    else ok(`the line carries on: the nearest standing panel is ${Math.hypot(near.x - panel.x, near.z - panel.z).toFixed(1)} m from the gap and is still solid`);
+    // and a car can now drive in through the gap: the yard is open
+    const through = car(CAR_DIMS.player.e1 + 2.5, 12);
+    const startX = through.x, startZ = through.z;
+    for (let i = 0; i < 90; i += 1) { through.x += through.vx / 60; through.z += through.vz / 60; M.collideSolids(through); }
+    const travelled = Math.hypot(through.x - startX, through.z - startZ);
+    if (!(travelled > 12)) bad(`the car only travelled ${travelled.toFixed(1)} m - the torn panel still blocks the yard`);
+    else ok(`the car rolls through the gap into the schoolyard (${travelled.toFixed(1)} m travelled)`);
+    // the panels settle on the asphalt without sinking into it, and are cleaned up
+    let below = 0;
+    for (let i = 0; i < 200; i += 1) {
+      M.updateFlying(1 / 60);
+      for (const f of M.flying) if (f.mesh.position.y < M.flyingFloor(f.mesh.rotation, f.probe) - 1e-9) below += 1;
+    }
+    if (below) bad(`a tumbling fence panel spent ${below} frame(s) under its own floor`);
+    else ok('the fence panels tumble on the asphalt and never sink through it');
+    if (M.flying.length) bad('the fence debris was never cleaned up');
+    else ok('the fence debris is cleaned up when its flight ends');
+  }
+}
+
 // ==== 5) a dispenser blast is strong enough to destroy a police car standing beside it ====
 {
   const station = [...world.chunks.values()].find(ch => ch.pumps && ch.pumps.length === 4 && ch.pumps.every(p => !p.broken));
@@ -442,6 +532,243 @@ let hulkRef = null;
     if (!neighbour || !neighbour.mesh) bad('smashing one shop window destroyed the parade');
     else ok('the shop behind the empty frame carries on trading, and its neighbours are untouched');
   }
+}
+
+// ==== 8) the interchange: a car drives up one ramp, across the deck and down the far side, while the street it
+// crosses keeps running at grade underneath it ====
+// Both of the city's main roads carry flyovers now (js/flyover.js spaces them out along each one), so this whole
+// section is run twice — once on the avenue, once on the cross street — and everything below is written in the
+// flyover's own frame: u along the road that flies, v across it. The real arcade physics and the real surface
+// function do the rest, so what is checked is true in play and not just in the plan: one road goes over, the
+// other goes under, and neither is scooped onto the other's level.
+for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
+  const F = M.FLY, H = F.deckH, alongX = f.axis === 'x';
+  const wx = (u, v) => alongX ? f.node + u : f.road + v;
+  const wz = (u, v) => alongX ? f.road + v : f.node + u;
+  const mu = c => (alongX ? c.x : c.z) - f.node, mv = c => (alongX ? c.z : c.x) - f.road;   // the car's own (u, v)
+  const alongH = alongX ? Math.PI / 2 : 0;                 // facing +u
+  const acrossH = alongX ? 0 : Math.PI / 2;                // facing +v
+  const name = `${f.axis}@${f.node}`;
+  // The blocks around this interchange have to be resident before anything here can be hit: the collision volumes
+  // (the embankment's slices, its flanks, the abutment) live in the chunks that build them, and the player's own
+  // world streams them in as he drives. This test drives a car there, so it streams them in first.
+  world.updateChunks(wx(0, 0), wz(0, 0), 999);
+  // A bare car object with the real dimensions and the real physics (the stitched module's createCar needs a
+  // renderer, and none of what is driven here needs a mesh).
+  const laneV = (f, dir, off) => M.laneOffsetOn(f.axis, dir, off);      // the across-the-road lane coordinate
+  const mk = (u, v, h) => ({
+    x: wx(u, v), z: wz(u, v), h, y: 0, vy: 0, vx: 0, vz: 0, steer: 0, speed: 0, vf: 0, vl: 0, acc: 0, yaw: 0, gpitch: 0,
+    box: { x: wx(u, v), z: wz(u, v), ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+    mass: CAR_DIMS.sedan.mass, params: PLAYER_PARAMS, kind: 'sedan', isPlayer: false, hp: 100, wrecked: false, dead: false,
+    boost: 0, flatT: 0, flatSide: 1,   // flatSide matters: 0 * undefined would make the steering NaN
+  });
+  const roll = (c, seconds, throttle = 1) => {
+    for (let t = 0; t < seconds * 60; t++) {
+      M.driveCar(c, { throttle, hand: false }, 1 / 60);
+      M.game.time += 1 / 60;
+      M.collideSolids(c); M.collideFlyover(c);
+    }
+    return c;
+  };
+  // ---- splitter protection is not decorative: the drum stops a frontal approach, while the thin
+  // flexible posts break away without forming an invisible wall across the junction.
+  {
+    const guardV = F.halfW - 0.70;
+    const nose = mk(-F.rampEnd - 8, guardV, alongH);
+    roll(nose, 3);
+    if (mu(nose) + nose.box.e1 > -F.rampEnd - 1.4 - 0.65 + 0.03)
+      bad(`${name}: car penetrated the nose-protection drum`);
+    else ok(`${name}: nose-protection drum stops a frontal approach before the concrete`);
+    const posts = [...world.chunks.values()].flatMap(ch => ch.props).filter(p => p.kind === 'delineator');
+    const post = posts.find(p => Math.hypot(p.x - wx(-F.rampEnd - 5.6, guardV), p.z - wz(-F.rampEnd - 5.6, guardV)) < 0.01);
+    if (!post) bad(`${name}: no approach delineator to test`);
+    else {
+      const c = mk(-F.rampEnd - 5.6, guardV, alongH); c.speed = 12;
+      if (alongX) c.vx = 12; else c.vz = 12;
+      M.collideProps(c);
+      if (!post.broken || Math.hypot(c.vx, c.vz) < 11) bad(`${name}: delineator acts like a rigid wall`);
+      else ok(`${name}: orange delineator breaks away and does not trap the car`);
+    }
+  }
+  // ---- up and over: in the lane on one side of the centre line, all the way across ----
+  const up = mk(-F.rampEnd - 12, -4, alongH);
+  let peak = 0, onDeck = 0, drift = 0, backDown = null;
+  for (let i = 0; i < 9 * 60; i++) {
+    roll(up, 1 / 60);
+    peak = Math.max(peak, up.y);
+    if (Math.abs(mu(up)) < 1) onDeck = up.y;
+    if (up.y > 3) drift = Math.max(drift, Math.abs(mv(up) + 4));
+    if (backDown === null && mu(up) > F.rampEnd + 4) backDown = up.y;
+  }
+  if (M.surfaceAt(wx(-F.rampEnd - 12, -4), wz(-F.rampEnd - 12, -4), 0) !== 0) bad(`${name}: the road a block before the interchange is not at grade`);
+  else ok(`${name}: the road runs at grade up to its approach`);
+  // (the peak is the crest hop now, so it is allowed to sit a little above the deck: what has to be exactly
+  // right is the surface it crosses the junction on)
+  if (peak < H - 0.05 || peak > H + 0.5) bad(`${name}: a car driving up the approach reached y=${peak.toFixed(2)} m, not the ${H} m deck`);
+  else ok(`${name}: a car climbs the approach and reaches the deck (peak y=${peak.toFixed(2)} m, the crest hop)`);
+  if (Math.abs(onDeck - H) > 0.05) bad(`${name}: the car was at y=${onDeck.toFixed(2)} m crossing the junction, not on the ${H} m deck`);
+  else ok(`${name}: it crosses the junction on the deck at y=${onDeck.toFixed(2)} m, ${(H - F.slab).toFixed(2)} m over the street below`);
+  if (M.surfaceAt(wx(0, 0), wz(0, 0), H) !== H) bad(`${name}: the surface over the junction is not the deck for a car up there`);
+  if (drift > 1.0) bad(`${name}: the car wandered ${drift.toFixed(2)} m sideways on the structure`);
+  else ok(`${name}: the parapets hold it on the deck`);
+  if (backDown === null || backDown > 0.35) bad(`${name}: the far approach does not bring the car back to grade (y=${backDown})`);
+  else ok(`${name}: the far approach brings it back down to the road`);
+  // ---- under: a car on the street below, crossing the junction at grade ----
+  const under = mk(0, -40, acrossH);
+  let lift = 0, through = false;
+  for (let i = 0; i < 5 * 60; i++) {
+    roll(under, 1 / 60);
+    if (Math.abs(mv(under)) < F.halfW) { lift = Math.max(lift, Math.abs(under.y)); through = true; }
+  }
+  if (lift > 0.01) bad(`${name}: a car crossing on the street below was lifted to y=${lift.toFixed(2)} m`);
+  else ok(`${name}: traffic on the street below passes under the deck without being lifted onto it`);
+  if (!through || mv(under) <= 6) bad(`${name}: the car under the deck did not get through the underpass`);
+  else ok(`${name}: a car drives the underpass at grade, coming out ${mv(under).toFixed(0)} m past the junction`);
+  // ---- the underpass has real headroom: the deck's underside is clear of anything but traffic ----
+  const clear = H - (F.slab + 0.08);                                  // underside of the slab over the carriageway
+  if (clear < 4.2) bad(`${name}: only ${clear.toFixed(2)} m of headroom under the deck`);
+  else ok(`${name}: the underpass leaves ${clear.toFixed(2)} m of headroom`);
+  // ---- the embankment is a wall at grade: a car beside it cannot drive into the structure ----
+  const wallCar = mk(-F.deckHalf - 6, -F.halfW - 1.4, alongH);
+  roll(wallCar, 1.2, 1);
+  const before = mu(wallCar);
+  roll(wallCar, 2.5, 1);
+  if (Math.abs(mv(wallCar) + F.halfW + 1.4) > 0.6) bad(`${name}: a car at grade is being pushed out of its own lane beside the embankment`);
+  else ok(`${name}: the embankment's walls leave the traffic beside them alone`);
+  if (mu(wallCar) - before < 2) bad(`${name}: a car at grade did not get past the embankment at all`);
+  else ok(`${name}: traffic passes the interchange at grade on the far side of the embankment`);
+  // ---- the flank is closed, but not to the traffic that belongs beside it: a car at grade that turns in
+  // towards the embankment is stopped outside it ----
+  const flank = mk(-30, -F.halfW - 0.6, acrossH);      // right up against the wall, pointing at the road
+  for (let i = 0; i < 4 * 60; i++) roll(flank, 1 / 60);
+  if (mv(flank) > -F.halfW) bad(`${name}: a car at grade drove into the flank of the embankment, reaching v=${mv(flank).toFixed(2)} m`);
+  else ok(`${name}: the flank of the embankment turns traffic at grade away at v=${mv(flank).toFixed(2)} m`);
+  // ---- the parapet holds the whole car, not just its centre line: a car that ends up square across the lane —
+  // spun by a PIT, slewed by a ram, slithering on its side after a wreck — presents its *length* to the concrete,
+  // and a car shoved clean past the wall's own line (two bodies separating out of a hard hit) has to be brought
+  // back inside it. What the push measures is the reach of the car's own box across the road: using half the
+  // width let a car at an angle put most of its body through the parapet while its centre stayed "inside".
+  {
+    const face = F.halfW - F.parapet;                                    // the lane's side of the parapet
+    const e2 = CAR_DIMS.sedan.e2;
+    const reach = c => alongX ? c.box.e1 * Math.abs(c.box.uz) + c.box.e2 * Math.abs(c.box.vz)
+                              : c.box.e1 * Math.abs(c.box.ux) + c.box.e2 * Math.abs(c.box.vx);
+    const slideV = (c, dv) => { if (alongX) c.z += dv; else c.x += dv; c.box.x = c.x; c.box.z = c.z; };
+    // square across the deck, resting where a sideways slide used to be allowed to stop, then pushed on in
+    const spun = mk(0, -(face - e2), acrossH);
+    spun.y = H; M.carBox(spun);
+    let through = 0;
+    for (let i = 0; i < 60; i++) { slideV(spun, -0.05); M.collideFlyover(spun); through = Math.max(through, -mv(spun) + reach(spun) - face); }
+    if (through > 0.03) bad(`${name}: a car spun square across the lane puts ${through.toFixed(2)} m of itself through the parapet (its reach is ${reach(spun).toFixed(2)} m)`);
+    else ok(`${name}: a car spun square across the lane is held at the parapet (its length reaches ${reach(spun).toFixed(2)} m across, ${through.toFixed(2)} m through the concrete)`);
+    // aligned with the lane, shoved right through the wall's line half way up the ramp
+    const wallU = F.deckHalf + 20;
+    const shoved = mk(wallU, face + 1.4, alongH);
+    shoved.y = M.rampHeight(wallU); M.carBox(shoved);
+    M.collideFlyover(shoved);
+    if (mv(shoved) > face - e2 + 0.03) bad(`${name}: a car shoved ${(face + 1.4 - (face - e2)).toFixed(1)} m past the parapet's face is left ${(mv(shoved) - (face - e2)).toFixed(2)} m inside it`);
+    else ok(`${name}: a car shoved across the parapet's line is brought back inside the lane (v=${mv(shoved).toFixed(2)} m)`);
+    // Both walls, ramp halves (including the low approach), every heading, and small/long/heavy vehicles.
+    let checks = 0, penetration = 0;
+    for (const kind of ['player', 'police2', 'police5', 'schoolbus', 'fueltanker', 'policeMoto']) {
+      for (const side of [-1, 1]) for (const u of [-53, -32, 0, 32, 53]) for (let deg = 0; deg < 360; deg += 30) {
+        const c = mk(u, side * (face + 0.8), alongH + deg * Math.PI / 180);
+        Object.assign(c.box, { e1: CAR_DIMS[kind].e1, e2: CAR_DIMS[kind].e2 });
+        c.y = M.rampHeight(u); c.wrecked = deg === 90;
+        M.collideFlyover(c); // must refresh even an initially stale box heading
+        penetration = Math.max(penetration, Math.abs(mv(c)) + reach(c) - face);
+        if (!Number.isFinite(c.x + c.z)) bad(`${name}: non-finite parapet correction for ${kind}`);
+        checks++;
+      }
+    }
+    if (penetration > 0.001) bad(`${name}: oriented vehicle sweep penetrates the parapet by ${penetration} m`);
+    else ok(`${name}: ${checks} wall/heading/vehicle/height cases keep every corner inside the lane`);
+    // Elevated is not the same as being on the bridge: neither jumping underneath nor clearing the coping
+    // should teleport a vehicle sideways into the upper lane. Ordinary traffic beside it stays untouched too.
+    for (const y of [0, 1.5, H + 2]) {
+      const c = mk(0, F.halfW + 0.8, acrossH); c.y = y;
+      const x = c.x, z = c.z;
+      M.collideFlyover(c);
+      if (c.x !== x || c.z !== z) bad(`${name}: parapet catches a car at the wrong level y=${y}`);
+    }
+    ok(`${name}: level filtering tested below the deck and above its coping`);
+    // A police ram separates two overlapping cars after the first wall pass. The final wall pass must refresh
+    // the box again (carCar also changes heading) and remove the penetration before the renderer sees it.
+    const victim = mk(0, face - e2 - 0.02, alongH);
+    const rammer = mk(0, face - e2 - 1.2, acrossH);
+    victim.y = rammer.y = H;
+    if (alongX) rammer.vz = 24; else rammer.vx = 24;
+    M.collideFlyover(victim); M.collideFlyover(rammer);
+    M.carCar(rammer, victim); M.carBox(victim);
+    const afterPair = mv(victim) + reach(victim) - face;
+    M.collideFlyover(victim); M.collideFlyover(rammer);
+    if (afterPair <= 0) bad(`${name}: ram fixture failed to push a car into the wall`);
+    else if (mv(victim) + reach(victim) > face + 0.001) bad(`${name}: ram leaves the car inside the parapet`);
+    else ok(`${name}: ram penetration (${afterPair.toFixed(2)} m) is resolved before rendering`);
+
+  }
+  // ---- and the longest vehicle in the city climbs it too: the embankment's slices can never be tall enough to
+  // catch a bus straddling them ----
+  const bus = mk(-F.rampEnd - 20, -4, alongH);
+  bus.kind = 'schoolbus'; bus.mass = CAR_DIMS.schoolbus.mass;
+  bus.box.e1 = CAR_DIMS.schoolbus.e1; bus.box.e2 = CAR_DIMS.schoolbus.e2;
+  let busPeak = 0;
+  for (let i = 0; i < 12 * 60; i++) { roll(bus, 1 / 60); busPeak = Math.max(busPeak, bus.y); }
+  if (busPeak < H - 0.05 || busPeak > H + 0.5) bad(`${name}: a school bus only reached y=${busPeak.toFixed(2)} m climbing the approach — a slice is catching a long vehicle`);
+  else ok(`${name}: a school bus climbs the approach to the deck just as the car does`);
+  // ---- a look-up made from up on the deck is not blocked by the embankment under it: this is what lets the AI
+  // (and any car's own look-ahead) treat the ramp it is climbing as open road instead of a wall of concrete ----
+  const midU = F.deckHalf + (F.rampEnd - F.deckHalf) / 2;
+  const [px, pz] = [wx(0, 0) + (alongX ? 0 : 0), wz(0, 0)];
+  const [hx, hz] = [alongX ? f.node + midU : f.road, alongX ? f.road : f.node + midU];
+  if (!world.solidAt(hx, hz, 1.2, 0)) bad(`${name}: the embankment is not solid for a car at grade at u=${midU}`);
+  else ok(`${name}: the embankment is a wall for a car at grade at u=${midU}`);
+  // (the car up there rides the ramp's own surface, half way up the climb: F.deckH / 2)
+  if (world.solidAt(hx, hz, 1.2, F.deckH / 2)) bad(`${name}: a car up on the structure still reads the embankment below it as a wall`);
+  else ok(`${name}: the same spot is open road for a car up on the structure`);
+  // ---- the hop off the crest: a car coming down at speed leaves the road for a moment, and comes back ----
+  {
+    const hop = mk(-F.rampEnd - 10, -4, alongH);
+    let air = 0, rise = 0;                       // total air time, and the highest the body gets above the road under it
+    for (let i = 0; i < 14 * 60; i++) {
+      roll(hop, 1 / 60);
+      const g = M.surfaceAt(hop.x, hop.z, hop.y);
+      if (hop.y > g + 0.03) { air += 1 / 60; rise = Math.max(rise, hop.y - g); }
+    }
+    if (air < 0.06) bad(`${name}: a car taking the bridge at speed never leaves the road at the crest (a hop of ${rise.toFixed(2)} m)`);
+    else if (air > 0.8 || rise > 0.6) bad(`${name}: the crest throws a car ${(rise * 100).toFixed(0)} cm up for ${air.toFixed(2)} s — that is not a slight hop, that is a jump`);
+    else ok(`${name}: it takes the crest at speed with a slight natural hop (airborne ${air.toFixed(2)} s in all, ${(rise * 100).toFixed(0)} cm at its highest)`);
+  }
+  // ---- and a pursuer can follow it up there: a car at grade on the flying road, steering for the lane in front
+  // of the ramp's foot (the point rampApproach() hands the police AI), climbs the bridge instead of stopping
+  // under it. This is the bug the player reported: "police can't catch it, they go under the flyover" ----
+  {
+    const cop = mk(-(F.rampEnd + 26), laneV(f, 1, 2.5), alongH);
+    const tgt = { x: 0, z: 0 };
+    let peakY = 0, onDeckAt = null;
+    for (let i = 0; i < 16 * 60; i++) {
+      const p = M.rampApproach(f, cop.x, cop.z, 2.5, 9, tgt);
+      const tx = p ? p.x : cop.x, tz = p ? p.z : cop.z;
+      const want = Math.atan2(tx - cop.x, tz - cop.z), diff = ((want - cop.h + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      cop.steer = Math.max(-1, Math.min(1, diff * 2.35));
+      roll(cop, 1 / 60, Math.abs(diff) > 1.1 && cop.speed > 22 ? -0.1 : 1);
+      peakY = Math.max(peakY, cop.y);
+      if (onDeckAt === null && Math.abs(mu(cop)) < F.deckHalf) onDeckAt = cop.y;
+    }
+    if (peakY < H - 0.05) bad(`${name}: a pursuer steering for the ramp foot never got up the bridge (peak y=${peakY.toFixed(2)} m)`);
+    else ok(`${name}: a pursuer at grade lines up on the ramp foot and drives up onto the deck (y=${peakY.toFixed(2)} m, ${onDeckAt === null ? 'never crossed the junction' : `across it at ${onDeckAt.toFixed(2)} m`})`);
+  }
+}
+
+// The test loop above mirrors the game: guard the ordering that used to leave a rammed car in the wall
+// for a rendered frame even when an earlier collision pass was correct.
+{
+  const update = fs.readFileSync(path.join(repo, 'js/update.js'), 'utf8');
+  const pair = update.indexOf('carCar(A, B)');
+  const wall = update.indexOf('collideFlyover(c)', pair);
+  const mesh = update.indexOf('syncCarMesh(c, sdt)', pair);
+  if (pair < 0 || wall < pair || mesh < wall) bad('update must resolve parapets after car separation and before rendering');
+  else ok('update resolves car-car shoves against the parapet before syncing meshes');
 }
 
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');

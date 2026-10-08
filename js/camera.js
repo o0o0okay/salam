@@ -13,11 +13,13 @@ export function updateCamera(dt) {
   }
   const sp = player.speed;
   camState.h += wrapAngle(player.h - camState.h) * (1 - Math.exp(-dt * 3.2));
-  const dist = 14 + sp * 0.11, height = 8 + sp * 0.05, sh = Math.sin(camState.h), ch = Math.cos(camState.h);
+  // player.y rides a flyover deck, so the camera and its look-at climb with the car instead of sinking
+  // into the deck it is standing on.
+  const dist = 14 + sp * 0.11, height = player.y + 8 + sp * 0.05, sh = Math.sin(camState.h), ch = Math.cos(camState.h);
   const dx = player.x - sh * dist, dz = player.z - ch * dist;
   const a = 1 - Math.exp(-dt * 8);
   camState.pos.x = lerp(camState.pos.x, dx, a); camState.pos.z = lerp(camState.pos.z, dz, a); camState.pos.y = lerp(camState.pos.y, height, 1 - Math.exp(-dt * 3));
-  camState.look.x = lerp(camState.look.x, player.x + sh * 7, 1 - Math.exp(-dt * 10)); camState.look.z = lerp(camState.look.z, player.z + ch * 7, 1 - Math.exp(-dt * 10)); camState.look.y = 1.5;
+  camState.look.x = lerp(camState.look.x, player.x + sh * 7, 1 - Math.exp(-dt * 10)); camState.look.z = lerp(camState.look.z, player.z + ch * 7, 1 - Math.exp(-dt * 10)); camState.look.y = lerp(camState.look.y, player.y + 1.5, 1 - Math.exp(-dt * 10));
   camera.position.copy(camState.pos);
   if (game.shake > 0.01) { camera.position.x += rnd(-1, 1) * game.shake; camera.position.y += rnd(-1, 1) * game.shake * 0.6; camera.position.z += rnd(-1, 1) * game.shake; game.shake *= Math.exp(-dt * 6); }
   camera.lookAt(camState.look);

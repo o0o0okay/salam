@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { rnd } from './utils.js';
 import { mat, box } from './assets.js';
+import { isFlyoverNode, atGradeSide, roadEdge, FLY } from './flyover.js';
 
 const GREEN = 7, YELLOW = 1.6;
 const poleMat = mat(0x2d2f33);
@@ -15,6 +16,33 @@ const GRN = 0x2dff6a, GRN_OFF = 0x123a1e;
 
 const lights = new Map();
 const key = (ix, iz) => ix + '_' + iz;
+
+// Where a junction's four signal poles stand. They go OFF out from the junction centre on both axes, which puts
+// them on the pavement behind the kerb — the arrangement every plain junction has. Beside a flyover that kerb is
+// not where it used to be: the strip between the structure's own edge and the widened kerb (`roadEdge()`) is the
+// at-grade lane, real carriageway, and a pole left at OFF stands in the middle of it, right where the ramp comes
+// down. On a block side that carries that lane the pole steps out onto the pavement behind the widened kerb
+// instead, so the signal reads the lane rather than standing in it.
+const OFF = 13, POLE_CLEAR = 1.0;
+function cornerPoles(ix, iz) {
+  const out = [];
+  const put = (sx, sz, axis) => {
+    let x = ix + sx * OFF, z = iz + sz * OFF;
+    // The block this pole stands in, and the side of it that faces each main road (the avenue runs along x = 0,
+    // the cross street along z = 0): a block east of a road faces it with its west side, one west of it with its
+    // east side, and a block that fronts neither road has no lane to worry about.
+    const bx = Math.floor(x / FLY.span), bz = Math.floor(z / FLY.span);
+    const fx = bx === 0 ? 0 : bx === -1 ? 1 : -1;
+    const fz = bz === 0 ? 2 : bz === -1 ? 3 : -1;
+    // Only a pole that is actually standing in that lane moves: the block's far corner is nowhere near its
+    // own kerb, and a pole out there has nothing to step back from.
+    if (fx >= 0 && atGradeSide(bx, bz, fx) && Math.abs(x) < roadEdge() + POLE_CLEAR) x = (x < 0 ? -1 : 1) * (roadEdge() + POLE_CLEAR);
+    if (fz >= 0 && atGradeSide(bx, bz, fz) && Math.abs(z) < roadEdge() + POLE_CLEAR) z = (z < 0 ? -1 : 1) * (roadEdge() + POLE_CLEAR);
+    out.push({ x, z, axis });
+  };
+  put(-1, -1, 'x'); put(1, -1, 'z'); put(-1, 1, 'z'); put(1, 1, 'x');
+  return out;
+}
 
 function bulb(onColor, offColor, y, parent) {
   const m = new THREE.Mesh(bulbGeo, new THREE.MeshBasicMaterial({ color: offColor }));
@@ -48,16 +76,20 @@ function addSignal(group, px, pz, ix, iz, axis) {
   return head;
 }
 // Called once per chunk from world.js — builds the 4-way signal set at this chunk's corner (ix, iz)
-export function buildIntersection(ix, iz, group) {
-  const off = 13;
-  const corners = [
-    { x: ix - off, z: iz - off, axis: 'x' },
-    { x: ix + off, z: iz - off, axis: 'z' },
-    { x: ix - off, z: iz + off, axis: 'z' },
-    { x: ix + off, z: iz + off, axis: 'x' },
-  ];
+export function buildIntersection(ix, iz, group, ch) {
+  // A grade-separated junction has nothing to signal: the avenue is up on its bridge and the crossing street
+  // runs underneath, so the two movements never conflict and both roads simply flow. The node is still
+  // registered (no heads, and a phase that never advances) so lightGo() answers for it and nothing else in the
+  // game has to know the junction is special.
+  if (isFlyoverNode(ix, iz)) { lights.set(key(ix, iz), { free: true, phase: 'free', t: Infinity, zHeads: [], xHeads: [] }); return; }
   const zHeads = [], xHeads = [];
-  for (const c of corners) { const h = addSignal(group, c.x, c.z, ix, iz, c.axis); (c.axis === 'z' ? zHeads : xHeads).push(h); }
+  for (const c of cornerPoles(ix, iz)) {
+    const h = addSignal(group, c.x, c.z, ix, iz, c.axis);
+    (c.axis === 'z' ? zHeads : xHeads).push(h);
+    // Recorded for the suite: where this junction's poles actually stand, so a pole left standing in the
+    // at-grade lane beside a flyover cannot pass unnoticed (see run.mjs).
+    if (ch) (ch.signalPoles = ch.signalPoles || []).push({ x: c.x, z: c.z, ix, iz, axis: c.axis });
+  }
   const L = { phase: Math.random() < 0.5 ? 'z-green' : 'x-green', t: rnd(1, GREEN), zHeads, xHeads };
   lights.set(key(ix, iz), L);
   applyPhase(L);
@@ -84,6 +116,7 @@ export function updateTrafficLights(dt) {
 // Queried by civilians.js: can a car travelling along `axis` ('z' or 'x') go through (ix, iz)?
 export function lightGo(ix, iz, axis) {
   const L = lights.get(key(ix, iz));
-  if (!L) return true; // no light built here (shouldn't normally happen) = free to go
+  if (!L) return true;         // no light built here (shouldn't normally happen) = free to go
+  if (L.free) return true;     // the interchange: both roads have right of way, at different levels
   return axis === 'z' ? (L.phase === 'z-green' || L.phase === 'z-yellow') : (L.phase === 'x-green' || L.phase === 'x-yellow');
 }
