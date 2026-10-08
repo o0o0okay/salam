@@ -134,6 +134,10 @@ export function policeAI(p, dt) {
   //    a diagonal aim across it just scrapes along the wall.
   let bridgeTurn = false;
   const pf = flyoverNear(player.x, player.z);
+  // Once the target is on the flyover, discard a stale grid waypoint. The grid only knows about
+  // ground-level streets; retaining its previous corner can make a pursuer leave the ramp lane and
+  // repeatedly steer back toward the blocked underside of the bridge.
+  if (pf && player.y > 2) p.navOn = false;
   if (pf && player.y > 2) {                                // the player is up on the structure
     if (p.y > 1.2) {                                        // already up there: hold the lane it is driving in
       const want = laneOffsetOn(pf.axis, Math.sign(pf.axis === 'z' ? p.vz : p.vx) || 1, 2.5);
