@@ -13,7 +13,7 @@ const world = await import('../../js/world.js');
 const { canvas, writePNG, drawText } = await import('./png.mjs');
 const F = fly.FLY, EDGE = fly.roadEdge(), FRONT = world.PAVE_OUT + F.frontage;   // the building line beside the lane
 
-const W = 1240, H = 980;
+const W = 1240, H = 1345;
 const cv = canvas(W, H, [244, 246, 248]);
 const ink = [30, 33, 38], dim = [110, 116, 124], road = [70, 76, 86], lane2 = [148, 188, 224], conc = [176, 182, 188],
   paving = [226, 228, 231], line = [214, 200, 90], kerb = [176, 180, 184], lane = [40, 92, 150], done = [30, 120, 70];
@@ -52,6 +52,16 @@ cv.rect(px(-F.halfW), pz(-F.deckHalf), px(F.halfW), pz(F.deckHalf), [198, 204, 2
 for (const sx of [-1, 1]) cv.rect(px(sx * (F.halfW - F.parapet)), pz(-F.rampEnd), px(sx * F.halfW), pz(F.rampEnd), ink, 0.9);
 cv.hline(px(-F.halfW), px(F.halfW), pz(0), line);
 for (const t of [1.5, 7.75, -1.5, -7.75]) cv.rect(px(-0.12), pz(t - 1.7), px(0.12), pz(t + 1.7), line);
+// the interchange's signage, in plan: the gantries stand across the deck at u = +-9 (a leg on each coping,
+// half a beam each, the panels meeting over the centre line), the billboards on the coping at the middle of the
+// span, and a nameplate on each abutment face (a half of the carriageway each).
+for (const u of [-9, 9]) {
+  cv.hline(px(-F.halfW), px(F.halfW), pz(u), [176, 60, 40]);
+  cv.rect(px(-F.halfW - 0.4), pz(u) - 2, px(-F.halfW + 0.4), pz(u) + 2, ink);
+  cv.rect(px(F.halfW - 0.4), pz(u) - 2, px(F.halfW + 0.4), pz(u) + 2, ink);
+}
+for (const sx of [-1, 1]) cv.rect(px(sx * (F.halfW - F.parapet + 0.31) - 2), pz(-3.0), px(sx * (F.halfW - F.parapet + 0.31) + 2), pz(3.0), [176, 60, 40]);
+for (const sz of [-1, 1]) for (const sx of [-1, 1]) cv.rect(px(sx * 6.6), pz(sz * (F.deckHalf + 0.3)) - 2, px(sx * 1.4), pz(sz * (F.deckHalf + 0.3)) + 2, [40, 92, 150]);
 // labels
 const H2 = (t, x, z, c = ink) => drawText(cv, px(x), pz(z), t, c, 2);
 const H1 = (t, x, z, c = ink) => drawText(cv, px(x), pz(z), t, c, 1);
@@ -68,6 +78,14 @@ cv.hline(px(-EDGE - 1), px(-F.halfW), pz(32.5), lane);
 H1('THE SAME ON BOTH SIDES, AND IT RUNS UNBROKEN THROUGH THE JUNCTION', -EDGE - 8.5, 30, lane);
 H1(`BUILDING LINE BESIDE THE STRUCTURE: ${FRONT.toFixed(2)} M — IT STEPS BACK ${F.frontage.toFixed(2)} M FROM THE CITY'S USUAL ${world.PAVE_OUT.toFixed(2)} M LINE (GREY)`, -78, 82, done);
 H1(`THAT STEP-BACK IS WHAT PAYS FOR THE ${F.atGrade.toFixed(2)} M LANE: THE WALK BEHIND IT KEEPS ITS ${(FRONT - (EDGE + 0.5)).toFixed(2)} M`, -78, 76, done);
+// the signage, as a legend beside the plan's own header (the marks themselves are in the plan: red = the
+// gantries and the billboards, blue = the nameplates on the abutment faces)
+drawText(cv, 830, 24, 'THE BRIDGE IS SIGNED THREE WAYS, EACH QUARTER', ink, 1);
+drawText(cv, 830, 40, 'BUILDING ITS OWN SHARE: A NAME PLATE ON EACH', ink, 1);
+drawText(cv, 830, 56, 'ABUTMENT, A BILLBOARD ON THE COPING OF EACH', ink, 1);
+drawText(cv, 830, 72, 'SIDE, AND A GANTRY OVER EACH APPROACH.', ink, 1);
+drawText(cv, 830, 690, 'RED: THE GANTRIES AND BILLBOARDS.', [176, 60, 40], 1);
+drawText(cv, 830, 706, 'BLUE: THE NAME PLATES ON THE ABUTMENTS.', [40, 92, 150], 1);
 const measure = (x0, x1, z, label) => {
   cv.rect(px(x0), pz(z), px(x1), pz(z), ink);
   cv.vline(px(x0), pz(z) - 5, pz(z) + 5, ink); cv.vline(px(x1), pz(z) - 5, pz(z) + 5, ink);
@@ -86,6 +104,8 @@ drawText(cv, 20, 56, `ONE BLOCK EITHER WAY ALONG THE AVENUE THE PAVEMENT CORNERS
   const T1 = (t, x, y, c = ink) => drawText(cv, ax(x), ay(y), t, c, 1);
   drawText(cv, 660, 96, 'SECTION A-A - ACROSS THE AVENUE AT THE DECK', ink, 2);
   drawText(cv, 660, 118, 'THE CROSSING STREET PASSES UNDER THE DECK UNTOUCHED.', dim, 1);
+  drawText(cv, 660, 138, 'THE BILLBOARDS STAND ON THE COPING AT THE MIDDLE OF THE SPAN - THE ONLY PLACE THIS SECTION CUTS THROUGH THEM:', dim, 1);
+  drawText(cv, 660, 152, 'A 1.70 M LIT FIELD 5.9 M WIDE WHOSE TWO FOOT PLATES STAND ON THE COPING; THE RIM STARTS 1.57 M ABOVE THE DECK, FACING THE STREET BELOW.', dim, 1);
   cv.rect(ax(-14), ay(topA), ax(-8.25), ay(0), [236, 238, 240]);              // the cut through the pavement
   cv.rect(ax(8.25), ay(topA), ax(14), ay(0), [236, 238, 240]);
   cv.rect(ax(-8.25), ay(0), ax(8.25), ay(-0.02), kerb);                       // the street below: kerbs, then tarmac
@@ -95,6 +115,14 @@ drawText(cv, 20, 56, `ONE BLOCK EITHER WAY ALONG THE AVENUE THE PAVEMENT CORNERS
   for (const s of [-1, 1]) {
     cv.rect(ax(s * (F.halfW - F.parapet)), ay(F.deckH + F.parapet), ax(s * F.halfW), ay(F.deckH), conc);
     cv.rect(ax(s * (F.halfW - F.parapet)), ay(F.deckH + F.parapet + 0.12), ax(s * (F.halfW - F.parapet + 0.62)), ay(F.deckH + F.parapet), [226, 228, 230]);
+  }
+  // the billboard: bolted to the coping, its foot plates on the coping's top, the lit field facing out over
+  // the street below (section A-A is taken at the middle of the span, which is where the billboards stand).
+  for (const s2 of [-1, 1]) {
+    const v = s2 * (F.halfW - F.parapet + 0.31), bx = ax(v);
+    cv.rect(bx - 6, ay(topA + 1.45), bx + 6, ay(topA + 2.45), [192, 57, 43]);
+    cv.rect(bx - 7, ay(topA + 2.45), bx + 7, ay(topA + 2.6), [236, 233, 220]);
+    cv.rect(bx - 4, ay(topA - 0.35), bx + 4, ay(topA + 1.45), [138, 144, 150]);
   }
   T2('DECK', F.halfW + 0.8, F.deckH + 0.35);
   T2('PARAPET', -F.halfW - 8.6, F.deckH + 0.6);
@@ -129,8 +157,34 @@ drawText(cv, 20, 56, `ONE BLOCK EITHER WAY ALONG THE AVENUE THE PAVEMENT CORNERS
     drawText(cv, cx(lx), cy(1.1), `${F.atGrade.toFixed(2)} M WIDE`, lane, 2);
   }
   cv.rect(cx(-EDGE), cy(-1.2), cx(EDGE), cy(-1.15), ink);
-  T1(`KERB STANDS ${EDGE.toFixed(2)} M FROM THE CENTRE LINE AT AN INTERCHANGE (8.25 M ELSEWHERE)`, -EDGE + 1, -1.9);
-  T1('NOTHING IS PARKED, PLANTED OR DROPPED ON EITHER LANE: CARRIAGEWAY THE WHOLE LENGTH OF THE BLOCK.', -EDGE + 1, -2.5, done);
+  T1(`KERB STANDS ${EDGE.toFixed(2)} M FROM THE CENTRE LINE AT AN INTERCHANGE (8.25 M ELSEWHERE)`, -EDGE + 1, -1.05);
+  T1('NOTHING IS PARKED, PLANTED OR DROPPED ON EITHER LANE: CARRIAGEWAY THE WHOLE LENGTH OF THE BLOCK.', -EDGE + 1, -1.7, done);
+}
+
+// ================= section B-B: across the deck at a sign gantry =================
+{
+  const bx = x => 645 + (x + 12) * 17.0, by = y => 1330 - (y - 6.0) * 38, COP = F.deckH + 1.0 + 0.12;
+  const T2 = (t, x, y, c = ink) => drawText(cv, bx(x), by(y), t, c, 2);
+  const T1 = (t, x, y, c = ink) => drawText(cv, bx(x), by(y), t, c, 1);
+  drawText(cv, 660, 980, `SECTION B-B - ACROSS THE DECK AT A SIGN GANTRY (u = 9 M ON EVERY APPROACH)`, ink, 2);
+  drawText(cv, 660, 998, 'ONE LEG ON EACH COPING, HALF A BEAM EACH, THE PANELS MEETING OVER THE CENTRE LINE.', dim, 1);
+  drawText(cv, 660, 1022, 'BEAM 12.72..13.04 M: 4.52 M OF CLEARANCE OVER THE DECK - ABOVE THE BRIDGE OWN TRAFFIC.', dim, 1);
+  drawText(cv, 660, 1036, 'PANEL 11.72..13.00 M: 0.04 M UNDER THE BEAM, 0.6..6.6 M OUT FROM THE CENTRE LINE, 3.00 M OFF THE DECK;', dim, 1);
+  drawText(cv, 660, 1050, 'CLEAR WIDTH BETWEEN THE LEGS 15.55 M - THE LEG STANDS ON THE PARAPET AND THE PLATE STOPS AT THE LANE.', dim, 1);
+  cv.rect(bx(-F.halfW), by(F.deckH), bx(F.halfW), by(F.deckH - 0.9), conc);              // deck slab
+  cv.rect(bx(-F.halfW), by(F.deckH - 0.9), bx(F.halfW), by(F.deckH - 0.98), road);       // wearing course
+  for (const s2 of [-1, 1]) {
+    cv.rect(bx(s2 * (F.halfW - F.parapet)), by(COP), bx(s2 * F.halfW), by(F.deckH), conc);         // parapet
+    cv.rect(bx(s2 * (F.halfW - F.parapet)), by(COP + 0.12), bx(s2 * (F.halfW - F.parapet + 0.62)), by(COP), [226, 228, 230]);  // coping
+    cv.rect(bx(s2 * 7.775) - 5, by(COP + 4.32), bx(s2 * 7.775) + 5, by(COP), [138, 144, 150]);     // leg
+    cv.rect(bx(s2 * 7.775) - 8, by(COP + 0.14), bx(s2 * 7.775) + 8, by(COP), [110, 116, 122]);     // base plate
+    cv.rect(bx(0), by(COP + 4.64), bx(s2 * (F.halfW - F.parapet / 2)), by(COP + 4.32), [138, 144, 150]);   // half the beam
+    cv.rect(bx(s2 * 0.6), by(COP + 4.42), bx(s2 * 6.6), by(COP + 2.42), [27, 79, 156]);            // sign panel
+    cv.rect(bx(s2 * 0.3), by(COP + 4.46), bx(s2 * 6.9), by(COP + 4.42), [242, 233, 216]);          // backing, 0.04 m under the beam
+  }
+  T2('SIGN PANELS', -5.6, COP + 3.4);
+  cv.rect(bx(-7.775), by(F.deckH), bx(7.775), by(F.deckH - 0.02), [200, 120, 40]);
+  T1('THE DRIVING SURFACE, KERB FACE AT +-7.55 M', -4.0, F.deckH - 0.7, dim);
 }
 
 const fs = await import('fs');

@@ -14,6 +14,7 @@ node tools/sidewalk-checks/plan-firestation.mjs  # fire station plan + front ele
 node tools/sidewalk-checks/parking.mjs   # drives the live parking system frame by frame (behavioural)
 node tools/sidewalk-checks/heavyhit.mjs  # drives a real car into a parked ambulance / fire engine (behavioural)
 node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, clear lanes and repeatable placement
+node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
@@ -313,3 +314,44 @@ solid collision, and posts use the existing breakable-prop lifecycle (not rigid 
 sign orientation, lane/crossing clearance and regeneration. `heavyhit.mjs` drives into a drum and
 knocks down a post on each axis. Only registered, position-checked nose posts are exempt from the
 sidewalk-furniture placement rule in `run.mjs`; all other road-clearance checks remain unchanged.
+
+### Flyover signage
+
+An interchange is signed, not just built. Each of the four blocks around a junction raises its own share of three
+signs, in its own quarter of the structure's frame, the same way it raises its quarter of the deck (the builders
+are `buildFlyoverNameboard`, `buildFlyoverBillboard` and `buildFlyoverGantry` in `js/world.js`, and they are
+plain geometry — box-pixel lettering, no textures, no HTML overlays — so they bake into the block that owns
+them and stream out with it):
+
+* **nameplate** — `OVERPASS` on a blue field with a cream border and four bolt heads, hung on the abutment face
+  at each of the bridge's four mouths, one per half of the carriageway (the same split the deck's own halves
+  use). It stands in the band between the hazard stripe (top 3.75 m) and the deck slab (7.2 m), and it is read
+  by the traffic on the road *at grade* — the driver coming up the street who has to choose the at-grade lane,
+  and the pavement behind the kerb. A car up on the ramp cannot see it: its own abutment face is below it, out
+  of sight behind the ramp's edge — which is what the mounting is worked out from: the board is 0.78 m deep so
+  that its face still stands 0.19 m clear of the leaning concrete at its own bottom edge (3.85 m up) while its
+  back is buried 0.59 m in that concrete at its top edge (5.35 m).
+* **billboard** — a 5.9 × 2.0 m lit board (lambert with an emissive tint, like the bus shelters' ad panels and
+  the fuel canopy's lightboxes, so it reads at night) on the deck's coping, one a bridge, at the middle of the
+  span: the structure signed to the city it crosses, and to the player coming up the at-grade lane beside the
+  embankment. Its two foot plates sit on the coping's top; its lowest part is 0.36 m above the parapet, so the
+  deck's traffic keeps its full clear width (15.55 m).
+* **gantry** — a leg standing on each parapet's coping at u = ±9 m (a few metres inside the end of the deck,
+  over the bridge's own entry) with a 12.72–13.04 m beam reaching in over the carriageway and a 6.0 × 2.0 m
+  sign panel over each half of the road, the two blocks' halves meeting over the centre line. The panel hangs
+  0.04 m under the beam's underside and 3.00 m off the deck: above the bridge's own traffic, clear of the
+  parapet's inner face — the beam reaches to the centre line, not over the lane's full width — and its base
+  plate (0.44 m across, centred on the leg) stops at the parapet face, so nothing leans into the clear width.
+  It faces the traffic that has just climbed the ramp.
+
+All three stand above the parapet or hang on the concrete outside the drivable width, so none of them needs a
+solid: a car on the deck is already held inside the parapets, and a car at grade never reaches them. The
+direction each faces is the load-bearing part — a plate that faced its own approach would be read by nobody —
+so `flyover-signs.mjs` checks it from the yaw the block recorded, per axis, per approach and per side: the
+plates and the gantries face back along the road (one sign per half of the carriageway, all four approaches
+covered), the billboards face out across the street the bridge crosses (both sides, never along the road), the
+footprint of each stays inside the structure's own width and below/above the levels it has to keep clear, the
+billboard is set well back from the gantry leg on its own quarter (never in the same station), and streaming a
+block back in gives the same records. An ordinary four-way junction gains none of it. `plan-flyover.mjs` draws
+the marks in its plan (red = gantries and billboards, blue = nameplates) and adds the gantry's own section,
+B-B, with the clearances above the deck.

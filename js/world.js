@@ -439,8 +439,8 @@ const FONT3D = {
 const textGeoCache = new Map();
 const TEXT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const _textM = new THREE.Matrix4();
-function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
-  const key = h + '|' + depth + '|' + gap + '|' + str.toUpperCase();
+function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8, mirror = false) {
+  const key = h + '|' + depth + '|' + gap + '|' + str.toUpperCase() + '|' + (mirror ? 'm' : 'n');
   let geo = textGeoCache.get(key);
   if (geo === undefined) {
     const pw = h / 7, ph = h / 7;
@@ -448,12 +448,12 @@ function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
     const geos = [];
     for (let i = 0; i < str.length; i++) {
       const rows = (FONT3D[str[i].toUpperCase()] || FONT3D[' ']).split(',');
-      const x0 = -total / 2 + i * (pw + gap);
+      const x0 = mirror ? total / 2 - i * (pw + gap) : -total / 2 + i * (pw + gap);
       for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
         if (rows[r][c] !== '1') continue;
         const g = TEXT_BOX.clone();
         _textM.makeScale(pw * 1.02, ph * 1.02, depth);
-        _textM.setPosition(x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0);
+        _textM.setPosition(mirror ? x0 - c * pw + pw / 2 : x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0);
         g.applyMatrix4(_textM);
         geos.push(g);
       }
@@ -464,9 +464,9 @@ function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
   }
   return geo;
 }
-function textBlocks(str, m, h = 1.2, depth = 0.14, gap = 0.8) {
+function textBlocks(str, m, h = 1.2, depth = 0.14, gap = 0.8, mirror = false) {
   const g = new THREE.Group();
-  const geo = textGeometry(str, h, depth, gap);
+  const geo = textGeometry(str, h, depth, gap, mirror);
   if (geo) g.add(new THREE.Mesh(geo, m));
   return g;
 }
@@ -1012,6 +1012,8 @@ export function warmTextCache() {
   for (const t of G) textGeometry(t, 0.3, 0.1, 0.26);
   textGeometry('H', 4.2, 0.14, 0.6);
   textGeometry('OVERPASS', 0.42, 0.12, 0.3);          // the interchange's direction plates
+  textGeometry('OVERPASS', 0.62, 0.1, 0.34);          // ... the name plated on the bridge itself
+  textGeometry('OVERPASS', 0.88, 0.1, 0.5);           // ... the billboard and the gantry panels
 }
 // ---- Fuel station ----
 // Procedural forecourt in the style of a modern filling station: a big flat canopy with a lit underside and
@@ -1364,6 +1366,94 @@ function buildFlyoverDelineator() {
   for (const y of [0.64, 0.87]) g.add(cyl(0.068, 0.071, 0.13, 10, white, 0, y, 0));
   return g;
 }
+/* ---- The interchange's own signage ----
+ * A grade-separated junction is signed three ways, and every one of the four blocks around it builds its own
+ * quarter of all three, in the quarter's own frame, so no block has to know what its neighbours are doing:
+ *
+ *   nameboard   a plated name hung on the abutment face at each bridge mouth — the leaning concrete above the
+ *               hazard boards, one board per half of the carriageway. It is read by anyone who drives along
+ *               the road that flies: at grade under the deck, or climbing the ramp towards it.
+ *   billboard   a lit advertising board standing on the deck's parapet coping, facing out across the ground
+ *               street, so the structure is signed to the city it crosses (and to the player coming up the
+ *               at-grade lane beside the embankment).
+ *   gantry      a sign gantry over each approach to the deck: one leg standing on each parapet's coping, the
+ *               beam reaching in over the carriageway, and a panel over each half of the road, so the traffic
+ *               that has just climbed the ramp is told what it is crossing.
+ *
+ * Everything is plain geometry — box-pixel lettering, no textures, no HTML overlays — and baked into the block
+ * that owns it, so the signs cost draw calls like any other part of the structure and stream out with it. They
+ * stand above the parapet or hang on the concrete outside the drivable width, so none of them needs a solid:
+ * a car on the deck is already held inside the parapets, and a car at grade never reaches them.
+ *
+ * Each builder works in a local frame where +z faces the reader, +x runs across the road and y = 0 is the level
+ * the piece is mounted on (the plate's own centre, the panel's centre, the deck surface). The block places it
+ * and turns it; the records it writes onto `ch.flyover` carry the same numbers in world terms, which is what
+ * tools/sidewalk-checks/flyover-signs.mjs checks without a browser.
+ */
+function buildFlyoverNameboard() {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8f959b);
+  // 0.78 m deep on purpose: the abutment face leans back as it rises, so with the plate's face clear of the
+  // concrete at its bottom edge the back of the board is buried in the concrete at its top (see `faceAt`).
+  // Two-sided: the at-grade side (z = -0.78..-0.18) and the deck side (z = +0.18..+0.78) both carry a blue
+  // field and lettering, so the plate reads from the street below *and* from anyone standing on the deck.
+  g.add(box(5.75, 1.5, 0.6, cream, 0, 0, -0.48, false));                 // backing, 0.15 m of border all round
+  g.add(box(5.75, 1.5, 0.6, cream, 0, 0, +0.48, false));                 // ... back face
+  g.add(box(5.45, 1.2, 0.5, blue, 0, 0, -0.25, false));                  // blue field (at-grade side)
+  g.add(box(5.45, 1.2, 0.5, blue, 0, 0, +0.25, false));                  // blue field (deck side)
+  for (const ox of [-2.79, 2.79]) for (const oy of [-0.5, 0.5]) {
+    g.add(box(0.18, 0.18, 0.08, steel, ox, oy, -0.14, false));           // bolt heads (at-grade side)
+    g.add(box(0.18, 0.18, 0.08, steel, ox, oy, +0.14, false));           // bolt heads (deck side)
+  }
+  const txt1 = textBlocks('OVERPASS', cream, 0.62, 0.1, 0.34); txt1.position.set(0, 0.01, 0.03); g.add(txt1);
+  // deck side: mirror the lettering so it reads correctly from the other side of the slab
+  const txt2 = textBlocks('OVERPASS', cream, 0.62, 0.1, 0.34, true);
+  txt2.position.set(0, 0.01, 0.93); g.add(txt2);
+  return g;
+}
+function buildFlyoverBillboard() {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), steel = mat(0x8a9096), dark = mat(0x2b3138);
+  // Lit field (lambert with an emissive tint, like the bus shelters' ad panels and the fuel canopy's
+  // lightboxes), so the board reads at night without a light of its own. The panel's centre is 1.45 m above
+  // the coping: its two feet are at local y = -1.45.
+  // Two-sided: both the street-below side and the deck side carry a lit field and lettering.
+  const lit = mat(0xc0392b, { emissive: 0x6a1712 });
+  g.add(box(5.9, 2.0, 0.16, cream, 0, 0, 0, false));                    // rim (centred)
+  g.add(box(5.5, 1.7, 0.26, lit, 0, 0, 0.2, false));                    // lit field (street side)
+  g.add(box(5.5, 1.7, 0.26, lit, 0, 0, -0.2, false));                   // lit field (deck side)
+  const txt1 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5); txt1.position.set(0, 0.04, 0.35); g.add(txt1);
+  // deck side: mirrored lettering so it reads from the other side of the board
+  const txt2 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5, true);
+  txt2.position.set(0, 0.04, -0.35); g.add(txt2);
+  for (const ox of [-2.0, 2.0]) {
+    g.add(box(0.18, 0.45, 0.18, steel, ox, -1.225, 0, false));          // post down to the coping (centred)
+    g.add(box(0.5, 0.1, 0.5, dark, ox, -1.4, 0, false));                // foot plate on the coping (centred)
+  }
+  return g;
+}
+// `legV` is the parapet's own centre line (how far the leg and the beam's root stand from the road's centre
+// line) and `dir` is the way, in this local frame, that the centre line lies: the beam and the sign panel reach
+// from the leg in by `dir`, so one block builds the half over its own side of the road and the two halves meet
+// over the middle.
+// Local heights are measured from the coping's top (0) upwards, and the panel hangs under the beam with a
+// hand's width of clearance, so the sign passes under the beam instead of through it.
+function buildFlyoverGantry(legV, dir) {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8a9096);
+  // The base plate is 0.44 m across on purpose: centred on the leg (the parapet's own centre line) it stops
+  // just short of the parapet's inner face, so nothing of the gantry leans into the lane's clear width.
+  // Sign panel is two-sided: both the approach-facing side and the opposite side carry a blue field and
+  // lettering, so the gantry reads from traffic in both directions.
+  g.add(box(0.44, 0.14, 0.44, steel, 0, 0.07, 0, false));               // base plate, on the coping
+  g.add(box(0.3, 4.32, 0.3, steel, 0, 2.30, 0, false));                 // leg, up to the beam's underside
+  g.add(box(legV, 0.32, 0.34, steel, dir * legV / 2, 4.62, 0, false));  // half the beam, out to the centre line
+  g.add(box(6.0, 2.0, 0.14, cream, dir * 4.6, 3.42, 0, false));         // sign panel, backing (centred)
+  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, 0.18, false));       // ... its field (front)
+  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, -0.18, false));      // ... its field (back)
+  const txt1 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5); txt1.position.set(dir * 4.6, 3.45, 0.33); g.add(txt1);
+  // back side: mirrored lettering so it reads from the opposite approach
+  const txt2 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5, true);
+  txt2.position.set(dir * 4.6, 3.45, -0.33); g.add(txt2);
+  return g;
+}
 
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
@@ -1586,6 +1676,64 @@ function generateChunk(cx, cz, defer = false) {
       add(g);
       ch.keepouts.push({ x: sp[0], z: sp[2], hx: 1.9, hz: 1.9 });
       (fly.signs = fly.signs || []).push({ x: sp[0], z: sp[2] });   // for the suite: it stands on the pavement
+    }
+    // ---- the interchange's own signage: a plated name on the bridge, a billboard on the deck, a gantry over
+    //      the approach. Each quarter builds its own share of all three (see the builders above); the numbers
+    //      are recorded on the chunk so tools/sidewalk-checks/flyover-signs.mjs can check them without a
+    //      graphics device.
+    {
+      // The nameboard hangs on the abutment face at the deck's mouth — the leaning concrete the hazard boards
+      // are already screwed to — in the band between the hazard stripe (top 3.75 m) and the deck slab (7.2 m),
+      // and it is read by the traffic on the road *at grade*: a car up on the ramp is above its own abutment's
+      // face and cannot see it (the ramp hides it), so the plate is aimed at the driver coming up the street
+      // towards the bridge — the one who has to choose the at-grade lane — and at the pavement. Its face
+      // stands clear of the concrete at its own bottom edge (0.19 m at 3.85 m up) while the back of the board
+      // is buried 0.59 m into the concrete at its top edge (5.35 m), because that face leans back as it rises:
+      // that is what holds the plate onto the bridge, and it is why the board is 0.78 m deep.
+      const u = Q.su * (FLY.deckHalf + 0.3), yM = 4.6, p = at(u, yM, Q.sv * W / 2);
+      const plate = buildFlyoverNameboard();
+      plate.position.set(p[0], yM, p[2]);
+      plate.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
+      add(plate);
+      (fly.nameplates = fly.nameplates || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: yM, yaw: plate.rotation.y,
+        u, v: Q.sv * W / 2, w: 5.75, h: 1.5, base: yM - 0.75, top: yM + 0.75, mount: 'abutment',
+      });
+    }
+    // The billboard stands on the deck's coping over the carriageway that flies, facing out across the street
+    // below: the structure signed to the city it crosses. One a bridge (built by the +u quarter), not one per
+    // quarter, and it stands at the middle of the span — over the street the bridge crosses, which is the spot
+    // it is read from, and well clear of the gantry's legs and beams at u = ±9.
+    if (Q.su > 0) {
+      const bbU = 0, mountY = FLY.deckH + PH + 0.12, p = at(bbU, mountY + 1.45, Q.sv * (W - FLY.parapet + 0.31));
+      const bb = buildFlyoverBillboard();
+      bb.position.set(p[0], p[1], p[2]);
+      bb.rotation.y = alongX ? (Q.sv > 0 ? 0 : PI) : (Q.sv > 0 ? PI / 2 : -PI / 2);
+      add(bb);
+      (fly.billboards = fly.billboards || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: bb.rotation.y,
+        u: 0, v: Q.sv * (W - FLY.parapet + 0.31), w: 5.9, h: 2.0,
+        mountY, base: p[1] - 1.0, top: p[1] + 1.0, mount: 'coping',
+      });
+    }
+    // The gantry stands over the bridge's own entry, a few metres in from the end of the deck: one leg on each
+    // parapet's coping (the other half is the opposite block's, and the two meet over the middle of the road),
+    // the beam reaching in over the carriageway and the sign over this quarter's own half of it, facing the
+    // traffic that has just climbed the ramp. The panel hangs 0.04 m under the beam's underside — nothing
+    // pokes through anything.
+    {
+      const legV = W - FLY.parapet / 2, dir = -1 / Q.sv, base = FLY.deckH + PH + 0.12;
+      const p = at(Q.su * 9.0, base, Q.sv * legV);
+      const gantry = buildFlyoverGantry(legV, dir);
+      gantry.position.set(p[0], p[1], p[2]);
+      gantry.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
+      add(gantry);
+      (fly.gantries = fly.gantries || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: gantry.rotation.y,
+        u: Q.su * 9.0, base, legV, deck: FLY.deckH,
+        beamUnder: p[1] + 4.46, signBottom: p[1] + 2.42, signTop: p[1] + 4.42,
+        spans: [Q.sv * (W - FLY.parapet), Q.sv * (legV - 7.6)], mount: 'coping',
+      });
     }
   }
   // Where a block's own buildings stand. On a side that carries an interchange's at-grade lane the building line
