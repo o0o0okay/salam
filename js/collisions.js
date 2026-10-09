@@ -387,6 +387,7 @@ function breakProp(pr, c) {
   if (pr.kind.startsWith('plaza')) {
     smashPlaza(pr);
     sparks(pr.x, 1, pr.z, 6, 0, 0, 8);
+    scene.remove(m);                                          // the island stays; the feature is gone
   } else {
     flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
     debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, 4, 0, 0, 6);
