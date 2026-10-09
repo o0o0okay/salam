@@ -6,7 +6,7 @@ import { ASSET } from './assets.js';
 import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
 import { DIFF, HULK_PARAMS } from './config.js';
-import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
+import { game, cars, flying, fallingTrees, geysers, fires, plazaBreaking } from './state.js';
 import { nearChunks, isHeavyParked, parkedShove, parkedDamage } from './world.js';
 import { insideFootprint, parapetPush } from './flyover.js';
 import { flyingFloor } from './flying.js';
@@ -387,14 +387,52 @@ function breakProp(pr, c) {
   if (pr.kind.startsWith('plaza')) {
     smashPlaza(pr);
     sparks(pr.x, 1, pr.z, 6, 0, 0, 8);
-    scene.remove(m);                                          // the island stays; the feature is gone
+    // Progressive destruction: the mesh tilts in the impact direction and shrinks over ~1.5 s,
+    // emitting small debris as it crumbles. The island stays; the feature is gone.
+    const impDir = Math.atan2(c.vx, c.vz);
+    plazaBreaking.push({ mesh: m, x: pr.x, z: pr.z, kind: pr.kind, life: 1.5, maxLife: 1.5, tiltX: Math.cos(impDir), tiltZ: Math.sin(impDir) });
   } else {
     flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
     debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, 4, 0, 0, 6);
   }
   if (pr.kind === 'hydrant') { geysers.push({ x: pr.x, z: pr.z, life: 7 }); for (let i = 0; i < 20; i++) emit(pr.x, 0.6, pr.z, rnd(-4, 4), rnd(8, 16), rnd(-4, 4), 0x8fd3ff, rnd(0.2, 0.45), rnd(0.8, 1.4), 26); }
+  // Damage: proportional to impact speed. A car that hits a plaza at 30 m/s takes more damage than one
+  // that bumps it at 8 m/s. The player feels it; civilian cars and police do too.
+  const dmg = sp * 0.8;
+  if (c.isPlayer) { hurtPlayer(dmg); }
+  else if (!c.wrecked) { hurtCar(c, dmg); }
   const f = pr.drag; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.25); sfx.crash(sp * 0.5); }
+}
+// Progressive destruction: a plaza feature tilts, shrinks and emits debris over 1.5 s before disappearing.
+// Each frame it shrinks by a bit, tilts further in the impact direction, and drops a few particles so the
+// destruction looks like a real collapse, not an instant vanish.
+export function updatePlazaBreaking(sdt) {
+  for (let i = plazaBreaking.length - 1; i >= 0; i--) {
+    const pb = plazaBreaking[i]; pb.life -= sdt;
+    const t = 1 - pb.life / pb.maxLife;                          // 0 → 1 over the animation
+    const m = pb.mesh;
+    const s = Math.max(0.01, 1 - t * 0.9);                     // shrink to ~10% over the animation
+    m.scale.set(s, s * Math.max(0.3, 1 - t * 0.7), s);
+    m.rotation.x = pb.tiltZ * t * 0.6;                         // tilt in the impact direction
+    m.rotation.z = -pb.tiltX * t * 0.6;
+    m.position.y = Math.max(0, 0.34 - t * 0.3);
+    // Emit a few particles each frame proportional to remaining life — heavier at the start.
+    if (Math.random() < (1 - t) * 0.7) {
+      const x = pb.x, z = pb.z;
+      if (pb.kind === 'plazaFountain') {
+        const stone = 0xbfb7a8, water = 0x3aa8d8;
+        emit(x + rnd(-1, 1), 0.5 + t, z + rnd(-1, 1), rnd(-2, 2), rnd(2, 5), rnd(-2, 2), Math.random() < 0.6 ? stone : water, rnd(0.08, 0.2), rnd(0.3, 0.7), 14);
+      } else if (pb.kind === 'plazaStatue') {
+        const stone = 0xbfb7a8, bronze = 0xb87333;
+        emit(x + rnd(-1, 1), 0.6 + t, z + rnd(-1, 1), rnd(-3, 3), rnd(3, 7), rnd(-3, 3), Math.random() < 0.5 ? stone : bronze, rnd(0.1, 0.25), rnd(0.3, 0.8), 18);
+      } else {
+        const wood = 0x5a3a1e, leaf = 0x2a6a28;
+        emit(x + rnd(-1, 1), 0.4 + t * 0.8, z + rnd(-1, 1), rnd(-2, 2), rnd(2, 5), rnd(-2, 2), Math.random() < 0.5 ? wood : leaf, rnd(0.08, 0.2), rnd(0.3, 0.6), 12);
+      }
+    }
+    if (pb.life <= 0) { scene.remove(m); plazaBreaking.splice(i, 1); }
+  }
 }
 export function collideProps(c) {
   const list = nearChunks(c.x, c.z); const s = Math.sin(c.h), co = Math.cos(c.h);

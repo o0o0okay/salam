@@ -11,7 +11,7 @@ import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
+import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses, updatePlazaBreaking } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
@@ -173,6 +173,7 @@ export function update(dt) {
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
   updateFlying(sdt);
+  updatePlazaBreaking(sdt);
   /* --- falling trees --- */
   for (let i = fallingTrees.length - 1; i >= 0; i--) {
     const f = fallingTrees[i]; f.life -= sdt;
