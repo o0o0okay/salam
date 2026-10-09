@@ -90,6 +90,7 @@ const cyl=(rt,rb,h,s,m,x,y,z)=>{const r=((rt||1)+(rb||1))/2;const g=new THREE.Me
 const ASSET=new Proxy({windowMats:[{},{},{},{},{},{},{},{}],roofMat:{},pavingMat:{},pavePanelMat:{},paveBrickMat:{},borderMat:{},curbTopMat:{},curbPaintMat:{},curbMat:{},soilMat:{},grassMat:{},roadMat:{},snowRoadMat:{},lampMat:{},coinMat:{},burnt:{},headMat:{},tailMat:{},beamMat:{},spikeMat:{},spikeLit:{},treeMat:{}},
   {get:(t,k)=>k in t?t[k]:(String(k).endsWith('Geo')?new THREE.BoxGeometry(1,1,1):{})});
 const makeBuildingGeo=()=>new THREE.BoxGeometry(1,1,1);
+const facadeMat=(c,windows)=>({c,o:{windows},clone(){return {...this};},dispose(){}});
 const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
 const REAL_DIMS=${JSON.stringify(REAL_DIMS)};
 const CAR_DIMS=new Proxy({},{get:(t,k)=>KNOWN_KINDS.has(k)?(REAL_DIMS[k]||{e1:2,e2:1,mass:1,hp:40}):undefined});

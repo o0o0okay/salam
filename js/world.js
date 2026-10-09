@@ -3,7 +3,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
-import { mat, box, cyl, ASSET, makeBuildingGeo } from './assets.js';
+import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
+
+// Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
+// in the suburbs: the palette of the reference street art, where no two neighbouring fronts match.
+const WALKUP_WALLS = [0xa9503a, 0x8c5a40, 0xd9c9a3, 0x7d9c73, 0xd98f9a, 0x4f9c98, 0xd6a846, 0x6f86a6];
+const HOUSE_BRICK = [0xa9503a, 0x8c5a40, 0xd6c7a1, 0x9a6a58];
+const IRON = 0x3b3f45;
 import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
@@ -1849,6 +1855,7 @@ function generateChunk(cx, cz, defer = false) {
     const hiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
     const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
     const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+    const walkUps = [];
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
       // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
       // building's half-extent (up to 12.5 m) stays inside [lo, hi].
@@ -1864,7 +1871,11 @@ function generateChunk(cx, cz, defer = false) {
       const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
       const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
       let hasShops = false;
-      const geo = makeBuildingGeo(w, h, d), wm = ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
+      // A mid-rise under ~32 m is a walk-up in brick (brownstone / shop-house); the taller blocks keep the glass.
+      const walkUp = h <= 32 && rng() < 0.85;
+      const geo = makeBuildingGeo(w, h, d);
+      const wm = walkUp ? facadeMat(WALKUP_WALLS[Math.floor(rng() * WALKUP_WALLS.length)])
+                        : ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
       const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
       mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
       solid(clx, clz, w / 2, d / 2, 'building');
@@ -1896,8 +1907,21 @@ function generateChunk(cx, cz, defer = false) {
         ch.shops.push(sEntry.shop);
       }
       hasShops = true;
+      if (walkUp) walkUps.push({ clx, clz, w, d, h, alongX, faceAxis });
       // rooftop details
-      if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
+      if (walkUp) {
+        // a cornice round the parapet, then a wooden water tower on four legs or a brick chimney stack
+        add(box(w + 0.7, 0.8, d + 0.7, mat(rng() < 0.6 ? 0xe8dfcc : 0x4a4f57), clx, h + 0.55, clz));
+        if (rng() < 0.5) {
+          const tx = clx + r(-w * 0.2, w * 0.2), tz = clz + r(-d * 0.2, d * 0.2);
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(cyl(0.1, 0.1, 3, 5, mat(IRON), tx + sx * 0.9, h + 0.15 + 1.5, tz + sz * 0.9));
+          add(cyl(1.4, 1.4, 2.4, 10, mat(0x8a6a4a), tx, h + 0.15 + 3 + 1.2, tz));
+          const cap = new THREE.Mesh(ASSET.roofGeo, mat(0x4a3a2c)); cap.scale.set(2.2, 1.1, 2.2);
+          cap.position.set(tx, h + 0.15 + 3 + 2.4 + 0.55, tz); add(cap);
+        } else {
+          add(box(0.9, 2.4, 0.9, mat(0x7a4a3a), clx + r(-w * 0.3, w * 0.3), h + 0.15 + 1.2, clz + r(-d * 0.3, d * 0.3)));
+        }
+      } else if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
       else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
       // reflective warning cones placed along the sidewalk line in front of it.
@@ -1922,6 +1946,36 @@ function generateChunk(cx, cz, defer = false) {
         }
       }
     }
+    // Iron fire escapes on the walk-ups: one landing per floor on a side wall (never the shopfront face). Each one
+    // stays inside the block's building line and clear of every other solid, so it can never reach a road.
+    for (const u of walkUps) {
+      if (rng() < 0.3) continue;
+      const s = rng() < 0.5 ? -1 : 1, along = rng() < 0.5 ? -1 : 1, p = 1.0, tw = 2.2;
+      const sideZ = u.alongX;                                   // the shop is on an x face, so this wall is a z face
+      const face = sideZ ? u.clz + s * u.d / 2 : u.clx + s * u.w / 2;
+      const span = sideZ ? u.w : u.d;
+      const cen = (sideZ ? u.clx : u.clz) + along * (span / 2 - 1.6);      // tangent coordinate of the escape
+      const nLo = Math.min(face, face + s * (p + 0.1)), nHi = Math.max(face, face + s * (p + 0.1));
+      const tLo = cen - tw / 2 - 0.1, tHi = cen + tw / 2 + 0.1;
+      const ex = sideZ ? [tLo, tHi] : [nLo, nHi], ez = sideZ ? [nLo, nHi] : [tLo, tHi];
+      if (ex[0] < loX || ex[1] > hiX || ez[0] < loZ || ez[1] > hiZ) continue;
+      const clash = ch.solids.some(q => !(q.x === u.clx && q.z === u.clz && q.kind === 'building') &&
+        ex[1] > q.x - q.hx - 0.6 && ex[0] < q.x + q.hx + 0.6 && ez[1] > q.z - q.hz - 0.6 && ez[0] < q.z + q.hz + 0.6);
+      if (clash) continue;
+      const iron = mat(IRON), floors = Math.floor((u.h - 1) / 3.5);
+      // a piece: `nC` is its coordinate across the wall, `tC` along it; `nSize` its depth out from the wall
+      const piece = (nC, tC, hgt, yC, nSize, tSize) => add(sideZ
+        ? box(tSize, hgt, nSize, iron, tC, yC, nC, false) : box(nSize, hgt, tSize, iron, nC, yC, tC, false));
+      for (let f = 1; f < floors; f++) {
+        const y = 0.15 + f * 3.5;
+        piece(face + s * p / 2, cen, 0.12, y + 0.06, p, tw);                          // landing
+        piece(face + s * (p - 0.05), cen, 0.05, y + 0.52, 0.08, tw);                  // top rail
+        piece(face + s * (p - 0.05), cen, 0.05, y + 0.25, 0.08, tw);                  // mid rail
+      }
+      // two rails of the ladder that climbs the wall at one end of the landings
+      const top = 0.15 + floors * 3.5;
+      for (const k of [-1, 1]) piece(face + s * p * 0.6, cen + k * (tw / 2 - 0.08), top - 0.15, (top + 0.15) / 2, 0.12, 0.1);
+    }
   } else if (type === 'suburb') {
     // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
     // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
@@ -1943,7 +1997,16 @@ function generateChunk(cx, cz, defer = false) {
       // Skip houses that would extend into the at-grade lane (with jitter and half-extent margin)
       if (hx - w/2 < lo_x || hx + w/2 > hi_x || hz - d/2 < lo_z || hz + d/2 > hi_z) continue;
       const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
-      add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
+      // some houses are brick (a brownstone-style front) with a stone stoop up to the door
+      const brick = rng() < 0.45, brickC = HOUSE_BRICK[Math.floor(rng() * HOUSE_BRICK.length)];
+      if (brick) {
+        const bg = makeBuildingGeo(w, h, d, 6), bm = new THREE.Mesh(bg, facadeMat(brickC, false));
+        bm.position.set(hx, h / 2 + 0.25, hz); add(bm); ch.geos.push(bg);
+        if (hz + d / 2 + 1.5 <= hi_z) {
+          const stone = mat(0xcfc8bb);
+          for (let k = 0; k < 3; k++) { const sh = 0.6 - 0.2 * k; add(box(2.4, sh, 0.42, stone, hx, 0.25 + sh / 2, hz + d / 2 + 0.21 + 0.42 * k)); }
+        }
+      } else add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
       const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
       add(box(1.2, 2.1, 0.12, mat(0x5a3a22), hx, 1.3, hz + d / 2 + 0.05, false));
       for (const sx of [-1, 1]) { add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz + d / 2 + 0.04, false)); add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz - d / 2 - 0.04, false)); }
