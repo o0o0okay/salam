@@ -8,7 +8,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover, plazaAt } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -439,8 +439,8 @@ const FONT3D = {
 const textGeoCache = new Map();
 const TEXT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const _textM = new THREE.Matrix4();
-function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
-  const key = h + '|' + depth + '|' + gap + '|' + str.toUpperCase();
+function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8, mirror = false) {
+  const key = h + '|' + depth + '|' + gap + '|' + str.toUpperCase() + '|' + (mirror ? 'm' : 'n');
   let geo = textGeoCache.get(key);
   if (geo === undefined) {
     const pw = h / 7, ph = h / 7;
@@ -448,12 +448,12 @@ function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
     const geos = [];
     for (let i = 0; i < str.length; i++) {
       const rows = (FONT3D[str[i].toUpperCase()] || FONT3D[' ']).split(',');
-      const x0 = -total / 2 + i * (pw + gap);
+      const x0 = mirror ? total / 2 - i * (pw + gap) : -total / 2 + i * (pw + gap);
       for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
         if (rows[r][c] !== '1') continue;
         const g = TEXT_BOX.clone();
         _textM.makeScale(pw * 1.02, ph * 1.02, depth);
-        _textM.setPosition(x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0);
+        _textM.setPosition(mirror ? x0 - c * pw + pw / 2 : x0 + c * pw + pw / 2, (6 - r) * ph + ph / 2, 0);
         g.applyMatrix4(_textM);
         geos.push(g);
       }
@@ -464,9 +464,9 @@ function textGeometry(str, h = 1.2, depth = 0.14, gap = 0.8) {
   }
   return geo;
 }
-function textBlocks(str, m, h = 1.2, depth = 0.14, gap = 0.8) {
+function textBlocks(str, m, h = 1.2, depth = 0.14, gap = 0.8, mirror = false) {
   const g = new THREE.Group();
-  const geo = textGeometry(str, h, depth, gap);
+  const geo = textGeometry(str, h, depth, gap, mirror);
   if (geo) g.add(new THREE.Mesh(geo, m));
   return g;
 }
@@ -1012,6 +1012,8 @@ export function warmTextCache() {
   for (const t of G) textGeometry(t, 0.3, 0.1, 0.26);
   textGeometry('H', 4.2, 0.14, 0.6);
   textGeometry('OVERPASS', 0.42, 0.12, 0.3);          // the interchange's direction plates
+  textGeometry('OVERPASS', 0.62, 0.1, 0.34);          // ... the name plated on the bridge itself
+  textGeometry('OVERPASS', 0.88, 0.1, 0.5);           // ... the billboard and the gantry panels
 }
 // ---- Fuel station ----
 // Procedural forecourt in the style of a modern filling station: a big flat canopy with a lit underside and
@@ -1364,6 +1366,122 @@ function buildFlyoverDelineator() {
   for (const y of [0.64, 0.87]) g.add(cyl(0.068, 0.071, 0.13, 10, white, 0, y, 0));
   return g;
 }
+/* ---- The interchange's own signage ----
+ * A grade-separated junction is signed three ways, and every one of the four blocks around it builds its own
+ * quarter of all three, in the quarter's own frame, so no block has to know what its neighbours are doing:
+ *
+ *   nameboard   a plated name hung on the abutment face at each bridge mouth — the leaning concrete above the
+ *               hazard boards, one board per half of the carriageway. It is read by anyone who drives along
+ *               the road that flies: at grade under the deck, or climbing the ramp towards it.
+ *   billboard   a lit advertising board standing on the deck's parapet coping, facing out across the ground
+ *               street, so the structure is signed to the city it crosses (and to the player coming up the
+ *               at-grade lane beside the embankment).
+ *   gantry      a sign gantry over each approach to the deck: one leg standing on each parapet's coping, the
+ *               beam reaching in over the carriageway, and a panel over each half of the road, so the traffic
+ *               that has just climbed the ramp is told what it is crossing.
+ *
+ * Everything is plain geometry — box-pixel lettering, no textures, no HTML overlays — and baked into the block
+ * that owns it, so the signs cost draw calls like any other part of the structure and stream out with it. They
+ * stand above the parapet or hang on the concrete outside the drivable width, so none of them needs a solid:
+ * a car on the deck is already held inside the parapets, and a car at grade never reaches them.
+ *
+ * Each builder works in a local frame where +z faces the reader, +x runs across the road and y = 0 is the level
+ * the piece is mounted on (the plate's own centre, the panel's centre, the deck surface). The block places it
+ * and turns it; the records it writes onto `ch.flyover` carry the same numbers in world terms, which is what
+ * tools/sidewalk-checks/flyover-signs.mjs checks without a browser.
+ */
+function buildFlyoverNameboard() {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8f959b);
+  // 0.78 m deep on purpose: the abutment face leans back as it rises, so with the plate's face clear of the
+  // concrete at its bottom edge the back of the board is buried in the concrete at its top (see `faceAt`).
+  // Two-sided: the at-grade side (z = -0.78..-0.18) and the deck side (z = +0.18..+0.78) both carry a blue
+  // field and lettering, so the plate reads from the street below *and* from anyone standing on the deck.
+  g.add(box(5.75, 1.5, 0.6, cream, 0, 0, -0.48, false));                 // backing, 0.15 m of border all round
+  g.add(box(5.75, 1.5, 0.6, cream, 0, 0, +0.48, false));                 // ... back face
+  g.add(box(5.45, 1.2, 0.5, blue, 0, 0, -0.25, false));                  // blue field (at-grade side)
+  g.add(box(5.45, 1.2, 0.5, blue, 0, 0, +0.25, false));                  // blue field (deck side)
+  for (const ox of [-2.79, 2.79]) for (const oy of [-0.5, 0.5]) {
+    g.add(box(0.18, 0.18, 0.08, steel, ox, oy, -0.14, false));           // bolt heads (at-grade side)
+    g.add(box(0.18, 0.18, 0.08, steel, ox, oy, +0.14, false));           // bolt heads (deck side)
+  }
+  const txt1 = textBlocks('OVERPASS', cream, 0.62, 0.1, 0.34); txt1.position.set(0, 0.01, 0.03); g.add(txt1);
+  // deck side: mirror the lettering so it reads correctly from the other side of the slab
+  const txt2 = textBlocks('OVERPASS', cream, 0.62, 0.1, 0.34, true);
+  txt2.position.set(0, 0.01, 0.93); g.add(txt2);
+  return g;
+}
+function buildFlyoverBillboard() {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), steel = mat(0x8a9096), dark = mat(0x2b3138);
+  // Lit field (lambert with an emissive tint, like the bus shelters' ad panels and the fuel canopy's
+  // lightboxes), so the board reads at night without a light of its own. The panel's centre is 1.45 m above
+  // the coping: its two feet are at local y = -1.45.
+  // Two-sided: both the street-below side and the deck side carry a lit field and lettering.
+  const lit = mat(0xc0392b, { emissive: 0x6a1712 });
+  g.add(box(5.9, 2.0, 0.16, cream, 0, 0, 0, false));                    // rim (centred)
+  g.add(box(5.5, 1.7, 0.26, lit, 0, 0, 0.2, false));                    // lit field (street side)
+  g.add(box(5.5, 1.7, 0.26, lit, 0, 0, -0.2, false));                   // lit field (deck side)
+  const txt1 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5); txt1.position.set(0, 0.04, 0.35); g.add(txt1);
+  // deck side: mirrored lettering so it reads from the other side of the board
+  const txt2 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5, true);
+  txt2.position.set(0, 0.04, -0.35); g.add(txt2);
+  for (const ox of [-2.0, 2.0]) {
+    g.add(box(0.18, 0.45, 0.18, steel, ox, -1.225, 0, false));          // post down to the coping (centred)
+    g.add(box(0.5, 0.1, 0.5, dark, ox, -1.4, 0, false));                // foot plate on the coping (centred)
+  }
+  return g;
+}
+// `legV` is the parapet's own centre line (how far the leg and the beam's root stand from the road's centre
+// line) and `dir` is the way, in this local frame, that the centre line lies: the beam and the sign panel reach
+// from the leg in by `dir`, so one block builds the half over its own side of the road and the two halves meet
+// over the middle.
+// Local heights are measured from the coping's top (0) upwards, and the panel hangs under the beam with a
+// hand's width of clearance, so the sign passes under the beam instead of through it.
+function buildFlyoverGantry(legV, dir) {
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8a9096);
+  // The base plate is 0.44 m across on purpose: centred on the leg (the parapet's own centre line) it stops
+  // just short of the parapet's inner face, so nothing of the gantry leans into the lane's clear width.
+  // Sign panel is two-sided: both the approach-facing side and the opposite side carry a blue field and
+  // lettering, so the gantry reads from traffic in both directions.
+  g.add(box(0.44, 0.14, 0.44, steel, 0, 0.07, 0, false));               // base plate, on the coping
+  g.add(box(0.3, 4.32, 0.3, steel, 0, 2.30, 0, false));                 // leg, up to the beam's underside
+  g.add(box(legV, 0.32, 0.34, steel, dir * legV / 2, 4.62, 0, false));  // half the beam, out to the centre line
+  g.add(box(6.0, 2.0, 0.14, cream, dir * 4.6, 3.42, 0, false));         // sign panel, backing (centred)
+  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, 0.18, false));       // ... its field (front)
+  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, -0.18, false));      // ... its field (back)
+  const txt1 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5); txt1.position.set(dir * 4.6, 3.45, 0.33); g.add(txt1);
+  // back side: mirrored lettering so it reads from the opposite approach
+  const txt2 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5, true);
+  txt2.position.set(dir * 4.6, 3.45, -0.33); g.add(txt2);
+  return g;
+}
+
+/* ---- Junction plazas ----
+ * A small circular island in the middle of an eligible plain four-way junction: a curb ring in concrete and
+ * a disc of grass inside. The central feature (fountain, statue, or tree grove) is a destructible prop placed
+ * at the junction's centre — a car that drives into it knocks it down, just like a streetlight or a hydrant.
+ * The island itself has no solid, so cars can drive over it (the curb is only 0.3 m tall — a speed bump).
+ *
+ * `plazaAt(jx, jz)` in js/flyover.js decides which junctions get one — it keeps plazas off the main roads
+ * (where flyovers live), off junctions beside flyovers (the cut corner would swallow them), and off junctions
+ * under flyover ramps. ~15% of the remaining junctions become plazas.
+ *
+ * The whole island is 5 m in radius. A plain junction's carriageway is 16.5 m wide, so that leaves 3.25 m of
+ * lane on each side — enough for one lane each way, and enough for the traffic to go around the island.
+ *
+ * The builder produces only the island base (curb + grass). The central feature is placed separately as a
+ * prop by generateChunk() so it gets the same breakable-prop lifecycle as everything else (collision, drag,
+ * flying debris, etc.).
+ */
+function buildPlazaIsland(radius) {
+  const g = new THREE.Group();
+  const concrete = mat(0xd4cfc4), grass = mat(0x3a7a2a);
+  // The curb: a concrete disc, 0.3 m tall. Low enough that a car can drive over it — it's a speed bump,
+  // not a wall. Cars that don't want to hit the central feature just go around.
+  g.add(cyl(radius, radius, 0.3, 24, concrete, 0, 0.15, 0, false));
+  // Grass: a slightly smaller disc on top of the curb, so the curb's rim stays bare concrete all round.
+  g.add(cyl(radius - 0.35, radius - 0.35, 0.34, 24, grass, 0, 0.17, 0, false));
+  return g;
+}
 
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
@@ -1371,7 +1489,7 @@ function generateChunk(cx, cz, defer = false) {
   const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
   const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
   const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [] };
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
   // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
@@ -1456,6 +1574,27 @@ function generateChunk(cx, cz, defer = false) {
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group, ch);
+  // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the
+  // junction at that corner, if plazaAt(cx, cz) says it should have one. The plaza is a circular island with a
+  // curb and a central feature (fountain, statue, or tree grove) — it sits on top of the road texture, and
+  // the whole junction reads as a small roundabout. Plazas are never at a flyover, never beside one, and never
+  // under a ramp; the decision is deterministic, so the chunk and its audits agree.
+  const p = plazaAt(cx, cz);
+  if (p) {
+    // The plaza island: a circular curb ring + grass inside. No solid here — cars can drive over it (the
+    // curb is only 0.3 m tall, a speed-bump, and the user asked for the island to be drivable). It is still
+    // a keepout so props and parked cars stay off it.
+    const island = buildPlazaIsland(p.radius);
+    island.position.set(x0, 0, z0);
+    add(island);
+    ch.keepouts.push({ x: x0, z: z0, hx: p.radius + 0.5, hz: p.radius + 0.5 });
+    ch.plazas.push({ x: x0, z: z0, radius: p.radius, feature: p.feature });
+    // The central feature is a destructible prop: a car that drives into it knocks it down, just like a
+    // streetlight or a hydrant. The prop's collision radius matches its visual size, so cars clip it before
+    // they reach the curb. The prop sits on the island's grass surface (y = 0.34).
+    const featKind = ['plazaFountain', 'plazaStatue', 'plazaTree'][p.feature];
+    prop(featKind, x0, z0, 0, 0.34);
+  }
   // ---- Grade-separated interchanges ----
   // The city's two main roads carry flyovers every few junctions (js/flyover.js decides where): the road climbs
   // an embankment, crosses the junction it meets on a deck 7.2 m above the ground, and comes back down on the
@@ -1587,14 +1726,77 @@ function generateChunk(cx, cz, defer = false) {
       ch.keepouts.push({ x: sp[0], z: sp[2], hx: 1.9, hz: 1.9 });
       (fly.signs = fly.signs || []).push({ x: sp[0], z: sp[2] });   // for the suite: it stands on the pavement
     }
+    // ---- the interchange's own signage: a plated name on the bridge, a billboard on the deck, a gantry over
+    //      the approach. Each quarter builds its own share of all three (see the builders above); the numbers
+    //      are recorded on the chunk so tools/sidewalk-checks/flyover-signs.mjs can check them without a
+    //      graphics device.
+    {
+      // The nameboard hangs on the abutment face at the deck's mouth — the leaning concrete the hazard boards
+      // are already screwed to — in the band between the hazard stripe (top 3.75 m) and the deck slab (7.2 m),
+      // and it is read by the traffic on the road *at grade*: a car up on the ramp is above its own abutment's
+      // face and cannot see it (the ramp hides it), so the plate is aimed at the driver coming up the street
+      // towards the bridge — the one who has to choose the at-grade lane — and at the pavement. Its face
+      // stands clear of the concrete at its own bottom edge (0.19 m at 3.85 m up) while the back of the board
+      // is buried 0.59 m into the concrete at its top edge (5.35 m), because that face leans back as it rises:
+      // that is what holds the plate onto the bridge, and it is why the board is 0.78 m deep.
+      const u = Q.su * (FLY.deckHalf + 0.3), yM = 4.6, p = at(u, yM, Q.sv * W / 2);
+      const plate = buildFlyoverNameboard();
+      plate.position.set(p[0], yM, p[2]);
+      plate.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
+      add(plate);
+      (fly.nameplates = fly.nameplates || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: yM, yaw: plate.rotation.y,
+        u, v: Q.sv * W / 2, w: 5.75, h: 1.5, base: yM - 0.75, top: yM + 0.75, mount: 'abutment',
+      });
+    }
+    // The billboard stands on the deck's coping over the carriageway that flies, facing out across the street
+    // below: the structure signed to the city it crosses. One a bridge (built by the +u quarter), not one per
+    // quarter, and it stands at the middle of the span — over the street the bridge crosses, which is the spot
+    // it is read from, and well clear of the gantry's legs and beams at u = ±9.
+    if (Q.su > 0) {
+      const bbU = 0, mountY = FLY.deckH + PH + 0.12, p = at(bbU, mountY + 1.45, Q.sv * (W - FLY.parapet + 0.31));
+      const bb = buildFlyoverBillboard();
+      bb.position.set(p[0], p[1], p[2]);
+      bb.rotation.y = alongX ? (Q.sv > 0 ? 0 : PI) : (Q.sv > 0 ? PI / 2 : -PI / 2);
+      add(bb);
+      (fly.billboards = fly.billboards || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: bb.rotation.y,
+        u: 0, v: Q.sv * (W - FLY.parapet + 0.31), w: 5.9, h: 2.0,
+        mountY, base: p[1] - 1.0, top: p[1] + 1.0, mount: 'coping',
+      });
+    }
+    // The gantry stands over the bridge's own entry, a few metres in from the end of the deck: one leg on each
+    // parapet's coping (the other half is the opposite block's, and the two meet over the middle of the road),
+    // the beam reaching in over the carriageway and the sign over this quarter's own half of it, facing the
+    // traffic that has just climbed the ramp. The panel hangs 0.04 m under the beam's underside — nothing
+    // pokes through anything.
+    {
+      const legV = W - FLY.parapet / 2, dir = -1 / Q.sv, base = FLY.deckH + PH + 0.12;
+      const p = at(Q.su * 9.0, base, Q.sv * legV);
+      const gantry = buildFlyoverGantry(legV, dir);
+      gantry.position.set(p[0], p[1], p[2]);
+      gantry.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
+      add(gantry);
+      (fly.gantries = fly.gantries || []).push({
+        axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: gantry.rotation.y,
+        u: Q.su * 9.0, base, legV, deck: FLY.deckH,
+        beamUnder: p[1] + 4.46, signBottom: p[1] + 2.42, signTop: p[1] + 4.42,
+        spans: [Q.sv * (W - FLY.parapet), Q.sv * (legV - 7.6)], mount: 'coping',
+      });
+    }
   }
   // Where a block's own buildings stand. On a side that carries an interchange's at-grade lane the building line
   // is `FLY.frontage` further out, and the pinned campuses (hospital, fire station, school, filling station) are
   // laid out by their own builders, which know nothing about lanes: a campus drawn from the block's geometric
-  // centre would put its wall on the pavement behind the lane. Feeding the builders this offset instead moves the
-  // mesh, the solids, the bays and the fences together, and it is zero on every block that has no lane.
-  const bxo = bx + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
-  const bzo = bz + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  // centre would put its wall on the pavement behind the lane. The campus centre is the midpoint of the effective
+  // building bounds — which shifts it toward the opposite side of the lane, keeping the whole campus (including
+  // its widest wings) inside the building line on both sides. It is zero on every block that has no lane.
+  const effLoX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+  const effHiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const effLoZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+  const effHiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const bxo = (effLoX + effHiX) / 2;
+  const bzo = (effLoZ + effHiZ) / 2;
   const onLaneSide = bxo !== bx || bzo !== bz;
   // How far the kerb stands from the block edge (= the road's own centre line) on a side: the usual road edge,
   // or `roadEdge()` on a side that carries an interchange's at-grade street. Everything laid against a kerb —
@@ -1618,6 +1820,10 @@ function generateChunk(cx, cz, defer = false) {
   const t = rng();
   // Keep shopping centers near the fixed spawn so the new district is visible immediately.
   const nearSpawn = (cx === 0 && cz === 0) || (cx === 1 && cz === 0);
+  // A block beside an at-grade lane gets no campus: the school's 34 m classroom wing and the fire station's
+  // hose tower are too wide to fit in the narrower effective bounds, and shifting them to fit would put
+  // them in the road. Downtown, suburb and park blocks handle the lane fine (their grids respect the bounds).
+  const laneBlock = onLaneSide;
   // One hospital is pinned beside the spawn block (front-left of the start) so it is easy to find; the rest of
   // the city grows a few more at random, never on the two guaranteed shopping centres.
   const type = nearSpawn ? 'commercial'
@@ -1626,6 +1832,7 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
     : (cx === 1 && cz === -1) ? 'shops'                        // a shopping street on the fourth corner of the spawn
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
+    : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
     : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'hospital'
     : t < 0.975 ? 'school' : 'industrial';
@@ -1636,26 +1843,37 @@ function generateChunk(cx, cz, defer = false) {
   if (type === 'downtown') {
     // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole
     // pavement: a high-street shopfront projects up to 2.5 m from its wall (awning, outdoor display, its base),
-    // and without the offset that projection would stand in the at-grade lane.
+    // and without the offset that projection would stand in the at-grade lane. Effective bounds shrink the grid
+    // on lane sides so buildings never encroach on the carriageway — on either side of the block.
+    const loX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
-      const lx = bx0 + 14 + i * 28 + (bxo - bx), lz = bz0 + 14 + j * 28 + (bzo - bz);
+      // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
+      // building's half-extent (up to 12.5 m) stays inside [lo, hi].
+      const cellW = (hiX - loX) / 2, cellD = (hiZ - loZ) / 2;
+      const lx = loX + cellW * (i + 0.5), lz = loZ + cellD * (j + 0.5);
       if (rng() < 0.12) { // plaza
         add(box(24, 0.1, 24, mat(0xd9d2c3), lx, 0.2, lz, false));
         tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
         continue;
       }
       const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
+      // Clamp building centre so the whole footprint stays within effective bounds
+      const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
+      const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
       let hasShops = false;
       const geo = makeBuildingGeo(w, h, d), wm = ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
       const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
-      mesh.position.set(lx, h / 2 + 0.15, lz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
-      solid(lx, lz, w / 2, d / 2, 'building');
+      mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
+      solid(clx, clz, w / 2, d / 2, 'building');
       // Ground-floor shops on the face that looks at the street: a downtown block becomes a high street.
-      const ox = lx - bx, oz = lz - bz;
+      const ox = clx - bx, oz = clz - bz;
       const alongX = Math.abs(ox) >= Math.abs(oz);
       const faceAxis = alongX ? Math.sign(ox || 1) : Math.sign(oz || 1);
       const faceLen = alongX ? d : w;
-      const faceAt = alongX ? lx + faceAxis * (w / 2) : lz + faceAxis * (d / 2);
+      const faceAt = alongX ? clx + faceAxis * (w / 2) : clz + faceAxis * (d / 2);
       const radial = alongX ? (faceAxis > 0 ? bx0 + CHUNK - faceAt : faceAt - bx0)
                             : (faceAxis > 0 ? bz0 + CHUNK - faceAt : faceAt - bz0);
       const clear = radial - PAVE_OUT;                                  // room between the wall and the paving
@@ -1665,8 +1883,8 @@ function generateChunk(cx, cz, defer = false) {
       for (let si = 0; si < nFace; si++) {
         const shop = SHOP_TYPES[Math.floor(rng() * SHOP_TYPES.length)];
         const off = (si + 0.5 - nFace / 2) * (faceLen / nFace);
-        const sx = alongX ? faceAt + faceAxis * 0.05 : lx + off;
-        const sz = alongX ? lz + off : faceAt + faceAxis * 0.05;
+        const sx = alongX ? faceAt + faceAxis * 0.05 : clx + off;
+        const sz = alongX ? clz + off : faceAt + faceAxis * 0.05;
         const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
         const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
         const gm = own(ch, mergeStandalone(kit.glass));
@@ -1679,8 +1897,8 @@ function generateChunk(cx, cz, defer = false) {
       }
       hasShops = true;
       // rooftop details
-      if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), lx, h + 2.65, lz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), lx, h + 8.6, lz)); }
-      else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), lx + r(-4, 4), h + 1.05, lz + r(-4, 4)));
+      if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
+      else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
       // reflective warning cones placed along the sidewalk line in front of it.
       if (h > 20 && rng() < 0.3 && !hasShops) {          // a shopfront already owns the pavement face
@@ -1693,7 +1911,7 @@ function generateChunk(cx, cz, defer = false) {
         const dx = sideS === 0 ? w / 2 + sd / 2 + 0.6 : sideS === 1 ? -(w / 2 + sd / 2 + 0.6) : 0;
         const dz = sideS === 2 ? d / 2 + sd / 2 + 0.6 : sideS === 3 ? -(d / 2 + sd / 2 + 0.6) : 0;
         const rotS = (sideS === 0 || sideS === 1) ? PI / 2 : 0;
-        const sx = lx + dx, sz = lz + dz;
+        const sx = clx + dx, sz = clz + dz;
         scaffold(sx, sz, rotS, o);
         const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
         const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
@@ -1705,13 +1923,25 @@ function generateChunk(cx, cz, defer = false) {
       }
     }
   } else if (type === 'suburb') {
-    padBox(56, 56, mat(0x7bc96f), bxo - bx, bzo - bz);
+    // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
+    // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+    const padW = hi_x - lo_x, padD = hi_z - lo_z;
+    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+    padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
     const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
-    // The house grid starts from the block's own building line, which steps back on a side that carries a
-    // flyover's at-grade lane: otherwise a house's jitter can put its wall inside the stepped-back line.
+    // The house grid fits within the effective block bounds. On at-grade sides the grid shifts
+    // and shrinks so no house wall or jitter lands in the carriageway.
+    const houseSpanX = Math.max(0, padW - 18.66), houseSpanZ = Math.max(0, padD - 18.66);
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-      const lx = bx0 + 9.33 + i * 18.67 + (bxo - bx), lz = bz0 + 9.33 + j * 18.67 + (bzo - bz);
+      const lx = lo_x + 9.33 + (houseSpanX > 0 ? i * houseSpanX / 2 : 0);
+      const lz = lo_z + 9.33 + (houseSpanZ > 0 ? j * houseSpanZ / 2 : 0);
       const w = r(8, 10), d = r(7, 9), h = r(4.5, 6), ox = r(-1, 1), oz = r(-1, 1), hx = lx + ox, hz = lz + oz;
+      // Skip houses that would extend into the at-grade lane (with jitter and half-extent margin)
+      if (hx - w/2 < lo_x || hx + w/2 > hi_x || hz - d/2 < lo_z || hz + d/2 > hi_z) continue;
       const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
       add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
       const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
@@ -1723,23 +1953,42 @@ function generateChunk(cx, cz, defer = false) {
       tree(lx + cs * 7.6, lz + cs2 * 7.6);
       if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
     }
-    for (const side of [-1, 1]) for (let x = -25.5; x <= 26; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + (bxo - bx), bz + side * 28.6 + (bzo - bz), 0, 0.2);
+    for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + padOx, bz + side * (padD/2 - 0.4) + padOz, 0, 0.2);
   } else if (type === 'park') {
-    padBox(56, 56, mat(0x78c46c));
-    padBox(56, 3.4, mat(0xe3d6b0), 0, 0, 0.27, 0.04); padBox(3.4, 56, mat(0xe3d6b0), 0, 0, 0.27, 0.04);
-    const pw = r(10, 15), pd = r(8, 11), px = bx + (rng() < 0.5 ? -1 : 1) * r(10, 14), pz = bz + (rng() < 0.5 ? -1 : 1) * r(11, 16);
+    // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+    const padW = hi_x - lo_x, padD = hi_z - lo_z;
+    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+    padBox(padW, padD, mat(0x78c46c), padOx, padOz);
+    // Paths along the centerlines of the effective bounds
+    padBox(padW, 3.4, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+    padBox(3.4, padD, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+    // Pond positioned within the valid bounds
+    const pw = r(10, 15), pd = r(8, 11);
+    const px = (lo_x + hi_x) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(14, padW/2 - pw/2 - 2));
+    const pz = (lo_z + hi_z) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(16, padD/2 - pd/2 - 2));
     add(box(pw, 0.06, pd, mat(0x58b6e8), px, 0.27, pz, false));
     ch.keepouts.push({ x: px, z: pz, hx: pw / 2, hz: pd / 2 });
     const placed = [];
     for (let a = 0, n = 0; a < 70 && n < 16; a++) {
-      const x = bx + r(-26, 26), z = bz + r(-26, 26);
-      if (Math.abs(x - bx) < 4.5 || Math.abs(z - bz) < 4.5) continue;
+      const x = (lo_x + hi_x) / 2 + r(-padW/2 + 2, padW/2 - 2);
+      const z = (lo_z + hi_z) / 2 + r(-padD/2 + 2, padD/2 - 2);
+      // Keep trees away from the center path and pond
+      if (Math.abs(x - (lo_x + hi_x) / 2) < 2.5 || Math.abs(z - (lo_z + hi_z) / 2) < 2.5) continue;
       if (Math.abs(x - px) < pw / 2 + 2 && Math.abs(z - pz) < pd / 2 + 2) continue;
       if (placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 49)) continue;
       placed.push([x, z]); tree(x, z); n++;
     }
-    prop('bench', bx - 8, bz - 2.5, 0, 0.3); prop('bench', bx + 9, bz + 2.5, PI, 0.3); prop('bench', bx - 2.5, bz + 10, PI / 2, 0.3);
-    for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), bx + r(-26, 26), 0.4, bz + r(-26, 26), false));
+    // Benches along the paths, within valid bounds
+    const cx_p = (lo_x + hi_x) / 2, cz_p = (lo_z + hi_z) / 2;
+    prop('bench', cx_p - 8, cz_p - 2.5, 0, 0.3);
+    prop('bench', cx_p + 9, cz_p + 2.5, PI, 0.3);
+    prop('bench', cx_p - 2.5, cz_p + 10, PI / 2, 0.3);
+    // Flowers scattered within the valid area
+    for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), cx_p + r(-padW/2 + 2, padW/2 - 2), 0.4, cz_p + r(-padD/2 + 2, padD/2 - 2), false));
   } else if (type === 'commercial') {
     // The whole mall ensemble — the building, its wing, the lot's painted rows and the bays — stands on the
     // block's own building line, so on a side that carries a flyover's at-grade lane it steps back with it.
@@ -2495,6 +2744,18 @@ export function nearChunks(x, z) {
   _near.length = 0; const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const c = chunks.get(ck(cx + i, cz + j)); if (c) _near.push(c); }
   return _near;
+}
+// Returns the plaza entry if (x, z) is inside any plaza's island (the grass/curb disc), or null otherwise.
+// Used by civilian AI to steer around plazas: regular cars go around the island, police and the player
+// are allowed to drive through (the user wanted it to feel like a real roundabout — traffic gives it
+// a wide berth unless it is chasing someone).
+export function plazaIn(x, z) {
+  const list = nearChunks(x, z);
+  for (const ch of list) for (const p of ch.plazas) {
+    const dx = x - p.x, dz = z - p.z;
+    if (dx * dx + dz * dz < p.radius * p.radius) return p;
+  }
+  return null;
 }
 // Parks one more car in a free bay of this block and returns it, or null when the lot is full.
 // Used at night to top malls up to their 2-3 car floor without regenerating the chunk.

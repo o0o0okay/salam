@@ -28,7 +28,7 @@
  * to agree about where a deck is and who is standing on it. One module with plain numbers means they cannot
  * drift apart, and the Node suites can check the surface profile without a browser (see run.mjs section 2c-3).
  */
-import { CHUNK } from './utils.js';
+import { CHUNK, hash2 } from './utils.js';
 
 export const FLY = {
   span: CHUNK,      // streets sit on multiples of the block size
@@ -296,4 +296,24 @@ export function parapetPush(x, z, y, box, out) {
   if (Math.abs(v) <= lim) return out;
   out.hit = true; out.axis = f.axis; out.v = v; out.limit = lim; out.sv = v < 0 ? -1 : 1; out.depth = Math.abs(v) - lim;
   return out;
+}
+
+// ---- Junction plazas ----
+// A circular island in the middle of an eligible plain four-way junction, with a fountain, statue or tree
+// grove. Plazas only go on side streets (never on a main road where flyovers sit), never at a flyover junction
+// itself, never beside one (the cut corner would swallow them), and never under a ramp. The decision is
+// deterministic and hash-based so every block computes the same answer.
+// `plazaAt(jx, jz)` returns null when the junction should stay plain, or `{ feature }` where feature is 0
+// (fountain), 1 (statue), or 2 (tree grove) — the hash decides which.
+//
+// Dimensions: the island is 5 m in radius, leaving 3.25 m of carriageway on each side of a 16.5 m junction —
+// enough for a lane each way, and traffic naturally goes around it like a small roundabout. The island is
+// recorded as a solid so cars steer clear of it, and as a keepout so props and parked cars stay off it.
+export function plazaAt(jx, jz) {
+  if (jx === 0 || jz === 0) return null;                       // main roads carry flyovers — keep plazas off them
+  if (besideFlyover(jx, jz)) return null;                      // the cut corner would swallow the island
+  if (flyoverNear(jx * FLY.span, jz * FLY.span, FLY.rampEnd + 4)) return null; // ramp would sweep through it
+  const h = hash2(jx, jz);
+  if ((h & 0xFF) >= 40) return null;                           // ~15.6% of eligible junctions
+  return { feature: (h >>> 8) % 3, radius: 5.0 };
 }

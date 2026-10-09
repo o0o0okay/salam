@@ -4,10 +4,10 @@ import { PI, CHUNK, clamp, wrapAngle, rnd } from './utils.js';
 import { player, police, cars, civs } from './state.js';
 import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
-import { solidAt, nearChunks } from './world.js';
+import { solidAt, nearChunks, plazaIn } from './world.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
-import { isFlyoverNode } from './flyover.js';
+import { isFlyoverNode, plazaAt } from './flyover.js';
 
 const CIV_KINDS = [
   'sedan', 'sedan', 'sedan',
@@ -113,7 +113,9 @@ export function civAI(c, dt) {
     // there is no at-grade movement to turn into. A car that turned there would either drive off the deck or
     // appear through the embankment, so the junction is straight-through for both roads.
     const ixN = c.axis === 'z' ? c.road : node, izN = c.axis === 'z' ? node : c.road;
-    if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN)) {
+    // Nobody turns at a plaza junction either: turning means driving through the island, and the user
+    // wants civilian traffic to go around it naturally. Only police (in pursuit) and the player do that.
+    if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN) && !plazaAt(ixN / CHUNK, izN / CHUNK)) {
       c.axis = c.axis === 'z' ? 'x' : 'z';
       c.dir = Math.random() < 0.5 ? 1 : -1;
       c.road = node;
@@ -122,6 +124,46 @@ export function civAI(c, dt) {
 
   const sp = c.vf, s = Math.sin(c.h), co = Math.cos(c.h);
   lanePoint(c, 9 + Math.max(0, sp) * 0.55, _lp);
+
+  // Plaza avoidance: civilian cars steer around the roundabout island instead of driving through it.
+  // The plaza (radius 5 m) sits at the junction centre, so a car driving straight through would hit it.
+  // Cars curve outward — away from the road centre — to pass between the island and the kerb (8 m out).
+  // The swerve target is set so the car's centre reaches 6.5 m from the junction centre at the closest
+  // point (5 m island + ~1 m car half-width + 0.5 m margin). The curve spans 50 m (25 m each side of
+  // the junction) so it reads as a natural arc, not a sudden swerve. Police cars are not subject to
+  // this — they drive through in pursuit.
+  // Must run BEFORE the desired heading is computed from _lp, so the offset takes effect.
+  {
+    // Find the next junction ahead (same pattern as the traffic-light check below): the nearest junction
+    // rounded to, then stepped one CHUNK in the direction of travel if the car is at or past it.
+    let nextAlong = Math.round(along / CHUNK) * CHUNK;
+    if (c.dir > 0 && nextAlong <= along + 0.01) nextAlong += CHUNK;
+    if (c.dir < 0 && nextAlong >= along - 0.01) nextAlong -= CHUNK;
+    const distToJunction = (nextAlong - along) * c.dir;          // >0: junction is ahead; <0: just passed
+    if (distToJunction > -25 && distToJunction < 50) {            // active from 50 m before to 25 m past
+      const jx = c.axis === 'z' ? c.road : nextAlong, jz = c.axis === 'z' ? nextAlong : c.road;
+      const pz = plazaIn(jx, jz);
+      if (pz) {
+        // Bell curve: 0 at the edges of the range, 1 at the junction centre.
+        const range = distToJunction < 0 ? 25 : 50;
+        const proximity = 1 - Math.abs(distToJunction) / range;
+        // The car's centre must reach 6.5 m from the junction centre to clear the island
+        // (5 m radius + ~1 m car half-width + 0.5 m margin). The swerve is the ADDITIONAL
+        // outward offset on top of the car's current lane position, so the lane point
+        // ends up at (c.off + swerve) from the road centre. A speed-dependent multiplier
+        // compensates for the steering lag: at higher speeds the look-ahead is further
+        // out, so the car turns more gently and needs a bigger offset to reach the same
+        // lateral position by the junction.
+        const targetOut = 6.5;                                    // car centre 6.5 m from junction centre
+        const needOut = Math.max(0, targetOut - c.off);           // how much further out the car must go
+        const speedComp = 1 + Math.max(0, sp - 18) * 0.035;       // +3.5% per m/s above 18
+        const swerve = needOut * proximity * 1.6 * speedComp;
+        if (c.axis === 'z') { _lp.x -= c.dir * swerve; }
+        else { _lp.z += c.dir * swerve; }
+      }
+    }
+  }
+
   const desired = Math.atan2(_lp.x - c.x, _lp.z - c.z), diff = wrapAngle(desired - c.h);
   let steer = clamp(diff * 2.4, -1, 1), target = c.cruise;
 
@@ -142,6 +184,12 @@ export function civAI(c, dt) {
   if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y)) {
     target = Math.min(target, 3);
     steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y) ? -1 : 1;
+  }
+
+  // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.
+  {
+    const pzNear = plazaIn(c.x + s * 20, c.z + co * 20);
+    if (pzNear) target = Math.min(target, c.cruise * 0.7);
   }
 
   {
