@@ -1788,10 +1788,15 @@ function generateChunk(cx, cz, defer = false) {
   // Where a block's own buildings stand. On a side that carries an interchange's at-grade lane the building line
   // is `FLY.frontage` further out, and the pinned campuses (hospital, fire station, school, filling station) are
   // laid out by their own builders, which know nothing about lanes: a campus drawn from the block's geometric
-  // centre would put its wall on the pavement behind the lane. Feeding the builders this offset instead moves the
-  // mesh, the solids, the bays and the fences together, and it is zero on every block that has no lane.
-  const bxo = bx + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
-  const bzo = bz + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0) - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  // centre would put its wall on the pavement behind the lane. The campus centre is the midpoint of the effective
+  // building bounds — which shifts it toward the opposite side of the lane, keeping the whole campus (including
+  // its widest wings) inside the building line on both sides. It is zero on every block that has no lane.
+  const effLoX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+  const effHiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const effLoZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+  const effHiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const bxo = (effLoX + effHiX) / 2;
+  const bzo = (effLoZ + effHiZ) / 2;
   const onLaneSide = bxo !== bx || bzo !== bz;
   // How far the kerb stands from the block edge (= the road's own centre line) on a side: the usual road edge,
   // or `roadEdge()` on a side that carries an interchange's at-grade street. Everything laid against a kerb —
@@ -1815,6 +1820,10 @@ function generateChunk(cx, cz, defer = false) {
   const t = rng();
   // Keep shopping centers near the fixed spawn so the new district is visible immediately.
   const nearSpawn = (cx === 0 && cz === 0) || (cx === 1 && cz === 0);
+  // A block beside an at-grade lane gets no campus: the school's 34 m classroom wing and the fire station's
+  // hose tower are too wide to fit in the narrower effective bounds, and shifting them to fit would put
+  // them in the road. Downtown, suburb and park blocks handle the lane fine (their grids respect the bounds).
+  const laneBlock = onLaneSide;
   // One hospital is pinned beside the spawn block (front-left of the start) so it is easy to find; the rest of
   // the city grows a few more at random, never on the two guaranteed shopping centres.
   const type = nearSpawn ? 'commercial'
@@ -1823,6 +1832,7 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
     : (cx === 1 && cz === -1) ? 'shops'                        // a shopping street on the fourth corner of the spawn
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
+    : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
     : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'hospital'
     : t < 0.975 ? 'school' : 'industrial';
@@ -1833,26 +1843,37 @@ function generateChunk(cx, cz, defer = false) {
   if (type === 'downtown') {
     // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole
     // pavement: a high-street shopfront projects up to 2.5 m from its wall (awning, outdoor display, its base),
-    // and without the offset that projection would stand in the at-grade lane.
+    // and without the offset that projection would stand in the at-grade lane. Effective bounds shrink the grid
+    // on lane sides so buildings never encroach on the carriageway — on either side of the block.
+    const loX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
-      const lx = bx0 + 14 + i * 28 + (bxo - bx), lz = bz0 + 14 + j * 28 + (bzo - bz);
+      // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
+      // building's half-extent (up to 12.5 m) stays inside [lo, hi].
+      const cellW = (hiX - loX) / 2, cellD = (hiZ - loZ) / 2;
+      const lx = loX + cellW * (i + 0.5), lz = loZ + cellD * (j + 0.5);
       if (rng() < 0.12) { // plaza
         add(box(24, 0.1, 24, mat(0xd9d2c3), lx, 0.2, lz, false));
         tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
         continue;
       }
       const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
+      // Clamp building centre so the whole footprint stays within effective bounds
+      const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
+      const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
       let hasShops = false;
       const geo = makeBuildingGeo(w, h, d), wm = ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
       const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
-      mesh.position.set(lx, h / 2 + 0.15, lz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
-      solid(lx, lz, w / 2, d / 2, 'building');
+      mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
+      solid(clx, clz, w / 2, d / 2, 'building');
       // Ground-floor shops on the face that looks at the street: a downtown block becomes a high street.
-      const ox = lx - bx, oz = lz - bz;
+      const ox = clx - bx, oz = clz - bz;
       const alongX = Math.abs(ox) >= Math.abs(oz);
       const faceAxis = alongX ? Math.sign(ox || 1) : Math.sign(oz || 1);
       const faceLen = alongX ? d : w;
-      const faceAt = alongX ? lx + faceAxis * (w / 2) : lz + faceAxis * (d / 2);
+      const faceAt = alongX ? clx + faceAxis * (w / 2) : clz + faceAxis * (d / 2);
       const radial = alongX ? (faceAxis > 0 ? bx0 + CHUNK - faceAt : faceAt - bx0)
                             : (faceAxis > 0 ? bz0 + CHUNK - faceAt : faceAt - bz0);
       const clear = radial - PAVE_OUT;                                  // room between the wall and the paving
@@ -1862,8 +1883,8 @@ function generateChunk(cx, cz, defer = false) {
       for (let si = 0; si < nFace; si++) {
         const shop = SHOP_TYPES[Math.floor(rng() * SHOP_TYPES.length)];
         const off = (si + 0.5 - nFace / 2) * (faceLen / nFace);
-        const sx = alongX ? faceAt + faceAxis * 0.05 : lx + off;
-        const sz = alongX ? lz + off : faceAt + faceAxis * 0.05;
+        const sx = alongX ? faceAt + faceAxis * 0.05 : clx + off;
+        const sz = alongX ? clz + off : faceAt + faceAxis * 0.05;
         const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
         const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
         const gm = own(ch, mergeStandalone(kit.glass));
@@ -1876,8 +1897,8 @@ function generateChunk(cx, cz, defer = false) {
       }
       hasShops = true;
       // rooftop details
-      if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), lx, h + 2.65, lz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), lx, h + 8.6, lz)); }
-      else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), lx + r(-4, 4), h + 1.05, lz + r(-4, 4)));
+      if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
+      else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
       // reflective warning cones placed along the sidewalk line in front of it.
       if (h > 20 && rng() < 0.3 && !hasShops) {          // a shopfront already owns the pavement face
@@ -1890,7 +1911,7 @@ function generateChunk(cx, cz, defer = false) {
         const dx = sideS === 0 ? w / 2 + sd / 2 + 0.6 : sideS === 1 ? -(w / 2 + sd / 2 + 0.6) : 0;
         const dz = sideS === 2 ? d / 2 + sd / 2 + 0.6 : sideS === 3 ? -(d / 2 + sd / 2 + 0.6) : 0;
         const rotS = (sideS === 0 || sideS === 1) ? PI / 2 : 0;
-        const sx = lx + dx, sz = lz + dz;
+        const sx = clx + dx, sz = clz + dz;
         scaffold(sx, sz, rotS, o);
         const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
         const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
@@ -1902,12 +1923,12 @@ function generateChunk(cx, cz, defer = false) {
       }
     }
   } else if (type === 'suburb') {
-    // Effective block bounds: on at-grade sides the road encroaches by (roadEdge() - PAD_IN),
+    // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
     // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
-    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? (roadEdge() - PAD_IN) : 0);
-    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? (roadEdge() - PAD_IN) : 0);
-    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? (roadEdge() - PAD_IN) : 0);
-    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? (roadEdge() - PAD_IN) : 0);
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
     const padW = hi_x - lo_x, padD = hi_z - lo_z;
     const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
     padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
@@ -1935,10 +1956,10 @@ function generateChunk(cx, cz, defer = false) {
     for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + padOx, bz + side * (padD/2 - 0.4) + padOz, 0, 0.2);
   } else if (type === 'park') {
     // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
-    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? (roadEdge() - PAD_IN) : 0);
-    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? (roadEdge() - PAD_IN) : 0);
-    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? (roadEdge() - PAD_IN) : 0);
-    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? (roadEdge() - PAD_IN) : 0);
+    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
     const padW = hi_x - lo_x, padD = hi_z - lo_z;
     const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
     padBox(padW, padD, mat(0x78c46c), padOx, padOz);

@@ -128,9 +128,10 @@ export function civAI(c, dt) {
   // Plaza avoidance: civilian cars steer around the roundabout island instead of driving through it.
   // The plaza (radius 5 m) sits at the junction centre, so a car driving straight through would hit it.
   // Cars curve outward — away from the road centre — to pass between the island and the kerb (8 m out).
-  // The swerve is proportional to how far the car's lane is from the kerb: inner-lane cars (off=2.5)
-  // swerve more than outer-lane cars (off=5.0) which are already near the edge.
-  // Police cars are not subject to this — they drive through in pursuit.
+  // The swerve target is set so the car's centre reaches 6.5 m from the junction centre at the closest
+  // point (5 m island + ~1 m car half-width + 0.5 m margin). The curve spans 50 m (25 m each side of
+  // the junction) so it reads as a natural arc, not a sudden swerve. Police cars are not subject to
+  // this — they drive through in pursuit.
   // Must run BEFORE the desired heading is computed from _lp, so the offset takes effect.
   {
     // Find the next junction ahead (same pattern as the traffic-light check below): the nearest junction
@@ -138,18 +139,25 @@ export function civAI(c, dt) {
     let nextAlong = Math.round(along / CHUNK) * CHUNK;
     if (c.dir > 0 && nextAlong <= along + 0.01) nextAlong += CHUNK;
     if (c.dir < 0 && nextAlong >= along - 0.01) nextAlong -= CHUNK;
-    const distToJunction = (nextAlong - along) * c.dir;
-    if (distToJunction > 0 && distToJunction < 35) {
+    const distToJunction = (nextAlong - along) * c.dir;          // >0: junction is ahead; <0: just passed
+    if (distToJunction > -25 && distToJunction < 50) {            // active from 50 m before to 25 m past
       const jx = c.axis === 'z' ? c.road : nextAlong, jz = c.axis === 'z' ? nextAlong : c.road;
       const pz = plazaIn(jx, jz);
       if (pz) {
-        const proximity = 1 - distToJunction / 35;
-        // How far the car's centre must move outward to clear the island (5 m radius + ~1 m car half-width
-        // + 0.5 m margin = 6.5 m from the junction centre). Inner-lane cars need more swerve.
-        const needOut = Math.max(0, 6.5 - c.off);
-        const swerve = needOut * proximity;
-        // Outward direction: for axis 'z' the car sits at road - dir*off, so outward is -dir in x.
-        // For axis 'x' the car sits at road + dir*off, so outward is +dir in z.
+        // Bell curve: 0 at the edges of the range, 1 at the junction centre.
+        const range = distToJunction < 0 ? 25 : 50;
+        const proximity = 1 - Math.abs(distToJunction) / range;
+        // The car's centre must reach 6.5 m from the junction centre to clear the island
+        // (5 m radius + ~1 m car half-width + 0.5 m margin). The swerve is the ADDITIONAL
+        // outward offset on top of the car's current lane position, so the lane point
+        // ends up at (c.off + swerve) from the road centre. A speed-dependent multiplier
+        // compensates for the steering lag: at higher speeds the look-ahead is further
+        // out, so the car turns more gently and needs a bigger offset to reach the same
+        // lateral position by the junction.
+        const targetOut = 6.5;                                    // car centre 6.5 m from junction centre
+        const needOut = Math.max(0, targetOut - c.off);           // how much further out the car must go
+        const speedComp = 1 + Math.max(0, sp - 18) * 0.035;       // +3.5% per m/s above 18
+        const swerve = needOut * proximity * 1.6 * speedComp;
         if (c.axis === 'z') { _lp.x -= c.dir * swerve; }
         else { _lp.z += c.dir * swerve; }
       }
@@ -178,9 +186,9 @@ export function civAI(c, dt) {
     steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y) ? -1 : 1;
   }
 
-  // Plaza proximity slow-down: if the car is within 20 m of a plaza it eases off the throttle for the curve.
+  // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.
   {
-    const pzNear = plazaIn(c.x + s * 12, c.z + co * 12);
+    const pzNear = plazaIn(c.x + s * 20, c.z + co * 20);
     if (pzNear) target = Math.min(target, c.cruise * 0.7);
   }
 
