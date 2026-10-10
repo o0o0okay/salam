@@ -101,6 +101,10 @@ export function collideSolids(c) {
       const vnF = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards the schoolyard fence
       if (vnF > FENCE_BREAK_V / Math.sqrt(c.mass)) { breakFence(s.fencePiece, c, vnF, hit.nx, hit.nz); continue; }
     }
+    if (s.playPiece && !s.playPiece.broken) {
+      const vnE = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards a hoop, goal, ramp or play piece
+      if (vnE > s.playPiece.brk / Math.sqrt(c.mass)) { breakPlayPiece(s.playPiece, c, vnE, hit.nx, hit.nz); continue; }
+    }
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
     const vn = c.vx * nx + c.vz * nz;
@@ -358,6 +362,20 @@ function tearFencePanel(pc, c, nx, nz) {
   m.position.y = flyingFloor(m.rotation, probe);               // seated on its own floor, so it does not pop upward
   flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(2, 5) + rnd(-1.5, 1.5), vy: rnd(4, 8),
     vz: c.vz * 0.4 + nz * rnd(2, 5) + rnd(-1.5, 1.5), sx: rnd(-7, 7), sz: rnd(-7, 7), life: rnd(1.6, 2.4), probe });
+}
+// An element of a sports or play ground (a hoop, a goal, a ramp, a rail or a piece of play equipment) takes a hard
+// hit: it comes off its base as one piece, tumbles away, and the car loses a little speed. Light things give way
+// easily, the heavy ones (the tower, the swing frame, a concrete ramp) need a proper hit.
+function breakPlayPiece(pc, c, vn, nx, nz) {
+  pc.broken = true; pc.solid.hx = pc.solid.hz = -999;
+  const m = pc.mesh; if (!m) return;
+  scene.add(m);                                                 // off the chunk group, so it can tumble on its own
+  flying.push({ mesh: m, vx: c.vx * 0.45 + nx * rnd(2.5, 5), vy: rnd(4, 8), vz: c.vz * 0.45 + nz * rnd(2.5, 5),
+    sx: rnd(-7, 7), sz: rnd(-7, 7), life: 2.2 });
+  debris(pc.x, 1.2, pc.z, pc.color, 8); sparks(pc.x, 1.2, pc.z, 6, nx, nz, 7);
+  const f = 1 - 0.2 / c.mass; c.vx *= f; c.vz *= f;
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.2); sfx.crash(vn * 0.6); hurtPlayerEnv(Math.max(0, vn - pc.brk) * 0.3); }
+  else hurtCarEnv(c, Math.max(0, vn - pc.brk) * 0.5);
 }
 function smashPlaza(pr) {
   // Plaza features smash into small debris (stone, bronze, water, wood, leaf) rather than flying away whole.

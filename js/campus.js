@@ -945,7 +945,8 @@ export const SPORT_DEFS = {
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
 export function buildSportMesh(kind, bx, bz, rng) {
   const S = SPORT_DEFS[kind];
-  const g = new THREE.Group(), solids = [];
+  const root = new THREE.Group(), solids = [];
+  let g = root;                                  // where geometry goes; a breakable piece swaps in its own group
   const M = {
     line: mat(0xf4f4f0), white: mat(0xffffff), fence: mat(0x7d8790), metal: mat(0x9aa3ab), dark: mat(0x3a3f46),
     orange: mat(0xf07a1e), dirt: mat(0xb88a5a), sand: mat(0xe8d49a), wood: mat(0x8a5a32), concrete: mat(0xb7bcc2),
@@ -971,6 +972,18 @@ export function buildSportMesh(kind, bx, bz, rng) {
         hx: alongX ? segLen / 2 : 0.12, hz: alongX ? 0.12 : segLen / 2, alongX, segLen, mesh: null, broken: false });
     }
   };
+  // A breakable element (a hoop, a goal, a ramp, a piece of play equipment): its geometry goes into its own group, so
+  // it can come off its base as one piece, and it is registered with a solid that carries the back-reference.
+  // x, z are block-local; brk is the speed (divided by sqrt(mass)) at which a hit takes it down; obox is an optional
+  // turned footprint for a solid that is not axis-aligned (a ramp).
+  const breakable = [];
+  const piece = (spec, fn) => {
+    const outer = g; g = new THREE.Group();
+    fn();
+    breakable.push({ group: g, x: bx + spec.x, z: bz + spec.z, hx: spec.hx, hz: spec.hz, kind: spec.kind, brk: spec.brk,
+      color: spec.color, obox: spec.obox || null, mesh: null, broken: false });
+    g = outer;
+  };
   const [PW, PD] = S.pad;
 
   if (kind === 'hoops') {
@@ -979,10 +992,12 @@ export function buildSportMesh(kind, bx, bz, rng) {
     for (const s of [-1, 1]) { B(w, 0.02, 0.12, M.line, 0, 0.03, s * d / 2); B(0.12, 0.02, d, M.line, s * w / 2, 0.03, 0); }
     B(0.12, 0.02, d, M.line, 0, 0.03, 0);
     for (const s of [-1, 1]) {
-      const hx = s * (w / 2 + 0.9);
-      CYL(0.12, 0.12, 3.4, 8, M.metal, hx, 1.7, 0, true); solid(hx, 0, 0.2, 0.2, 'hoop');
-      B(0.12, 1.1, 1.7, M.white, s * (w / 2 + 0.45), 3.5, 0);
-      CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
+      const hx = s * (w / 2 + 0.9);                                    // a hoop: pole, backboard and ring
+      piece({ x: hx, z: 0, hx: 0.2, hz: 0.2, kind: 'hoop', brk: 5, color: 0x9aa3ab }, () => {
+        CYL(0.12, 0.12, 3.4, 8, M.metal, hx, 1.7, 0, true);
+        B(0.12, 1.1, 1.7, M.white, s * (w / 2 + 0.45), 3.5, 0);
+        CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
+      });
     }
     fence(w + 5.6, 2.6, 0, d / 2 + 1.2, 'x'); fence(w + 5.6, 2.6, 0, -d / 2 - 1.2, 'x');
     fence(d + 2.4, 2.6, w / 2 + 2.0, 0, 'z'); fence(d + 2.4, 2.6, -w / 2 - 2.0, 0, 'z');
@@ -992,18 +1007,28 @@ export function buildSportMesh(kind, bx, bz, rng) {
     for (const s of [-1, 1]) { B(w, 0.02, 0.14, M.line, 0, 0.03, s * d / 2); B(0.14, 0.02, d, M.line, s * w / 2, 0.03, 0); }
     B(0.14, 0.02, d, M.line, 0, 0.03, 0);
     for (const s of [-1, 1]) {
-      for (const zz of [-3.6, 3.6]) { CYL(0.06, 0.06, 2.1, 6, M.white, s * w / 2, 1.05, zz); solid(s * w / 2, zz, 0.15, 0.15, 'goal'); }
-      B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
+      // a goal: two posts and the bar between them, one breakable piece
+      piece({ x: s * w / 2, z: 0, hx: 0.2, hz: 3.7, kind: 'goal', brk: 5, color: 0xffffff }, () => {
+        for (const zz of [-3.6, 3.6]) CYL(0.06, 0.06, 2.1, 6, M.white, s * w / 2, 1.05, zz);
+        B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
+      });
     }
     fence(w + 2.8, 3.0, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 3.0, 0, -d / 2 - 1.0, 'x');
     fence(d + 2.0, 3.0, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 3.0, -w / 2 - 1.0, 0, 'z');
   } else if (kind === 'skatepark') {
     const w = 30, d = 22;
     for (const [rx, rz, ry] of [[-7, -3, 0], [6, 4, Math.PI / 2], [0, 7, Math.PI]]) {
-      const r = box(4.2, 0.9, 6.0, M.concrete, rx, Y + 0.45, rz); r.rotation.x = 0.26; r.rotation.y = ry; g.add(r);
+      // a concrete ramp: its footprint is turned by ry, so its solid is an oriented box
+      const co = Math.cos(ry), si = Math.sin(ry);
+      piece({ x: rx, z: rz, hx: Math.abs(co) * 2.1 + Math.abs(si) * 3.0, hz: Math.abs(si) * 2.1 + Math.abs(co) * 3.0,
+        kind: 'ramp', brk: 9, color: 0xb7bcc2, obox: { ux: co, uz: -si, vx: si, vz: co, e1: 2.1, e2: 3.0 } }, () => {
+        const r = box(4.2, 0.9, 6.0, M.concrete, rx, Y + 0.45, rz); r.rotation.x = 0.26; r.rotation.y = ry; g.add(r);
+      });
     }
     for (const [rx, rz] of [[-2, -6], [9, -2]]) {
-      const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
+      piece({ x: rx, z: rz, hx: 1.7, hz: 0.1, kind: 'rail', brk: 6, color: 0x9aa3ab }, () => {
+        const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
+      });
     }
     fence(w + 2.8, 2.6, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 2.6, 0, -d / 2 - 1.0, 'x');
     fence(d + 2.0, 2.6, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 2.6, -w / 2 - 1.0, 0, 'z');
@@ -1016,49 +1041,54 @@ export function buildSportMesh(kind, bx, bz, rng) {
     fence(46, 2.4, 0, -23, 'x'); fence(46, 2.4, 0, 23, 'x');
     fence(46, 2.4, -23, 0, 'z'); fence(46, 2.4, 23, 0, 'z');
   } else if (kind === 'playground') {
-    // A children's play centre in the style of the reference pictures: a tower with a pitched roof and a platform,
-    // a yellow and a red slide down from it, a swing frame with two seats, a seesaw, a climbing arch and a sandpit.
-    // S() is a box that can be tilted about z (the slides and the seesaw plank); its height is measured from the ground.
+    // A children's play centre in the style of the reference pictures. Every piece of equipment is a breakable
+    // piece. S() is a box that can be tilted about z (the slides and the seesaw plank); its height is from the ground.
     const S = (w, h, d, m, x, y, z, rz = 0) => { const b = box(w, h, d, m, x, Y + y, z, false); b.rotation.z = rz; g.add(b); };
     const TW = { x: -2, z: -4 };                                       // tower centre
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 3.4, 0.14, M.wood, TW.x + sx * 2, 1.7, TW.z + sz * 2, false);
-    B(4.4, 0.14, 4.4, M.wood, TW.x, 2.0, TW.z, false);                 // platform deck
-    const roof = cyl(0.01, 3.0, 1.0, 4, M.blue, TW.x, Y + 3.9, TW.z, false); roof.rotation.y = PI / 4; g.add(roof);
-    B(0.1, 1.2, 0.1, M.yellow, TW.x, 4.5, TW.z, false);                // little flag pole on the roof
-    solid(TW.x, TW.z, 2.2, 2.2, 'playground');                         // the tower itself stops a car
-    for (const k of [0.4, 0.9, 1.4, 1.9]) B(1.2, 0.08, 0.12, M.yellow, TW.x, k, TW.z + 2.3, false);   // ladder rungs
-    for (const dx of [-0.6, 0.6]) B(0.08, 2.0, 0.08, M.metal, TW.x + dx, 1.0, TW.z + 2.3, false);     // ladder rails
-    // yellow slide to the east, red slide to the west: each runs from the deck (y 2.0) down to the ground (y 0.3)
-    S(5.3, 0.12, 0.8, M.yellow, 2.7, 1.15, TW.z, -0.33);
-    S(5.3, 0.12, 0.8, M.red, -6.7, 1.15, TW.z, 0.33);
+    piece({ x: TW.x, z: TW.z, hx: 2.2, hz: 2.2, kind: 'playground', brk: 8, color: 0x8a5a32 }, () => {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 3.4, 0.14, M.wood, TW.x + sx * 2, 1.7, TW.z + sz * 2, false);
+      B(4.4, 0.14, 4.4, M.wood, TW.x, 2.0, TW.z, false);               // platform deck
+      const roof = cyl(0.01, 3.0, 1.0, 4, M.blue, TW.x, Y + 3.9, TW.z, false); roof.rotation.y = PI / 4; g.add(roof);
+      B(0.1, 1.2, 0.1, M.yellow, TW.x, 4.5, TW.z, false);              // little flag pole on the roof
+      for (const k of [0.4, 0.9, 1.4, 1.9]) B(1.2, 0.08, 0.12, M.yellow, TW.x, k, TW.z + 2.3, false);   // ladder rungs
+      for (const dx of [-0.6, 0.6]) B(0.08, 2.0, 0.08, M.metal, TW.x + dx, 1.0, TW.z + 2.3, false);     // ladder rails
+      // yellow slide to the east, red slide to the west: each runs from the deck (y 2.0) down to the ground (y 0.3)
+      S(5.3, 0.12, 0.8, M.yellow, 2.7, 1.15, TW.z, -0.33);
+      S(5.3, 0.12, 0.8, M.red, -6.7, 1.15, TW.z, 0.33);
+    });
     // swing frame: a top bar on two posts at each end, two seats hanging from chains
     const SW = { x: -7, z: 6 };
-    B(6.4, 0.12, 0.12, M.metal, SW.x, 2.6, SW.z, false);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.1, 2.6, 0.1, M.metal, SW.x + sx * 3.2, 1.3, SW.z + sz * 0.6, false);
-    for (const sx of [-1, 1]) {
-      for (const dx of [-0.3, 0.3]) B(0.03, 1.4, 0.03, M.dark, SW.x + sx * 1.4 + dx, 1.9, SW.z, false);
-      B(0.9, 0.08, 0.4, M.wood, SW.x + sx * 1.4, 1.2, SW.z, false);
-    }
-    solid(SW.x, SW.z, 3.4, 0.7, 'playground');
-    // seesaw: a pivot block and a tilted plank with a handle on each side
-    B(0.6, 0.5, 0.6, M.blue, 3, 0.25, 6, false);
-    S(4.0, 0.12, 0.6, M.yellow, 3, 0.6, 6, 0.1);
+    piece({ x: SW.x, z: SW.z, hx: 3.4, hz: 0.7, kind: 'playground', brk: 8, color: 0x9aa3ab }, () => {
+      B(6.4, 0.12, 0.12, M.metal, SW.x, 2.6, SW.z, false);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.1, 2.6, 0.1, M.metal, SW.x + sx * 3.2, 1.3, SW.z + sz * 0.6, false);
+      for (const sx of [-1, 1]) {
+        for (const dx of [-0.3, 0.3]) B(0.03, 1.4, 0.03, M.dark, SW.x + sx * 1.4 + dx, 1.9, SW.z, false);
+        B(0.9, 0.08, 0.4, M.wood, SW.x + sx * 1.4, 1.2, SW.z, false);
+      }
+    });
+    // seesaw: a pivot block and a tilted plank
+    piece({ x: 3, z: 6, hx: 2.0, hz: 0.4, kind: 'playground', brk: 6, color: 0xf2c230 }, () => {
+      B(0.6, 0.5, 0.6, M.blue, 3, 0.25, 6, false);
+      S(4.0, 0.12, 0.6, M.yellow, 3, 0.6, 6, 0.1);
+    });
     // climbing arch: a semicircle of red tube in the x-y plane (two arches, one each side), with yellow rungs across
     const AR = { x: 10, z: -6, R: 1.6, N: 8 };
-    for (const dz of [-0.4, 0.4]) for (let i = 0; i < AR.N; i++) {
-      const th = Math.PI * (i + 0.5) / AR.N;
-      S(0.7, 0.14, 0.14, M.red, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z + dz, th + Math.PI / 2);
-    }
-    for (let k = 1; k < AR.N; k++) {
-      const th = Math.PI * k / AR.N;
-      B(0.1, 0.1, 0.9, M.yellow, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z, false);
-    }
-    // sandpit with a wooden border, and grass in the corners of the ground
+    piece({ x: AR.x, z: AR.z, hx: AR.R + 0.35, hz: 0.5, kind: 'playground', brk: 6, color: 0xd8452f }, () => {
+      for (const dz of [-0.4, 0.4]) for (let i = 0; i < AR.N; i++) {
+        const th = Math.PI * (i + 0.5) / AR.N;
+        S(0.7, 0.14, 0.14, M.red, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z + dz, th + Math.PI / 2);
+      }
+      for (let k = 1; k < AR.N; k++) {
+        const th = Math.PI * k / AR.N;
+        B(0.1, 0.1, 0.9, M.yellow, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z, false);
+      }
+    });
+    // sandpit with a wooden border, and grass in the corners of the ground (these stay baked into the block)
     B(6.4, 0.06, 4.4, M.wood, 10, 0.03, 8, false);
     B(6.0, 0.08, 4.0, M.sand, 10, 0.04, 8, false);
     for (const [gx, gz] of [[14.5, 11.5], [-14.5, 11.5], [-14.5, -11.5]]) B(3, 0.05, 3, M.green, gx, 0.02, gz, false);
     fence(34, 1.4, 0, 14, 'x'); fence(34, 1.4, 0, -14, 'x');
     fence(28, 1.4, 17, 0, 'z'); fence(28, 1.4, -17, 0, 'z');
   }
-  return { group: g, solids, pad: [PW, PD], fencePieces };
+  return { group: root, solids, pad: [PW, PD], fencePieces, breakable };
 }

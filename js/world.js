@@ -1442,6 +1442,19 @@ function generateChunk(cx, cz, defer = false) {
       pc.solid = sEntry;
       ch.fencePanels.push(pc);
     }
+    // The elements of the ground (hoops, goals, ramps, rails and the play equipment) are breakable pieces: each is its
+    // own mesh and solid, and a hard hit knocks it off its base (breakPlayPiece in js/collisions.js).
+    for (const pc of K.breakable) {
+      const pm = own(ch, mergeStandalone(pc.group));
+      pm.position.set(bxo, 0, bzo);
+      group.add(pm);
+      pc.mesh = pm;
+      solid(pc.x, pc.z, pc.hx, pc.hz, pc.kind);
+      const sEntry = ch.solids[ch.solids.length - 1];
+      if (pc.obox) sEntry.box = { x: pc.x, z: pc.z, ...pc.obox };
+      sEntry.playPiece = pc;
+      pc.solid = sEntry;
+    }
     prop('bench', bxo + S.pad[0] / 2 - 4, bzo - S.pad[1] / 2 + 3, 0, lotSurfaceY + 0.15);
   } else if (type === 'school') {
     // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
