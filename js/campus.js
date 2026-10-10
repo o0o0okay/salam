@@ -846,3 +846,87 @@ export function buildBankMesh(bx, bz, rng) {
   }
   return { group: g, solids };
 }
+
+// ---- Standalone shops and services: grocery, fast food, pizza, gym, car showroom, pharmacy ----
+// Each one is a single building on its own apron, with a lettered board over the door. The sizes and colours are
+// the only things that differ, plus a few extras (a pole sign, a terrace, a second storey, display cars, a cross).
+export const STORE_DEFS = {
+  grocery:  { W: 30, D: 22, H: 6.8, fascia: 0xe9ebe6, trim: 0x2e8b57, glass: 0x1e3a4c, board: 0x2e8b57, ink: 0xffffff, text: 'GROCERY', awn: 0x2e8b57, pad: [48, 38] },
+  fastfood: { W: 14, D: 12, H: 5.2, fascia: 0xd7342a, trim: 0xffc72c, glass: 0x253b4a, board: 0xd7342a, ink: 0xffc72c, text: 'FAST FOOD', awn: 0xffc72c, pole: true, pad: [36, 34] },
+  pizza:    { W: 16, D: 14, H: 5.6, fascia: 0xf4f1e8, trim: 0xc8322b, glass: 0x2a3c46, board: 0xc8322b, ink: 0xf4f1e8, text: 'PIZZA', awn: 0xc8322b, terrace: true, pad: [40, 40] },
+  gym:      { W: 22, D: 18, H: 8.4, fascia: 0x2b2f36, trim: 0xd9dde2, glass: 0x1d2b38, board: 0x14171c, ink: 0xff6a1a, text: 'GYM', awn: null, twoStorey: true, pad: [40, 36] },
+  showroom: { W: 34, D: 22, H: 7.2, fascia: 0xeef0f2, trim: 0x1c2a3a, glass: 0x2f4f66, board: 0x1c2a3a, ink: 0xffffff, text: 'AUTO', awn: null, glassFront: true, flags: true, pad: [56, 46] },
+  pharmacy: { W: 14, D: 12, H: 4.9, fascia: 0xf5f7f6, trim: 0x1c7a4a, glass: 0x2b4a40, board: 0x1c7a4a, ink: 0xffffff, text: 'PHARMACY', awn: 0x1c7a4a, cross: true, pad: [36, 34] },
+};
+export const STORE_KINDS = Object.keys(STORE_DEFS);
+export function buildStoreMesh(kind, bx, bz, rng) {
+  const S = STORE_DEFS[kind];
+  const g = new THREE.Group(), solids = [], bays = [];
+  const M = {
+    fascia: mat(S.fascia), trim: mat(S.trim), glass: mat(S.glass), board: mat(S.board), ink: mat(S.ink),
+    awn: S.awn == null ? null : mat(S.awn),
+  };
+  const Y = 0.25;
+  const B = (w, h, d, m, x, y, z, cast = true) => g.add(box(w, h, d, m, x, Y + y, z, cast));
+  const CYL = (rt, rb, h, seg, m, x, y, z, cast = false) => g.add(cyl(rt, rb, h, seg, m, x, Y + y, z, cast));
+  const { W, D, H } = S, fz = D / 2;
+
+  // body, plinth and roof cap
+  B(W, H, D, M.fascia, 0, H / 2, 0);
+  B(W + 0.6, 0.5, D + 0.6, M.trim, 0, 0.25, 0);
+  B(W + 0.8, 0.5, D + 0.8, M.trim, 0, H + 0.25, 0);
+  solids.push({ x: bx, z: bz, hx: W / 2 + 0.3, hz: D / 2 + 0.3 });
+
+  // the front: a full glazed frontage, a glazed band with a door, or a two-storey window row
+  if (S.glassFront) {
+    B(W - 4, H - 2.4, 0.15, M.glass, 0, 1.2 + (H - 2.4) / 2, fz + 0.06, false);
+    for (let i = -2; i <= 2; i++) B(0.18, H - 2.4, 0.2, M.trim, i * (W - 4) / 4, 1.2 + (H - 2.4) / 2, fz + 0.1, false);
+  } else if (S.twoStorey) {
+    B(W - 4, 2.6, 0.15, M.glass, 0, 1.6, fz + 0.06, false);
+    for (let i = 0; i < 4; i++) B(2.2, 2.2, 0.15, M.glass, -W / 2 + 3.5 + i * (W - 7) / 3, H - 3.2, fz + 0.06, false);
+  } else {
+    B(W - 4, 2.6, 0.15, M.glass, 0, 1.6, fz + 0.06, false);
+  }
+  B(2.0, 2.8, 0.2, M.trim, 0, 1.9, fz + 0.1, false);
+  B(1.6, 2.4, 0.12, M.glass, 0, 1.9, fz + 0.2, false);
+
+  // lettered board over the front
+  const boardY = H - 1.0;
+  B(Math.min(W - 3, 12), 1.7, 0.3, M.board, 0, boardY, fz + 0.15, false);
+  const sign = textBlocks(S.text, M.ink, 1.1, 0.2, 0.3);
+  sign.position.set(0, Y + boardY, fz + 0.36); g.add(sign);
+  if (M.awn) B(W - 2, 0.35, 1.8, M.awn, 0, 3.4, fz + 0.9, false);
+
+  if (S.pole) {                                                 // fast food pole sign by the kerb corner
+    const px = W / 2 - 2.5, pz = fz - 1.5;
+    CYL(0.14, 0.14, 6.2, 8, M.trim, px, 3.1, pz);
+    B(2.6, 2.6, 0.4, M.board, px, 6.6, pz, false);
+    const disc = cyl(1.0, 1.0, 0.25, 16, M.ink, px, Y + 6.6, pz + 0.3, false);
+    disc.rotation.x = PI / 2; g.add(disc);
+  }
+  if (S.terrace) {                                              // pizza terrace: three tables with parasols
+    for (const tx of [-5, 0, 5]) {
+      B(1.4, 0.1, 1.4, M.trim, tx, 0.85, fz + 2.8, false);
+      CYL(0.06, 0.06, 0.8, 6, mat(0x2c3138), tx, 0.45, fz + 2.8);
+    }
+  }
+  if (kind === 'gym') {                                         // roof plant: two air handling units and a sign band
+    B(2.4, 1.4, 2.0, M.trim, -5, H + 1.2, -2);
+    B(2.4, 1.4, 2.0, M.trim, 4, H + 1.2, 2);
+  }
+  if (S.flags) {                                                // car showroom: flags on poles, four cars on the apron
+    for (const fx of [-W / 2 + 3, 0, W / 2 - 3]) {
+      CYL(0.07, 0.07, 6.5, 6, M.trim, fx, 3.25, fz + 1.5);
+      B(1.6, 1.0, 0.1, M.board, fx + 0.8, 5.6, fz + 1.5, false);
+    }
+    for (const bxo2 of [-11, -3.7, 3.7, 11]) bays.push({ x: bx + bxo2, z: bz + fz + 6, rotY: 0, hx: 1.25, hz: 2.45, y: Y - 0.05 });
+  }
+  if (S.cross) {                                                // pharmacy: green cross over the front
+    B(0.5, 2.4, 0.3, M.board, 0, H + 1.6, fz + 0.2, false);
+    B(2.4, 0.5, 0.3, M.board, 0, H + 1.6, fz + 0.2, false);
+  }
+  if (kind === 'grocery') {                                     // a trolley corral by the entrance
+    for (let i = 0; i < 3; i++) B(0.8, 1.0, 0.8, M.trim, W / 2 - 3 + i * 0.9, 0.5, fz + 2.5);
+  }
+  return { group: g, solids, bays };
+}

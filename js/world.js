@@ -41,7 +41,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
-import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, FUEL_BRANDS, textBlocks } from './campus.js';
+import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, FUEL_BRANDS, textBlocks } from './campus.js';
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
@@ -268,7 +268,7 @@ function pickSidewalkStyle(type, rng) {
   if (type === 'fuel') return 'panel';                                    // a forecourt is plain concrete too
   if (type === 'shops') return rng() < 0.5 ? 'brick' : 'slab';           // a shopping street gets brick or stone
   if (type === 'school') return rng() < 0.55 ? 'slab' : 'panel';      // a school frontage is plain paved stone
-  if (type === 'bank') return 'slab';                                   // a bank forecourt is pale stone, like its steps
+  if (type === 'bank' || STORE_KINDS.includes(type)) return 'slab';     // a bank or shop forecourt is pale stone, like its steps
   return rng() < 0.5 ? 'slab' : 'panel';                                  // parks mix the two paved styles
 }
 // Empty box lists for one chunk's sidewalk ring. Each entry is then merged into a single mesh per material.
@@ -971,7 +971,7 @@ function generateChunk(cx, cz, defer = false) {
   const laneBlock = onLaneSide;
   // One hospital is pinned beside the spawn block (front-left of the start) so it is easy to find; the rest of
   // the city grows a few more at random, never on the two guaranteed shopping centres.
-  const type = nearSpawn ? 'commercial'
+  let type = nearSpawn ? 'commercial'
     : (cx === -1 && cz === 0) ? 'hospital'
     : (cx === 0 && cz === -1) ? 'fire'                          // the block the player starts beside
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
@@ -982,6 +982,11 @@ function generateChunk(cx, cz, defer = false) {
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
     : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'bank' : t < 0.965 ? 'hospital'
     : t < 0.985 ? 'school' : 'industrial';
+  // Standalone shops and services (grocery, fast food, pizza, gym, car showroom, pharmacy) take about one commercial or
+  // suburban block in ten. The roll comes from the block's own hash, so it is the same every time the block is built.
+  const storeRoll = hash2(cx, cz);
+  if (!laneBlock && !nearSpawn && (type === 'commercial' || type === 'suburb') && (storeRoll & 0xFF) < 26)
+    type = STORE_KINDS[(storeRoll >>> 8) % STORE_KINDS.length];
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
   const sw = sidewalkPieces(cx, cz, swStyle);
@@ -1399,6 +1404,18 @@ function generateChunk(cx, cz, defer = false) {
     for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
     for (const sx of [-1, 1]) tree(bxo + sx * 21, bzo + 14, lotSurfaceY + 0.02);
     prop('bench', bxo - 9, bzo + 16, 0, lotSurfaceY + 0.15);
+  } else if (STORE_KINDS.includes(type)) {
+    // A standalone shop or service building on its own apron. Display cars stand in the showroom bays, which
+    // are destructible like any parked car.
+    const lotSurfaceY = 0.25, S = STORE_DEFS[type];
+    padBox(S.pad[0], S.pad[1], mat(0xb9bec5), bxo - bx, bzo - bz);
+    const K = buildStoreMesh(type, bxo, bzo, rng);
+    K.group.position.set(bxo, 0, bzo);
+    bake(ch, K.group);
+    for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+    for (const b of K.bays) parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+    for (const sx of [-1, 1]) tree(bxo + sx * (S.pad[0] / 2 - 3), bzo + S.pad[1] / 2 - 4, lotSurfaceY + 0.02);
+    prop('bench', bxo - S.pad[0] / 2 + 4, bzo + S.pad[1] / 2 - 4, 0, lotSurfaceY + 0.15);
   } else if (type === 'school') {
     // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
     // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.
