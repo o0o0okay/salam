@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, nodeAt, besideFlyover, plazaAt } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, flyoverFlats, besideFlyover, plazaAt } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -280,7 +280,7 @@ function stripStops(ix, iz, cx, cz, si) {
   const lane = atGradeSide(cx, cz, si);
   const onLaneRoad = (ix === 0 && (atGradeSide(cx, cz, 0) || atGradeSide(cx, cz, 1)))
     || (iz === 0 && (atGradeSide(cx, cz, 2) || atGradeSide(cx, cz, 3)));
-  const stop = (!lane && (nodeAt(ix, iz) || onLaneRoad)) ? roadEdge() : PAVE_IN;
+  const stop = (!lane && (bridgeAt(ix, iz) || onLaneRoad)) ? roadEdge() : PAVE_IN;
   return { stop, cut: besideFlyover(ix, iz) ? FLY.chamfer : 0 };
 }
 function sidewalkPieces(cx, cz, style) {
@@ -748,6 +748,30 @@ function generateChunk(cx, cz, defer = false) {
   // half the length on their side of the junction — so no block needs to know what its neighbours are doing. A
   // block can front two of them, hence the loop.
   const fly = ch.flyover = ch.flyover || { pieces: [] };
+  // The flat span of each bridge over this block (see flyoverFlats): the deck, its wearing course, its parapets,
+  // copings and centre-line dashes. Each block lays its own stretch on its own half of the carriageway.
+  for (const F of flyoverFlats(cx, cz)) {
+    const W = FLY.halfW, alongX = F.axis === 'x', WEAR = 0.08, PH = 1.0;
+    const conc = mat(0xb4b8bc), coping = mat(0xd3d0c8), asphalt = mat(0x3b3f4a), paint = mat(0xffcf2e);
+    const at = (u, y, v) => alongX ? [F.node + u, y, F.road + v] : [F.road + v, y, F.node + u];
+    const P = (w, h, d, m, u, y, v, role) => {
+      const p = at(u, y, v);
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      add(b);
+      fly.pieces.push({ role, axis: F.axis, road: F.road, node: F.node, su: u < 0 ? -1 : 1, sv: F.sv, u, y, v, w, h, d, rot: 0 });
+    };
+    const a0 = F.a0 - F.node, a1 = F.a1 - F.node, uc = (a0 + a1) / 2, Lu = a1 - a0;
+    P(W, FLY.slab, Lu, conc, uc, FLY.deckH - WEAR - FLY.slab / 2, F.sv * W / 2, 'deck');
+    P(W, WEAR, Lu, asphalt, uc, FLY.deckH - WEAR / 2, F.sv * W / 2, 'deck-wear');
+    const pV = F.sv * (W - FLY.parapet / 2), cV = F.sv * (W - FLY.parapet + 0.31);
+    P(FLY.parapet, PH, Lu, conc, uc, FLY.deckH + PH / 2, pV, 'parapet-deck');
+    P(0.62, 0.12, Lu, coping, uc, FLY.deckH + PH + 0.06, cV, 'coping-deck');
+    // Centre-line dashes every 6.25 m, on both sides of the start junction (the same spacing the ramps use).
+    for (let k = 0; k < 30; k++) for (const sg of [-1, 1]) {
+      const t = sg * (1.5 + 6.25 * k);
+      if (t >= a0 && t <= a1) P(0.39, 0.05, 3.4, paint, t, FLY.deckH + 0.03, F.sv * 0.195, 'dash');
+    }
+  }
   for (const Q of flyoverQuadrants(cx, cz)) {
     const W = FLY.halfW, th = Math.atan2(FLY.deckH, RAMP_RUN);
     const sinT = Math.sin(th), cosT = Math.cos(th), slopeLen = Math.hypot(RAMP_RUN, FLY.deckH);
@@ -783,9 +807,6 @@ function generateChunk(cx, cz, defer = false) {
     // meet exactly over the middle of the crossing street and there is no gap to fall through. There is no pier
     // in the middle either: the 24 m span sits on the two embankments, so the crossing street keeps its whole
     // carriageway clear underneath.
-    const halfDeck = FLY.deckHalf;
-    P(W, FLY.slab, halfDeck, conc, Q.su * halfDeck / 2, FLY.deckH - WEAR - FLY.slab / 2, Q.sv * W / 2, false, 'deck');
-    P(W, WEAR, halfDeck, asphalt, Q.su * halfDeck / 2, FLY.deckH - WEAR / 2, Q.sv * W / 2, false, 'deck-wear');
     // The height of the parapet above the driving surface. The parapet stands on the surface (so its underside
     // is at 0 and its top at PH) and the coping caps it: its underside is at PH and its top at PH + 0.12. The
     // coping's inboard face is flush with the parapet's, so the lane keeps its whole 15.1 m of clear width and
@@ -793,13 +814,10 @@ function generateChunk(cx, cz, defer = false) {
     // top of the parapet a constant height above the asphalt all the way up.
     const PH = 1.0;
     const pV = Q.sv * (W - FLY.parapet / 2), cV = Q.sv * (W - FLY.parapet + 0.31);
-    P(FLY.parapet, PH, halfDeck, conc, Q.su * halfDeck / 2, FLY.deckH + PH / 2, pV, false, 'parapet-deck');
-    P(0.62, 0.12, halfDeck, coping, Q.su * halfDeck / 2, FLY.deckH + PH + 0.06, cV, false, 'coping-deck');
     q = sunk(PH / 2); P(FLY.parapet, PH, slopeLen, conc, q[0], q[1], pV, true, 'parapet-ramp');
     q = sunk(PH + 0.06); P(0.62, 0.12, slopeLen, coping, q[0], q[1], cV, true, 'coping-ramp');
     // The centre line: the same yellow dashes the road texture paints, carried up over the approach and across
     // the bridge, so the main road reads as one road that happens to be in the air for 114 m.
-    for (const t of [1.5, 7.75]) P(0.39, 0.05, 3.4, paint, Q.su * t, FLY.deckH + 0.03, Q.sv * 0.195, false, 'dash');
     for (let t = FLY.deckHalf + 1.5; t < FLY.rampEnd - 1.5; t += 6.25) {
       P(0.39, 0.05, 3.4, paint, Q.su * t, rampHeight(t) + 0.03, Q.sv * 0.195, true, 'dash');
     }
@@ -899,14 +917,14 @@ function generateChunk(cx, cz, defer = false) {
     // quarter, and it stands at the middle of the span — over the street the bridge crosses, which is the spot
     // it is read from, and well clear of the gantry's legs and beams at u = ±9.
     if (Q.su > 0) {
-      const bbU = 0, mountY = FLY.deckH + PH + 0.12, p = at(bbU, mountY + 1.45, Q.sv * (W - FLY.parapet + 0.31));
+      const bbU = Q.midU, mountY = FLY.deckH + PH + 0.12, p = at(bbU, mountY + 1.45, Q.sv * (W - FLY.parapet + 0.31));
       const bb = buildFlyoverBillboard();
       bb.position.set(p[0], p[1], p[2]);
       bb.rotation.y = alongX ? (Q.sv > 0 ? 0 : PI) : (Q.sv > 0 ? PI / 2 : -PI / 2);
       add(bb);
       (fly.billboards = fly.billboards || []).push({
         axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: bb.rotation.y,
-        u: 0, v: Q.sv * (W - FLY.parapet + 0.31), w: 5.9, h: 2.0,
+        u: bbU, v: Q.sv * (W - FLY.parapet + 0.31), w: 5.9, h: 2.0,
         mountY, base: p[1] - 1.0, top: p[1] + 1.0, mount: 'coping',
       });
     }

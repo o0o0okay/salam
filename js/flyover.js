@@ -103,9 +103,42 @@ export function nodeBlock(blocks) {
   ensureNodes(blocks);
   return nodeSet.has(blocks) ? blocks : 0;
 }
+// ---- Long bridges ----
+// One flyover in three carries its deck across the next one or two junctions as well, so a long bridge covers 2 or
+// 3 junctions. The bridge starts at the junction nearest the centre and runs outward. `ext` is how many blocks past
+// its start the deck runs: 0 for an ordinary flyover, 1 or 2 for a long one. The junctions it passes over belong to
+// the bridge: the avenue is up on the deck there, so their lights are off, and the street beside them is at grade
+// exactly as it is beside the start. The next flyover is at least `minGap` blocks on, so one bridge never reaches
+// the next. The extent is a hash of the block index, so every block computes the same bridges.
+export const bridgeExt = b => {
+  if (b < FLY.minGap) return 0;
+  const e = hash(b * 13 + 5);
+  return e % 3 === 0 ? 1 + ((e >>> 4) & 1) : 0;
+};
+// The record of the flyover at `b` blocks from the centre on side `s`. `lo` and `hi` are the along-road extent of the
+// deck measured from the start junction: [0, 0] for an ordinary flyover, [0, ext * span] going outward otherwise.
+function recordFor(axis, b, s) {
+  const ext = bridgeExt(b), F = ext * FLY.span;
+  return { axis, road: 0, node: s * b * FLY.span, ext, lo: Math.min(0, s * F), hi: Math.max(0, s * F) };
+}
 export function nodeAt(ix, iz) {
-  if (ix === 0 && iz !== 0) return nodeBlock(Math.abs(iz)) ? { axis: 'z', road: 0, node: iz * FLY.span } : null;
-  if (iz === 0 && ix !== 0) return nodeBlock(Math.abs(ix)) ? { axis: 'x', road: 0, node: ix * FLY.span } : null;
+  if (ix === 0 && iz !== 0) return nodeBlock(Math.abs(iz)) ? recordFor('z', Math.abs(iz), Math.sign(iz)) : null;
+  if (iz === 0 && ix !== 0) return nodeBlock(Math.abs(ix)) ? recordFor('x', Math.abs(ix), Math.sign(ix)) : null;
+  return null;
+}
+// Is this junction on a bridge? Returns { f, d }: `f` is the start record and `d` how many blocks out from it the
+// junction is (0 is the start itself, `f.ext` is the far end), or null for any other junction.
+export function bridgeAt(ix, iz) {
+  let axis, k;
+  if (ix === 0 && iz !== 0) { axis = 'z'; k = iz; }
+  else if (iz === 0 && ix !== 0) { axis = 'x'; k = ix; }
+  else return null;
+  const s = Math.sign(k), b = Math.abs(k);
+  for (let d = 0; d <= 2 && b - d >= FLY.minGap; d++) {
+    if (!nodeBlock(b - d)) continue;
+    const f = recordFor(axis, b - d, s);
+    if (d <= f.ext) return { f, d };
+  }
   return null;
 }
 // The flyover nearest a junction on a main road, out to `within` blocks: what the suites and the AI ask for when
@@ -120,21 +153,26 @@ export function nearestNode(ix, iz, within = 40) {
 // The flyover whose structure can reach (x, z) — the one whose deck or ramps cover that spot — or null. This is
 // the whole-city lookup every other module goes through, so it stays cheap: outside a narrow band along the two
 // main roads it answers null after two compares.
+// How many blocks either side of a junction the lookup searches for a bridge whose deck or ramp reaches a point. A long
+// bridge's far ramp stands ~2.7 blocks past its start, so 5 covers it with room to spare.
+const REACH_SCAN = 5;
+// Is the along-road coordinate `u` within a bridge's deck or its ramps, with `pad` on top?
+const inReach = (f, u, pad) => u >= f.lo - FLY.rampEnd - pad && u <= f.hi + FLY.rampEnd + pad;
 export function flyoverNear(x, z, pad = 0) {
   const wide = FLY.halfW + pad;
   if (Math.abs(x) > wide && Math.abs(z) > wide) return null;
   if (Math.abs(x) <= wide) {                                   // a flyover on the avenue (x = 0, runs along z)
     const iz = Math.round(z / FLY.span);
-    for (const k of [iz, iz - 1, iz + 1]) {
+    for (let k = iz - REACH_SCAN; k <= iz + REACH_SCAN; k++) {
       const f = nodeAt(0, k);
-      if (f && Math.abs(z - f.node) <= FLY.rampEnd + pad) return f;
+      if (f && inReach(f, z - f.node, pad)) return f;
     }
   }
   if (Math.abs(z) <= wide) {                                   // a flyover on the cross street (z = 0, runs along x)
     const ix = Math.round(x / FLY.span);
-    for (const k of [ix, ix - 1, ix + 1]) {
+    for (let k = ix - REACH_SCAN; k <= ix + REACH_SCAN; k++) {
       const f = nodeAt(k, 0);
-      if (f && Math.abs(x - f.node) <= FLY.rampEnd + pad) return f;
+      if (f && inReach(f, x - f.node, pad)) return f;
     }
   }
   return null;
@@ -157,10 +195,19 @@ export function rampHeight(t) {
   if (a <= FLY.deckHalf) return FLY.deckH;
   return FLY.deckH * (FLY.rampEnd - a) / RAMP_RUN;
 }
+// The height of a bridge's surface at u: flat from the start junction to its far end (both ends' decks are the same
+// slab), with a ramp down on each outer side. For an ordinary flyover this is exactly rampHeight(u).
+export function bridgeHeight(f, u) {
+  let a;
+  if (u < f.lo - FLY.deckHalf) a = f.lo - FLY.deckHalf - u;
+  else if (u > f.hi + FLY.deckHalf) a = u - f.hi - FLY.deckHalf;
+  else return FLY.deckH;
+  return a >= RAMP_RUN ? 0 : FLY.deckH * (RAMP_RUN - a) / RAMP_RUN;
+}
 export function surfaceAt(x, z, y) {
   const f = flyoverNear(x, z);
   if (!f) return 0;
-  const h = rampHeight(alongOf(f, x, z));
+  const h = bridgeHeight(f, alongOf(f, x, z));
   return h > 0 && y > h - FLY.on ? h : 0;
 }
 
@@ -173,12 +220,12 @@ export function surfaceAt(x, z, y) {
 export function atGradeSide(cx, cz, side) {
   if (side < 2) {
     const X = side === 0 ? cx : cx + 1;                   // the street's own x index
-    const f = nodeAt(X, cz) || nodeAt(X, cz + 1);
-    return !!f && f.axis === 'z';
+    const hit = bridgeAt(X, cz) || bridgeAt(X, cz + 1);
+    return !!hit && hit.f.axis === 'z';
   }
   const Z = side === 2 ? cz : cz + 1;
-  const f = nodeAt(cx, Z) || nodeAt(cx + 1, Z);
-  return !!f && f.axis === 'x';
+  const hit = bridgeAt(cx, Z) || bridgeAt(cx + 1, Z);
+  return !!hit && hit.f.axis === 'x';
 }
 // Is (x, z) on one of those lanes? The strip beside the structure is real carriageway for the whole length of
 // the block that carries it (the kerb steps back at the block's own corners, the way it does at every junction),
@@ -249,11 +296,46 @@ export function flyoverQuadrants(cx, cz) {
   const x0 = cx * FLY.span, z0 = cz * FLY.span, out = [];
   for (const [cxk, czk] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     const jx = (x0 / FLY.span) + cxk, jz = (z0 / FLY.span) + czk;
-    const f = nodeAt(jx, jz);
-    if (!f) continue;
-    const su = f.axis === 'z' ? (z0 >= f.node ? 1 : -1) : (x0 >= f.node ? 1 : -1);
+    const hit = bridgeAt(jx, jz);
+    if (!hit) continue;
+    const { f, d } = hit;
+    if (f.ext > 0 && d > 0 && d < f.ext) continue;       // a junction inside a long bridge: the flat span covers it
+    const g = Math.sign(f.node);                          // the way the bridge runs from its start
+    const node = f.axis === 'z' ? jz * FLY.span : jx * FLY.span;
+    const su = f.axis === 'z' ? (z0 >= node ? 1 : -1) : (x0 >= node ? 1 : -1);
+    // A plain flyover has a ramp on both sides. A long one has its ramp on the outer side only: the start's ramp
+    // faces away from the bridge, the far end's faces away from it too.
+    const ramps = f.ext === 0 ? [-1, 1] : d === 0 ? [-g] : [g];
+    if (!ramps.includes(su)) continue;
     const sv = f.axis === 'z' ? (x0 >= f.road ? 1 : -1) : (z0 >= f.road ? 1 : -1);
-    out.push({ axis: f.axis, road: f.road, node: f.node, su, sv });
+    // `midU`: the middle of the bridge, in this junction's own along-road coordinate (0 for a plain flyover).
+    out.push({ axis: f.axis, road: f.road, node, su, sv, midU: f.node + (f.lo + f.hi) / 2 - node });
+  }
+  return out;
+}
+// The flat span of each bridge over this block: the stretch of the deck within its along-road extent, on this
+// block's own half of the carriageway. Each block builds only its own piece, so a long bridge is built block by
+// block and nothing reaches into a neighbour's chunk.
+export function flyoverFlats(cx, cz) {
+  const out = [];
+  const z0 = cz * FLY.span, z1 = z0 + FLY.span, x0 = cx * FLY.span, x1 = x0 + FLY.span;
+  if (cx === 0 || cx === -1) {                              // the avenue (x = 0) runs along the blocks at cx 0 and -1
+    const sv = cx === 0 ? 1 : -1;
+    for (let k = cz - REACH_SCAN; k <= cz + REACH_SCAN; k++) {
+      const f = nodeAt(0, k);
+      if (!f) continue;
+      const a0 = Math.max(z0, f.node + f.lo - FLY.deckHalf), a1 = Math.min(z1, f.node + f.hi + FLY.deckHalf);
+      if (a1 > a0) out.push({ axis: 'z', road: 0, node: f.node, sv, a0, a1 });
+    }
+  }
+  if (cz === 0 || cz === -1) {                              // the cross street (z = 0) runs along the blocks at cz 0 and -1
+    const sv = cz === 0 ? 1 : -1;
+    for (let k = cx - REACH_SCAN; k <= cx + REACH_SCAN; k++) {
+      const f = nodeAt(k, 0);
+      if (!f) continue;
+      const a0 = Math.max(x0, f.node + f.lo - FLY.deckHalf), a1 = Math.min(x1, f.node + f.hi + FLY.deckHalf);
+      if (a1 > a0) out.push({ axis: 'x', road: 0, node: f.node, sv, a0, a1 });
+    }
   }
   return out;
 }
@@ -262,8 +344,9 @@ export function flyoverQuadrants(cx, cz) {
 // junctions whose mouths the interchange opens out — the flyover lands on the street that passes through them —
 // so they are the ones whose corners are cut on the diagonal (see `FLY.chamfer`).
 export function besideFlyover(ix, iz) {
-  if (ix === 0 && iz !== 0) return !!(nodeBlock(Math.abs(iz) - 1) || nodeBlock(Math.abs(iz) + 1));
-  if (iz === 0 && ix !== 0) return !!(nodeBlock(Math.abs(ix) - 1) || nodeBlock(Math.abs(ix) + 1));
+  if (bridgeAt(ix, iz)) return false;                      // a bridge's own junctions are open, not chamfered
+  if (ix === 0 && iz !== 0) return !!(bridgeAt(0, iz - 1) || bridgeAt(0, iz + 1));
+  if (iz === 0 && ix !== 0) return !!(bridgeAt(ix - 1, 0) || bridgeAt(ix + 1, 0));
   return false;
 }
 // The junction itself, by world position (a traffic-light set is built per block corner, so this is how a
@@ -271,7 +354,7 @@ export function besideFlyover(ix, iz) {
 export function isFlyoverNode(x, z) {
   const ix = Math.round(x / FLY.span), iz = Math.round(z / FLY.span);
   if (Math.abs(x - ix * FLY.span) > 1 || Math.abs(z - iz * FLY.span) > 1) return false;
-  return !!nodeAt(ix, iz);
+  return !!bridgeAt(ix, iz);
 }
 
 // The parapets: a car up on the structure is held inside them, while a car at grade (below the parapets, under
@@ -285,8 +368,8 @@ export function parapetPush(x, z, y, box, out) {
   out.hit = false;
   if (y <= 0.05) return out;                                 // cars at grade belong to the retaining walls, not the parapets
   const f = flyoverNear(x, z, Math.hypot(box.e1, box.e2) + 1);
-  if (!f || Math.abs(alongOf(f, x, z)) > FLY.rampEnd) return out;
-  const surface = rampHeight(alongOf(f, x, z));
+  if (!f || !inReach(f, alongOf(f, x, z), 0)) return out;
+  const surface = bridgeHeight(f, alongOf(f, x, z));
   // Check height against this part of the ramp, not a fixed world height: protect the low approach too,
   // without pulling a car jumping underneath the deck onto the road above (or catching one above the coping).
   if (y < surface - FLY.on || y > surface + 1.12) return out;

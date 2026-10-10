@@ -7,7 +7,7 @@ import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt } from './world.js';
 import { overlapsAnything } from './collisions.js';
-import { FLY, flyoverNear, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, rampHeight, roadEdge } from './flyover.js';
+import { FLY, flyoverNear, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
   return Math.random() < 0.5
     ? { x: Math.round((x + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3), z: z + rnd(-spread, spread) }
@@ -28,7 +28,9 @@ function moundInWay(p, f, tx, tz) {
   const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(24, Math.ceil(d / 5));
   for (let i = 1; i <= n; i++) {
     const t = i / n, u = alongOf(f, p.x + dx * t, p.z + dz * t), v = latOf(f, p.x + dx * t, p.z + dz * t);
-    if (Math.abs(u) > FLY.deckHalf - 1 && Math.abs(u) < FLY.rampEnd + 3 && Math.abs(v) < FLY.halfW + 1 && rampHeight(u) > p.y + 0.7) return true;
+    // The flat deck (its whole span, for a long bridge) is open underneath; only the ramps are a mound.
+    const flat = u >= f.lo - FLY.deckHalf + 1 && u <= f.hi + FLY.deckHalf - 1;
+    if (!flat && u > f.lo - FLY.rampEnd - 3 && u < f.hi + FLY.rampEnd + 3 && Math.abs(v) < FLY.halfW + 1 && bridgeHeight(f, u) > p.y + 0.7) return true;
   }
   return false;
 }
