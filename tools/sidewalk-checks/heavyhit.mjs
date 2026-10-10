@@ -775,31 +775,33 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   else ok('update resolves car-car shoves against the parapet before syncing meshes');
 }
 
-// ---- street cones: a bump at city speed is a knock, and a fast hit costs less than a tree's would ----
-// (before: every cone cost at least 1.9 HP for the player, and 3.6 HP at 15 m/s; a tree costs nothing below 14 m/s)
+// ---- street props are soft: a bump at city speed is a knock, and a fast hit costs little ----
+// (before: a cone cost 2.4 HP at 10 m/s and a crate 7.2 HP at 30 m/s; a tree costs about 1 HP at 30 m/s)
 {
   const px = 40, pz = 40;                                   // inside block (0, 0), which the checks above generated
   const near = world.nearChunks(px, pz);
   const saved = near.map(ch => ch.props);
-  const hitAt = speed => {
+  const hitAt = (kind, speed) => {
     fx.hurtAmt = 0;
-    near.forEach(ch => { ch.props = []; });                 // only the cone under test can break here
-    const cone = { kind: 'cone', x: px, z: pz, r: 0.65, drag: 0.97, color: 0xff7a1a, broken: false, soft: true, mesh: {} };
-    near[0].props.push(cone);
+    near.forEach(ch => { ch.props = []; });                 // only the prop under test can break here
+    const pr = { kind, x: px, z: pz, r: 0.65, drag: 0.95, color: 0xffffff, broken: false, soft: true, mesh: {} };
+    near[0].props.push(pr);
     const c = { x: px, z: pz, h: 0, y: 0, speed, vx: 0, vz: speed, mass: 1.3, isPlayer: true, wrecked: false, box: { e1: 2.05, e2: 0.95 } };
     M.collideProps(c);
-    return { hp: fx.hurtAmt, broke: cone.broken };
+    return { hp: fx.hurtAmt, broke: pr.broken };
   };
-  const slow = hitAt(10), mid = hitAt(15), fast = hitAt(30);
+  const results = {};
+  for (const kind of ['cone', 'crate', 'streetlight']) results[kind] = [10, 15, 30].map(v => hitAt(kind, v));
   near.forEach((ch, i) => { ch.props = saved[i]; });
-  if (!slow.broke || !mid.broke || !fast.broke) bad('a cone must still knock over when it is hit');
-  else ok('a cone is knocked over at every speed');
-  if (slow.hp > 0.01) bad(`a cone hit at 10 m/s costs ${slow.hp.toFixed(2)} HP: a bump at city speed should cost nothing`);
-  else ok('a cone bumped at 10 m/s costs no HP');
-  if (mid.hp > 0.3) bad(`a cone hit at 15 m/s costs ${mid.hp.toFixed(2)} HP (limit 0.3)`);
-  else ok(`a cone hit at 15 m/s costs ${mid.hp.toFixed(2)} HP`);
-  if (fast.hp > 1.0) bad(`a cone hit at 30 m/s costs ${fast.hp.toFixed(2)} HP (limit 1.0, about a tree's)`);
-  else ok(`a cone hit at 30 m/s costs ${fast.hp.toFixed(2)} HP`);
+  for (const kind of Object.keys(results)) {
+    const [slow, mid, fast] = results[kind];
+    if (!slow.broke || !mid.broke || !fast.broke) bad(`${kind}: must still knock over when it is hit`);
+    if (slow.hp > 0.01) bad(`${kind} hit at 10 m/s costs ${slow.hp.toFixed(2)} HP: a bump at city speed should cost nothing`);
+    if (mid.hp > 0.3) bad(`${kind} hit at 15 m/s costs ${mid.hp.toFixed(2)} HP (limit 0.3)`);
+    if (fast.hp > 1.0) bad(`${kind} hit at 30 m/s costs ${fast.hp.toFixed(2)} HP (limit 1.0, about a tree's)`);
+    if (slow.broke && mid.broke && fast.broke && slow.hp <= 0.01 && mid.hp <= 0.3 && fast.hp <= 1.0)
+      ok(`${kind}: knocked over, 0 HP at 10 m/s, ${mid.hp.toFixed(2)} HP at 15 m/s, ${fast.hp.toFixed(2)} HP at 30 m/s`);
+  }
 }
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);
