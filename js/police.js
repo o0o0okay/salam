@@ -180,7 +180,9 @@ export function policeAI(p, dt) {
           // its front corner against it. So first run along the foot to the far side of the guard, drawn in toward the
           // middle of the road (2.5 m off the centre line), then cut out to the lane.
           const beyondGuard = FLY.rampEnd + 6;
-          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, my * laneOffset(), _lane);
+          // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
+          // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
+          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
           else if (Math.abs(u) < beyondGuard - 0.5) laneAim(nf, Math.sign(u || 1) * beyondGuard, Math.max(-2.5, Math.min(2.5, v)), _lane);
           else laneAim(nf, Math.sign(u || 1) * beyondGuard, my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
@@ -189,7 +191,7 @@ export function policeAI(p, dt) {
           tx = _lane.x; tz = _lane.z;
         } else if (Math.abs(tu - u) >= 14) {                  // in the lane that helps, but not yet level with the player
           laneAim(nf, tgtU, want * laneOffset(), _lane);                          //   close along the lane
-          tx = _lane.x; tz = _lane.z;
+          tx = _lane.x; tz = _lane.z; bridgeTurn = true;   // it has just come across: brake for the turn into the lane
         }                                                     // in the lane that helps with the player in it: the aim straight at him already stands
       }
     }
