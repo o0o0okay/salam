@@ -28,7 +28,10 @@ export const CAR_DIMS = {
   cementtruck:{ e1: 4.5,  e2: 1.35, mass: 5.0,  hp: 170 },
   fueltanker: { e1: 5.6,  e2: 1.35, mass: 5.6,  hp: 45 },
   semi:    { e1: 4.1, e2: 1.3, mass: 3.6, hp: 170 },   // tractor unit alone (rigid body)
-  semibox: { e1: 7.0, e2: 1.35, mass: 6.0, hp: 170 },  // tractor with a 7.6 m box container (rigid body)
+  semibox: { e1: 6.1, e2: 1.35, mass: 6.0, hp: 170 }, // tractor with a 7.6 m box container (rigid body)
+  flatbed: { e1: 6.1, e2: 1.35, mass: 6.0, hp: 170 }, // tractor with a dropside flatbed
+  lowboy:  { e1: 6.1, e2: 1.4,  mass: 6.4, hp: 170 }, // tractor with a lowboy trailer
+  logtruck:{ e1: 6.1, e2: 1.35, mass: 6.4, hp: 170 }, // tractor with a log trailer
   ambulance:  { e1: 2.75, e2: 1.2,  mass: 3.4,  hp: 180 },
   firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
@@ -410,14 +413,17 @@ export function buildCar(kind, color, detail = true) {
     dualWheel(-1, -4.3); dualWheel(1, -4.3); dualWheel(-1, -5.0); dualWheel(1, -5.0); dualWheel(-1, -5.7); dualWheel(1, -5.7);
 
 
-  // ===== Semi tractor, alone or pulling a box container (reference: blue cab-over with chrome stacks and tandem drive) =====
-  } else if (kind === 'semi' || kind === 'semibox') {
-    const boxed = kind === 'semibox', s = boxed ? 3.0 : 0;   // the boxed version shifts the tractor forward under the container
-    const F = 3.9 + s;                                       // nose of the tractor
+  // ===== Semi tractor with an optional trailer (reference: cab-over tractor with chrome stacks and tandem drive) =====
+  } else if (kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') {
+    const trailer = { semi: null, semibox: 'box', flatbed: 'flat', lowboy: 'low', logtruck: 'logs' }[kind];
+    const hasTrailer = trailer !== null;
+    const s = hasTrailer ? 2.05 : 0;                       // with a trailer the tractor moves forward so the trailer front meets the sleeper
+    const zf = s - 0.6, zr = zf - 7.6, zc = zf - 3.8;      // trailer front, rear and centre (7.6 m trailer)
+    const F = 3.9 + s;                                     // nose of the tractor
     const trimM = mat(0x16171b), cab = mat(color), chassis = mat(0x2a2d33), chrome = mat(0xc9cdd2), grey = mat(0x9aa1a8), tankG = mat(0xb8bec6);
-    const zs = boxed ? [2.8 + s, -2.6 + s, -3.6 + s, -5.3, -6.3] : [2.8, -2.6, -3.6];
-    const dualZ = boxed ? [-2.6 + s, -3.6 + s, -5.3, -6.3] : [-2.6, -3.6];   // twin tyres on the drive and trailer axles
-    wheelZ = zs; wheelX = 1.15; wheelY = 0.52; wheelScale = 1.15; frontZ = F - 0.05; backZ = boxed ? -7.0 : -4.2; lightY = 1.0;
+    const zs = hasTrailer ? [2.8 + s, -2.6 + s, -3.6 + s, zr + 1.7, zr + 0.7] : [2.8, -2.6, -3.6];
+    const dualZ = hasTrailer ? [-2.6 + s, -3.6 + s, zr + 1.7, zr + 0.7] : [-2.6, -3.6];   // twin tyres on the drive and trailer axles
+    wheelZ = zs; wheelX = 1.15; wheelY = 0.52; wheelScale = 1.15; frontZ = F - 0.05; backZ = hasTrailer ? zr : -4.2; lightY = 1.0;
     // tractor: cab, sleeper, slanted screen, grille with chrome slats, bumper, chassis, tanks, chrome exhaust stacks
     inner.add(box(2.3, 1.75, 2.5, cab, 0, 1.6, 2.4 + s));
     inner.add(box(2.2, 0.8, 0.4, cab, 0, 1.05, 3.45 + s));
@@ -435,16 +441,37 @@ export function buildCar(kind, color, detail = true) {
     }
     inner.add(box(1.8, 0.3, 6.0, chassis, 0, 0.55, -0.9 + s, false));
     inner.add(box(1.4, 0.1, 1.0, trimM, 0, 0.8, -0.3 + s, false));     // fifth wheel
-    if (!boxed) {
+    if (!hasTrailer) {
       inner.add(box(2.2, 0.3, 0.2, grey, 0, 0.45, -4.15));              // rear bumper
       for (const sx of [-1, 1]) inner.add(box(0.5, 0.6, 0.04, trimM, sx * 1.0, 0.3, -4.05, false));   // mud flaps
-    } else {
-      // box container from z -7.0 to 0.6, with a dark underframe, a roof edge and a rear door seam
+    } else if (trailer === 'box') {
+      // box container with a dark underframe, a roof edge and a rear door seam
       const white = mat(0xf2f2f2);
-      inner.add(box(2.3, 2.6, 7.6, white, 0, 1.95, -3.2));
-      inner.add(box(2.36, 0.28, 7.6, trimM, 0, 0.5, -3.2, false));
-      inner.add(box(2.36, 0.1, 7.6, grey, 0, 3.27, -3.2, false));
-      inner.add(box(0.04, 2.4, 0.04, grey, 0, 1.95, -7.02, false));
+      inner.add(box(2.3, 2.6, 7.6, white, 0, 1.95, zc));
+      inner.add(box(2.36, 0.28, 7.6, trimM, 0, 0.5, zc, false));
+      inner.add(box(2.36, 0.1, 7.6, grey, 0, 3.27, zc, false));
+      inner.add(box(0.04, 2.4, 0.04, grey, 0, 1.95, zr - 0.02, false));
+    } else if (trailer === 'flat') {
+      // dropside flatbed: a grey deck on a dark frame, low side rails and a drop gate at the back
+      const deck = mat(0x5b6066), rail = mat(0x3a3e45);
+      inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
+      inner.add(box(2.3, 0.12, 7.6, deck, 0, 1.13, zc));
+      for (const sx of [-1, 1]) inner.add(box(0.12, 0.65, 7.6, rail, sx * 1.15, 1.55, zc, false));
+      inner.add(box(2.3, 0.65, 0.12, rail, 0, 1.55, zr + 0.06, false));
+    } else if (trailer === 'low') {
+      // lowboy: a low rear deck, a step up over the tractor and two ramps folded down at the back
+      const deck = mat(0x3a3e45), steel = mat(0x9aa1a8);
+      inner.add(box(2.2, 0.2, 5.2, deck, 0, 0.9, zr + 2.6));
+      inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.2, -0.35));
+      inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.5, 0.85));
+      for (const sx of [-1, 1]) { const ramp = box(0.9, 0.06, 2.12, steel, sx * 0.6, 0.55, zr + 1.0); ramp.rotation.x = -0.34; inner.add(ramp); }
+    } else {
+      // log trailer: a frame, four pairs of tall stakes and six logs stacked in three layers
+      const logA = mat(0xb8733f), logB = mat(0x9c5f30);
+      inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
+      for (const z of [zr + 0.6, zr + 2.4, zr + 4.2, zr + 6.0]) for (const sx of [-1, 1]) inner.add(box(0.12, 1.9, 0.12, trimM, sx * 1.0, 1.85, z, false));
+      const logs = [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]];
+      logs.forEach(([x, y], i) => { const log = cyl(0.3, 0.3, 7.2, 8, i % 2 ? logA : logB, x, y, zc); log.rotation.x = Math.PI / 2; inner.add(log); });
     }
     for (const z of dualZ) { dualWheel(-1, z); dualWheel(1, z); }
 
@@ -575,7 +602,7 @@ export function buildCar(kind, color, detail = true) {
     }
   }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
   consolidateBody(inner, new Set(Object.values(lights)));
