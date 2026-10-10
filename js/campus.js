@@ -961,6 +961,7 @@ export const SPORT_DEFS = {
   skatepark:  { pad: [38, 30], ground: 0x3f7f3a, court: 0xb7bcc2 },
   baseball:   { pad: [52, 52], ground: 0x6b6f76, court: 0x3f7f3a },
   playground: { pad: [34, 28], ground: 0x4f8f45, court: 0xe8d49a },
+  golf:       { pad: [48, 48], ground: 0x2f6b35, court: 0x6fb85a },
 };
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
 // How far a ground is grown: 1.5 times, or as far as the block allows. A block's interior is 56 m across (the paving
@@ -1130,6 +1131,21 @@ export function buildSportMesh(kind, bx, bz, rng) {
     for (const [gx, gz] of [[14.5, 11.5], [-14.5, 11.5], [-14.5, -11.5]]) B(3, 0.05, 3, M.green, gx, 0.02, gz, false);
     fence(34, 2.4, 0, 14, 'x'); fence(34, 2.4, 0, -14, 'x');
     fence(28, 2.4, 17, 0, 'z'); fence(28, 2.4, -17, 0, 'z');
+  } else if (kind === 'golf') {
+    // A nine-hole style corner of a course: the fairway is the court, a lighter putting green with the cup and the
+    // flagstick (a breakable piece), two sand bunkers, a small water hazard, and a tee box at the far end.
+    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                                               // the fairway, 80% of the enclosure
+    B(CW * 0.28, 0.04, CD * 0.22, mat(0x9ad46a), CW * 0.14, 0.02, 0, false);            // putting green
+    CYL(0.2, 0.2, 0.05, 10, mat(0x111111), CW * 0.14, 0.02, 0, false);                  // the cup
+    piece({ x: CW * 0.14, z: 0, hx: 0.15, hz: 0.15, kind: 'flag', brk: 4, color: 0xffffff }, () => {
+      CYL(0.05, 0.05, 4.2, 6, M.white, CW * 0.14, 2.1, 0, false);                       // the pole
+      B(1.0, 0.6, 0.04, mat(0xd7342a), CW * 0.14 + 0.5, 3.9, 0, false);                // the flag
+    });
+    B(7, 0.05, 4, mat(0xe8d49a), -CW * 0.2, 0.025, -CD * 0.22, false);                 // bunkers
+    B(5, 0.05, 3.5, mat(0xe8d49a), -CW * 0.1, 0.025, CD * 0.24, false);
+    B(6, 0.05, 5, mat(0x3aa8d8), -CW * 0.22, 0.025, CD * 0.04, false);                 // water hazard
+    B(4, 0.04, 3, mat(0x9ad46a), -CW * 0.36, 0.02, 0, false);                           // tee box
+    for (const s2 of [-1, 1]) { fence(PW, 3.6, 0, s2 * PD / 2, 'x'); fence(PD, 3.6, s2 * PW / 2, 0, 'z'); }
   }
   // four floodlight masts, one in each corner of the enclosure, with a lamp head on each
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
