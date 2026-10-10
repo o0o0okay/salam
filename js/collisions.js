@@ -400,7 +400,9 @@ function breakProp(pr, c) {
   if (pr.kind === 'hydrant') { geysers.push({ x: pr.x, z: pr.z, life: 7 }); for (let i = 0; i < 20; i++) emit(pr.x, 0.6, pr.z, rnd(-4, 4), rnd(8, 16), rnd(-4, 4), 0x8fd3ff, rnd(0.2, 0.45), rnd(0.8, 1.4), 26); }
   // Damage: proportional to impact speed. A car that hits a plaza at 30 m/s takes more damage than one
   // that bumps it at 8 m/s. The player feels it; civilian cars and police do too.
-  const dmg = sp * 0.8;
+  // Soft street obstacles (cones, barriers) work like a tree: a bump at city speed does nothing, and only a fast
+  // hit costs anything: 0.6 HP for the player at 30 m/s (a tree at that speed costs about 1 HP), 0.15 HP at 15 m/s.
+  const dmg = pr.soft ? Math.max(0, sp - 10) * 0.1 : sp * 0.8;
   if (c.isPlayer) { hurtPlayerEnv(dmg); }
   else if (!c.wrecked) { hurtCarEnv(c, dmg); }
   const f = pr.drag; c.vx *= f; c.vz *= f;

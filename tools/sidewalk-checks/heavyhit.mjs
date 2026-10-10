@@ -62,12 +62,12 @@ const TREE_BREAK_V = 10; const DIFF = {};
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0 };
 const player = { x: 0, z: 0 };
 const cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];
-export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0 };
+export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0, hurtAmt: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => { fx.crash++; } });
-const hurtPlayer = () => { fx.hurtPlayer++; };
+const hurtPlayer = amt => { fx.hurtPlayer++; fx.hurtAmt += amt || 0; };   // hurtAmt: total HP the player lost
 // hurtCar mirrors js/damage.js: police carry armor by tier, anything at 0 hp is a wreck. The pump-blast test
 // needs the real numbers so "the blast kills a police car" is measured, not assumed.
 const ARMOR = [1, .82, .62, .42, .28];
@@ -775,5 +775,31 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   else ok('update resolves car-car shoves against the parapet before syncing meshes');
 }
 
+// ---- street cones: a bump at city speed is a knock, and a fast hit costs less than a tree's would ----
+// (before: every cone cost at least 1.9 HP for the player, and 3.6 HP at 15 m/s; a tree costs nothing below 14 m/s)
+{
+  const px = 40, pz = 40;                                   // inside block (0, 0), which the checks above generated
+  const near = world.nearChunks(px, pz);
+  const saved = near.map(ch => ch.props);
+  const hitAt = speed => {
+    fx.hurtAmt = 0;
+    near.forEach(ch => { ch.props = []; });                 // only the cone under test can break here
+    const cone = { kind: 'cone', x: px, z: pz, r: 0.65, drag: 0.97, color: 0xff7a1a, broken: false, soft: true, mesh: {} };
+    near[0].props.push(cone);
+    const c = { x: px, z: pz, h: 0, y: 0, speed, vx: 0, vz: speed, mass: 1.3, isPlayer: true, wrecked: false, box: { e1: 2.05, e2: 0.95 } };
+    M.collideProps(c);
+    return { hp: fx.hurtAmt, broke: cone.broken };
+  };
+  const slow = hitAt(10), mid = hitAt(15), fast = hitAt(30);
+  near.forEach((ch, i) => { ch.props = saved[i]; });
+  if (!slow.broke || !mid.broke || !fast.broke) bad('a cone must still knock over when it is hit');
+  else ok('a cone is knocked over at every speed');
+  if (slow.hp > 0.01) bad(`a cone hit at 10 m/s costs ${slow.hp.toFixed(2)} HP: a bump at city speed should cost nothing`);
+  else ok('a cone bumped at 10 m/s costs no HP');
+  if (mid.hp > 0.3) bad(`a cone hit at 15 m/s costs ${mid.hp.toFixed(2)} HP (limit 0.3)`);
+  else ok(`a cone hit at 15 m/s costs ${mid.hp.toFixed(2)} HP`);
+  if (fast.hp > 1.0) bad(`a cone hit at 30 m/s costs ${fast.hp.toFixed(2)} HP (limit 1.0, about a tree's)`);
+  else ok(`a cone hit at 30 m/s costs ${fast.hp.toFixed(2)} HP`);
+}
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);

@@ -7,9 +7,9 @@ import * as THREE from 'three';
 export const PROP_DEFS = {
   streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, make() { const g = new THREE.Group(), m = mat(0x7d838c);
     g.add(cyl(0.14, 0.2, 7, 8, m, 0, 3.5, 0, false)); g.add(box(1.8, 0.14, 0.14, m, 0.8, 7, 0, false)); g.add(box(0.7, 0.16, 0.4, ASSET.lampMat, 1.55, 6.88, 0, false)); return g; } },
-  cone: { r: 0.65, drag: 0.97, color: 0xff7a1a, make() { const g = new THREE.Group();
+  cone: { r: 0.65, drag: 0.97, color: 0xff7a1a, soft: true, make() { const g = new THREE.Group();
     g.add(cyl(0.12, 0.42, 0.95, 8, mat(0xff7a1a), 0, 0.55, 0, false)); g.add(cyl(0.2, 0.28, 0.2, 8, mat(0xffffff), 0, 0.6, 0, false)); g.add(box(0.95, 0.08, 0.95, mat(0x2a2a2a), 0, 0.04, 0, false)); return g; } },
-  barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, make() { const g = new THREE.Group();
+  barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, soft: true, make() { const g = new THREE.Group();
     g.add(box(3.4, 0.9, 0.6, mat(0xf2f2f2), 0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), -1.0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), 0.2, 0.75, 0, false));
     g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
   crate: { r: 1.1, drag: 0.94, color: 0xa87440, make() { const g = new THREE.Group();

@@ -647,7 +647,7 @@ function generateChunk(cx, cz, defer = false) {
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
     if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
-    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false });
+    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
   };
   const tree = (x, z, y = 0.2) => {
     if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
