@@ -1,0 +1,16 @@
+{
+  "name": "salam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ESCAPE ROAD: a browser low-poly police chase game (Three.js, no build step).",
+  "type": "module",
+  "scripts": {
+    "test": "node tools/sidewalk-checks/run.mjs",
+    "boot": "node tools/sidewalk-checks/boot-check.mjs",
+    "check": "npm run boot && npm test",
+    "serve": "python3 -m http.server 8000 --bind 0.0.0.0"
+  },
+  "devDependencies": {
+    "three": "0.160.0"
+  }
+}
