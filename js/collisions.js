@@ -114,7 +114,7 @@ export function collideSolids(c) {
       c.vx -= rebound * vn * nx; c.vz -= rebound * vn * nz;
       const keep = heavyWall ? 0.86 : 0.99;                                // and a real chunk of speed gone
       c.vx *= keep; c.vz *= keep;
-      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer);
+      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer, c.y);
       if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 8) * 0.6); else hurtCarEnv(c, Math.max(0, vn - 8) * 0.8);
     }
     c.lastWall = game.time;
@@ -138,7 +138,7 @@ export function collideFlyover(c) {
     if (sz) c.vx -= vn * (1 + keep) * p.sv; else c.vz -= vn * (1 + keep) * p.sv;
     if (game.time - (c.lastFlyWall || -99) > 0.4) {
       c.lastFlyWall = game.time;
-      impactFx(c.x + (sz ? p.sv * 0.9 : 0), c.z + (sz ? 0 : p.sv * 0.9), vn, sz ? p.sv : 0, sz ? 0 : p.sv, c.isPlayer);
+      impactFx(c.x + (sz ? p.sv * 0.9 : 0), c.z + (sz ? 0 : p.sv * 0.9), vn, sz ? p.sv : 0, sz ? 0 : p.sv, c.isPlayer, c.y);
       if (vn > 6) { if (c.isPlayer) { hurtPlayerEnv(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCarEnv(c, Math.max(0, vn - 8) * 0.5); }
     }
   }
@@ -450,7 +450,7 @@ export function carCar(A, B) {
     const j = 1.4 * rel / (1 / mA + 1 / mB);
     A.vx -= j / mA * nx; A.vz -= j / mA * nz; B.vx += j / mB * nx; B.vz += j / mB * nz;
     const px = (A.x + B.x) / 2, pz = (A.z + B.z) / 2, involved = A.isPlayer || B.isPlayer;
-    impactFx(px, pz, rel, nx, nz, involved);
+    impactFx(px, pz, rel, nx, nz, involved, (A.y + B.y) / 2);
     if (rel > 3) {
       A.h += (Math.sin(A.h) * nz - Math.cos(A.h) * nx) * rel * 0.008; B.h += (Math.sin(B.h) * -nz - Math.cos(B.h) * -nx) * rel * 0.008;
     }

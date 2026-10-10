@@ -42,7 +42,7 @@ export function startGame() {
 export function endGame(reason) {
   if (game.state !== 'playing') return;
   game.state = 'over'; game.reason = reason; game.overT = 0; game.overShown = false; game.slow = 0.3;
-  if (reason === 'WASTED') { explosion(player.x, player.z); player.mesh.visible = false; player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
+  if (reason === 'WASTED') { explosion(player.x, player.z, player.y); player.mesh.visible = false; player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
   game.score = calcScore();
   game.newBest = game.score > game.best;
   if (game.newBest) { game.best = game.score; try { localStorage.setItem('escape_road_best', String(game.best)); } catch (e) {} }

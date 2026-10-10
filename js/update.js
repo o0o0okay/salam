@@ -62,7 +62,7 @@ export function update(dt) {
       const s = Math.sin(player.h), co = Math.cos(player.h);
       for (let k = 0; k < 2; k++) {
         const sx = k ? 0.6 : -0.6;
-        emit(player.x - s * 2.3 + co * sx, 0.65, player.z - co * 2.3 - s * sx, -s * rnd(6, 12) + player.vx * 0.4 + rnd(-0.8, 0.8), rnd(-0.3, 0.8), -co * rnd(6, 12) + player.vz * 0.4 + rnd(-0.8, 0.8),
+        emit(player.x - s * 2.3 + co * sx, player.y + 0.65, player.z - co * 2.3 - s * sx, -s * rnd(6, 12) + player.vx * 0.4 + rnd(-0.8, 0.8), rnd(-0.3, 0.8), -co * rnd(6, 12) + player.vz * 0.4 + rnd(-0.8, 0.8),
           Math.random() < 0.5 ? 0xff9a2a : 0x6ac8ff, rnd(0.3, 0.55), rnd(0.18, 0.34), 0);
       }
       if (player.boost > 0.5) game.shake = Math.max(game.shake, 0.07 * player.boost);
@@ -71,9 +71,9 @@ export function update(dt) {
     player.smokeT -= sdt;
     if (player.smokeT <= 0) {
       player.smokeT = 0.05; const s = Math.sin(player.h), co = Math.cos(player.h);
-      if (Math.abs(player.vl) > 5 && player.speed > 8) for (const sx of [-1, 1]) smoke(player.x - s * 1.4 + co * sx, 0.3, player.z - co * 1.4 - s * sx, 1, false, 0.9);
-      if (game.hp < 45 && playing) smoke(player.x + s * 1.8, 1.3, player.z + co * 1.8, 1, true, 1.2);
-      if (game.hp < 22 && playing) emit(player.x + s * 1.8 + rnd(-.4, .4), 1.2, player.z + co * 1.8 + rnd(-.4, .4), rnd(-1, 1), rnd(2, 5), rnd(-1, 1), 0xff8a1a, 0.35, 0.45, 0, 0);
+      if (Math.abs(player.vl) > 5 && player.speed > 8) for (const sx of [-1, 1]) smoke(player.x - s * 1.4 + co * sx, player.y + 0.3, player.z - co * 1.4 - s * sx, 1, false, 0.9);
+      if (game.hp < 45 && playing) smoke(player.x + s * 1.8, player.y + 1.3, player.z + co * 1.8, 1, true, 1.2);
+      if (game.hp < 22 && playing) emit(player.x + s * 1.8 + rnd(-.4, .4), player.y + 1.2, player.z + co * 1.8 + rnd(-.4, .4), rnd(-1, 1), rnd(2, 5), rnd(-1, 1), 0xff8a1a, 0.35, 0.45, 0, 0);
     }
   }
   /* --- police --- */
@@ -103,12 +103,12 @@ export function update(dt) {
   for (let i = 0; i < police.length; i++) {
     const p = police[i];
     const dp = Math.hypot(p.x - player.x, p.z - player.z);
-    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, 1, p.z, 6, true, 1.6); removeCar(p); i--; continue; } }
+    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, p.y + 1, p.z, 6, true, 1.6); removeCar(p); i--; continue; } }
     else {
       driveCar(p, policeAI(p, sdt), sdt);
       p.lights.red.color.setHex(ph ? 0xff2020 : 0x330606); p.lights.blue.color.setHex(ph ? 0x061233 : 0x2a6bff);
       p.smokeT -= sdt;
-      if (p.smokeT <= 0) { p.smokeT = 0.1; if (p.hp < p.maxHp * .4) smoke(p.x + Math.sin(p.h) * p.box.e1 * .85, 1.3, p.z + Math.cos(p.h) * p.box.e1 * .85, 1, true, 1.1); if (Math.abs(p.vl) > 6 && p.speed > 10) smoke(p.x - Math.sin(p.h) * p.box.e1 * .68, 0.3, p.z - Math.cos(p.h) * p.box.e1 * .68, 1, false, 0.8); }
+      if (p.smokeT <= 0) { p.smokeT = 0.1; if (p.hp < p.maxHp * .4) smoke(p.x + Math.sin(p.h) * p.box.e1 * .85, p.y + 1.3, p.z + Math.cos(p.h) * p.box.e1 * .85, 1, true, 1.1); if (Math.abs(p.vl) > 6 && p.speed > 10) smoke(p.x - Math.sin(p.h) * p.box.e1 * .68, p.y + 0.3, p.z - Math.cos(p.h) * p.box.e1 * .68, 1, false, 0.8); }
       if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) { removeCar(p); i--; }   // lost cop replaced
     }
   }
@@ -131,11 +131,11 @@ export function update(dt) {
   for (let i = 0; i < civs.length; i++) {          // same index walk as the police loop above
     const c = civs[i];
     const dp = Math.hypot(c.x - player.x, c.z - player.z);
-    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, 1, c.z, 6, true, 1.6); removeCar(c); i--; continue; } }
+    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, c.y + 1, c.z, 6, true, 1.6); removeCar(c); i--; continue; } }
     else {
       driveCar(c, civAI(c, sdt), sdt);
       c.smokeT -= sdt;
-      if (c.smokeT <= 0) { c.smokeT = 0.1; if (c.hp < CAR_DIMS[c.kind].hp * 0.4) smoke(c.x + Math.sin(c.h) * c.box.e1 * 0.85, 1.3, c.z + Math.cos(c.h) * c.box.e1 * 0.85, 1, true, 1.1); if (Math.abs(c.vl) > 5 && c.speed > 8) smoke(c.x - Math.sin(c.h) * 1.4, 0.3, c.z - Math.cos(c.h) * 1.4, 1, false, 0.8); }
+      if (c.smokeT <= 0) { c.smokeT = 0.1; if (c.hp < CAR_DIMS[c.kind].hp * 0.4) smoke(c.x + Math.sin(c.h) * c.box.e1 * 0.85, c.y + 1.3, c.z + Math.cos(c.h) * c.box.e1 * 0.85, 1, true, 1.1); if (Math.abs(c.vl) > 5 && c.speed > 8) smoke(c.x - Math.sin(c.h) * 1.4, c.y + 0.3, c.z - Math.cos(c.h) * 1.4, 1, false, 0.8); }
       if (dp > 190) { removeCar(c); i--; }
     }
   }
@@ -159,8 +159,8 @@ export function update(dt) {
   /* --- burning tanker wrecks --- */
   for (let i = fires.length - 1; i >= 0; i--) {
     const f = fires[i]; f.life -= sdt;
-    if (Math.random() < 0.7) emit(f.x + rnd(-0.9, 0.9), 0.3, f.z + rnd(-0.9, 0.9), rnd(-1, 1), rnd(3, 7), rnd(-1, 1), Math.random() < 0.5 ? 0xff6a1a : 0xffcf4a, rnd(0.3, 0.6), rnd(0.5, 0.9), 9);
-    if (Math.random() < 0.2) smoke(f.x, 1, f.z, 1, true, 1.3);
+    if (Math.random() < 0.7) emit(f.x + rnd(-0.9, 0.9), (f.y || 0) + 0.3, f.z + rnd(-0.9, 0.9), rnd(-1, 1), rnd(3, 7), rnd(-1, 1), Math.random() < 0.5 ? 0xff6a1a : 0xffcf4a, rnd(0.3, 0.6), rnd(0.5, 0.9), 9);
+    if (Math.random() < 0.2) smoke(f.x, (f.y || 0) + 1, f.z, 1, true, 1.3);
     if (f.life <= 0) fires.splice(i, 1);
   }
   /* --- collisions --- */

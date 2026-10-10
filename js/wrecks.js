@@ -16,7 +16,7 @@ import { emit, smoke } from './particles.js';
 export function wreckTick(c, sdt) {
   driveCar(c, { throttle: 0, hand: true }, sdt); c.vx *= Math.exp(-1.2 * sdt); c.vz *= Math.exp(-1.2 * sdt);
   c.wreckT += sdt; c.smokeT -= sdt;
-  if (c.smokeT <= 0) { c.smokeT = 0.08; smoke(c.x, 1.3, c.z, 1, true, 1.2); if (Math.random() < 0.5) emit(c.x + rnd(-.6, .6), 1, c.z + rnd(-.6, .6), 0, rnd(2, 4), 0, 0xff8a1a, 0.4, 0.5, 0, 0); }
+  if (c.smokeT <= 0) { c.smokeT = 0.08; smoke(c.x, c.y + 1.3, c.z, 1, true, 1.2); if (Math.random() < 0.5) emit(c.x + rnd(-.6, .6), c.y + 1, c.z + rnd(-.6, .6), 0, rnd(2, 4), 0, 0xff8a1a, 0.4, 0.5, 0, 0); }
 }
 
 export function tickHulks(sdt) {
