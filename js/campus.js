@@ -957,10 +957,10 @@ export function buildStoreMesh(kind, bx, bz, rng) {
 // the hoops and goal posts are solids too.
 export const SPORT_DEFS = {
   hoops:      { pad: [38, 26], ground: 0xb8653a, court: 0x2d5fa8 },
-  futsal:     { pad: [46, 30], ground: 0x2f8f4e },
-  skatepark:  { pad: [38, 30], ground: 0x9aa0a6 },
-  baseball:   { pad: [52, 52], ground: 0x3f7f3a },
-  playground: { pad: [34, 28], ground: 0xd7c59a },
+  futsal:     { pad: [46, 30], ground: 0x9aa0a6, court: 0x2f8f4e },
+  skatepark:  { pad: [38, 30], ground: 0x3f7f3a, court: 0xb7bcc2 },
+  baseball:   { pad: [52, 52], ground: 0x6b6f76, court: 0x3f7f3a },
+  playground: { pad: [34, 28], ground: 0x4f8f45, court: 0xe8d49a },
 };
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
 export function buildSportMesh(kind, bx, bz, rng) {
@@ -1005,9 +1005,12 @@ export function buildSportMesh(kind, bx, bz, rng) {
     g = outer;
   };
   const [PW, PD] = S.pad;
+  // The playing surface takes about 80% of the enclosure: CW x CD is the court, the field or the deck, and a strip of
+  // the pad's own colour (A wide) is left round it. A solves (PW-2A)(PD-2A) = 0.8 PW PD. The fences stand on the pad's edge.
+  const A = (2 * (PW + PD) - Math.sqrt(4 * (PW + PD) ** 2 - 3.2 * PW * PD)) / 8, CW = PW - 2 * A, CD = PD - 2 * A;
 
   if (kind === 'hoops') {
-    const w = 28, d = 15;
+    const w = CW, d = CD;
     B(w, 0.03, d, M.court, 0, 0.015, 0);
     for (const s of [-1, 1]) { B(w, 0.02, 0.12, M.line, 0, 0.03, s * d / 2); B(0.12, 0.02, d, M.line, s * w / 2, 0.03, 0); }
     B(0.12, 0.02, d, M.line, 0, 0.03, 0);
@@ -1019,10 +1022,9 @@ export function buildSportMesh(kind, bx, bz, rng) {
         CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
       });
     }
-    fence(w + 5.6, 2.6, 0, d / 2 + 1.2, 'x'); fence(w + 5.6, 2.6, 0, -d / 2 - 1.2, 'x');
-    fence(d + 2.4, 2.6, w / 2 + 2.0, 0, 'z'); fence(d + 2.4, 2.6, -w / 2 - 2.0, 0, 'z');
+    for (const s of [-1, 1]) { fence(PW, 2.6, 0, s * PD / 2, 'x'); fence(PD, 2.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'futsal') {
-    const w = 38, d = 22;
+    const w = CW, d = CD;
     B(w, 0.03, d, M.court, 0, 0.015, 0);
     for (const s of [-1, 1]) { B(w, 0.02, 0.14, M.line, 0, 0.03, s * d / 2); B(0.14, 0.02, d, M.line, s * w / 2, 0.03, 0); }
     B(0.14, 0.02, d, M.line, 0, 0.03, 0);
@@ -1033,10 +1035,10 @@ export function buildSportMesh(kind, bx, bz, rng) {
         B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
       });
     }
-    fence(w + 2.8, 3.0, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 3.0, 0, -d / 2 - 1.0, 'x');
-    fence(d + 2.0, 3.0, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 3.0, -w / 2 - 1.0, 0, 'z');
+    for (const s of [-1, 1]) { fence(PW, 3.0, 0, s * PD / 2, 'x'); fence(PD, 3.0, s * PW / 2, 0, 'z'); }
   } else if (kind === 'skatepark') {
-    const w = 30, d = 22;
+    const w = CW, d = CD;
+    B(w, 0.03, d, M.court, 0, 0.015, 0);                 // the concrete deck, 80% of the enclosure
     for (const [rx, rz, ry] of [[-7, -3, 0], [6, 4, Math.PI / 2], [0, 7, Math.PI]]) {
       // a concrete ramp: its footprint is turned by ry, so its solid is an oriented box
       const co = Math.cos(ry), si = Math.sin(ry);
@@ -1050,17 +1052,17 @@ export function buildSportMesh(kind, bx, bz, rng) {
         const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
       });
     }
-    fence(w + 2.8, 2.6, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 2.6, 0, -d / 2 - 1.0, 'x');
-    fence(d + 2.0, 2.6, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 2.6, -w / 2 - 1.0, 0, 'z');
+    for (const s of [-1, 1]) { fence(PW, 2.6, 0, s * PD / 2, 'x'); fence(PD, 2.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'baseball') {
+    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the grass field, inside a strip of tarmac
     CYL(12, 12, 0.04, 24, M.dirt, 0, 0.02, 0);                 // infield dirt
     CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                  // pitcher's mound
     for (const [bxp, bzp] of [[9, 0], [0, -9], [-9, 0]]) B(0.7, 0.06, 0.7, M.white, bxp, 0.03, bzp);
     B(0.9, 0.04, 0.9, M.white, 0, 0.02, 9.2);                   // home plate
     fence(28, 2.4, 0, 13.5, 'x');                               // backstop
-    fence(46, 2.4, 0, -23, 'x'); fence(46, 2.4, 0, 23, 'x');
-    fence(46, 2.4, -23, 0, 'z'); fence(46, 2.4, 23, 0, 'z');
+    for (const s of [-1, 1]) { fence(PW, 2.4, 0, s * PD / 2, 'x'); fence(PD, 2.4, s * PW / 2, 0, 'z'); }
   } else if (kind === 'playground') {
+    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the sand, 80% of the enclosure; the grass round it is the pad
     // A children's play centre in the style of the reference pictures. Every piece of equipment is a breakable
     // piece. S() is a box that can be tilted about z (the slides and the seesaw plank); its height is from the ground.
     const S = (w, h, d, m, x, y, z, rz = 0) => { const b = box(w, h, d, m, x, Y + y, z, false); b.rotation.z = rz; g.add(b); };
