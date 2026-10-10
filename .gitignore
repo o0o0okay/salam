@@ -11,3 +11,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 /tmp/
+
+# Output of `npm run build` (the optional bundle)
+dist/
