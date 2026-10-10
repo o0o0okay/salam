@@ -21,7 +21,9 @@ const CIV_KINDS = [
   'oldclassic',
   'limo',
   'cementtruck',
-  'fueltanker'
+  'fueltanker',
+  'semi',
+  'semibox'
 ];
 
 const CIV_COLORS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340, 0x58c7d6, 0xf07ab8, 0xb0b8c4];
@@ -29,6 +31,7 @@ const BUS_COLORS = [0x3b82c4, 0xe8b02a, 0x3f9e48, 0xffffff];
 const PASTEL_COLORS = [0xd9c7a3, 0x9fb8d9, 0xc9a0dc, 0xdfe0c0, 0xb5d8c0, 0xe3b9a6];
 const TRUCK_COLORS = [0xe8a33a, 0xd64545, 0x3a7bd5, 0xeeeeee, 0x4a7a45];
 const TANKER_COLORS = [0xf4f4f4, 0xe8e8e8, 0xd0d0d0, 0xc7cdd2];
+const SEMI_COLORS = [0x3a7bd5, 0x4f8fc0, 0xd64545, 0xeeeeee, 0x2f7f6f];
 
 const laneHeading = (axis, dir) => axis === 'z' ? (dir > 0 ? 0 : PI) : dir * PI / 2;
 
@@ -45,6 +48,7 @@ function civColor(kind) {
   if (kind === 'limo') return Math.random() < 0.8 ? 0x111216 : 0xf2f2f2;
   if (kind === 'cementtruck') return TRUCK_COLORS[Math.floor(Math.random() * TRUCK_COLORS.length)];
   if (kind === 'fueltanker') return TANKER_COLORS[Math.floor(Math.random() * TANKER_COLORS.length)];
+  if (kind === 'semi' || kind === 'semibox') return SEMI_COLORS[Math.floor(Math.random() * SEMI_COLORS.length)];
   return CIV_COLORS[Math.floor(Math.random() * CIV_COLORS.length)];
 }
 
@@ -60,6 +64,8 @@ function civParams(kind) {
     case 'hatchback': return { maxSpeed: 28, maxReverse: 8, accel: 15, brake: 42, turn: 2.6, turnFalloff: 52, grip: 7.8 };
     case 'cementtruck': return { maxSpeed: 17, maxReverse: 5, accel: 7, brake: 26, turn: 1.25, turnFalloff: 36, grip: 9.5 };
     case 'fueltanker': return { maxSpeed: 18, maxReverse: 5, accel: 7.5, brake: 24, turn: 1.0, turnFalloff: 32, grip: 9.6 };
+    case 'semi': return { maxSpeed: 22, maxReverse: 6, accel: 9, brake: 30, turn: 1.5, turnFalloff: 40, grip: 9.2 };
+    case 'semibox': return { maxSpeed: 18, maxReverse: 5, accel: 7, brake: 24, turn: 0.95, turnFalloff: 30, grip: 9.6 };
     default: return { maxSpeed: 27, maxReverse: 8, accel: 14, brake: 40, turn: 2.4, turnFalloff: 50, grip: 8 };
   }
 }
@@ -69,7 +75,8 @@ function civCruise(kind) {
   if (kind === 'van' || kind === 'limo') return rnd(8, 11);
   if (kind === 'sportscar') return rnd(13, 18);
   if (kind === 'oldclassic') return rnd(7, 10);
-  if (kind === 'cementtruck' || kind === 'fueltanker') return rnd(6, 8.5);
+  if (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semibox') return rnd(6, 8.5);
+  if (kind === 'semi') return rnd(8, 11);
   return rnd(9, 14);
 }
 

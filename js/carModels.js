@@ -27,6 +27,8 @@ export const CAR_DIMS = {
   limo:       { e1: 3.4,  e2: 0.95, mass: 1.8,  hp: 55 },
   cementtruck:{ e1: 4.5,  e2: 1.35, mass: 5.0,  hp: 170 },
   fueltanker: { e1: 5.6,  e2: 1.35, mass: 5.6,  hp: 45 },
+  semi:    { e1: 4.1, e2: 1.3, mass: 3.6, hp: 170 },   // tractor unit alone (rigid body)
+  semibox: { e1: 7.0, e2: 1.35, mass: 6.0, hp: 170 },  // tractor with a 7.6 m box container (rigid body)
   ambulance:  { e1: 2.75, e2: 1.2,  mass: 3.4,  hp: 180 },
   firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
@@ -408,6 +410,44 @@ export function buildCar(kind, color, detail = true) {
     dualWheel(-1, -4.3); dualWheel(1, -4.3); dualWheel(-1, -5.0); dualWheel(1, -5.0); dualWheel(-1, -5.7); dualWheel(1, -5.7);
 
 
+  // ===== Semi tractor, alone or pulling a box container (reference: blue cab-over with chrome stacks and tandem drive) =====
+  } else if (kind === 'semi' || kind === 'semibox') {
+    const boxed = kind === 'semibox', s = boxed ? 3.0 : 0;   // the boxed version shifts the tractor forward under the container
+    const F = 3.9 + s;                                       // nose of the tractor
+    const trimM = mat(0x16171b), cab = mat(color), chassis = mat(0x2a2d33), chrome = mat(0xc9cdd2), grey = mat(0x9aa1a8), tankG = mat(0xb8bec6);
+    const zs = boxed ? [2.8 + s, -2.6 + s, -3.6 + s, -5.3, -6.3] : [2.8, -2.6, -3.6];
+    const dualZ = boxed ? [-2.6 + s, -3.6 + s, -5.3, -6.3] : [-2.6, -3.6];   // twin tyres on the drive and trailer axles
+    wheelZ = zs; wheelX = 1.15; wheelY = 0.52; wheelScale = 1.15; frontZ = F - 0.05; backZ = boxed ? -7.0 : -4.2; lightY = 1.0;
+    // tractor: cab, sleeper, slanted screen, grille with chrome slats, bumper, chassis, tanks, chrome exhaust stacks
+    inner.add(box(2.3, 1.75, 2.5, cab, 0, 1.6, 2.4 + s));
+    inner.add(box(2.2, 0.8, 0.4, cab, 0, 1.05, 3.45 + s));
+    inner.add(box(2.35, 0.14, 2.6, trimM, 0, 2.55, 2.45 + s, false));
+    inner.add(box(2.3, 1.9, 1.6, cab, 0, 1.85, 0.2 + s));
+    const ws = box(2.1, 0.9, 0.08, glass, 0, 2.0, 3.66 + s, false); ws.rotation.x = -0.2; inner.add(ws);
+    inner.add(box(1.5, 0.95, 0.12, trimM, 0, 1.05, 3.85 + s, false));
+    for (let i = 0; i < 4; i++) inner.add(box(1.5, 0.05, 0.05, chrome, 0, 0.72 + i * 0.22, 3.93 + s, false));
+    inner.add(box(2.4, 0.4, 0.3, grey, 0, 0.45, 3.8 + s));
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.08, 0.6, 1.0, glass, sx * 1.17, 2.0, 2.4 + s, false));
+      inner.add(box(0.18, 0.5, 0.1, trimM, sx * 1.3, 2.0, 3.0 + s, false));
+      const tank = cyl(0.4, 0.4, 1.6, 10, tankG, sx * 1.22, 1.05, -1.2 + s); tank.rotation.x = Math.PI / 2; inner.add(tank);
+      inner.add(cyl(0.12, 0.12, 2.4, 10, chrome, sx * 1.05, 2.45, -0.3 + s));
+    }
+    inner.add(box(1.8, 0.3, 6.0, chassis, 0, 0.55, -0.9 + s, false));
+    inner.add(box(1.4, 0.1, 1.0, trimM, 0, 0.8, -0.3 + s, false));     // fifth wheel
+    if (!boxed) {
+      inner.add(box(2.2, 0.3, 0.2, grey, 0, 0.45, -4.15));              // rear bumper
+      for (const sx of [-1, 1]) inner.add(box(0.5, 0.6, 0.04, trimM, sx * 1.0, 0.3, -4.05, false));   // mud flaps
+    } else {
+      // box container from z -7.0 to 0.6, with a dark underframe, a roof edge and a rear door seam
+      const white = mat(0xf2f2f2);
+      inner.add(box(2.3, 2.6, 7.6, white, 0, 1.95, -3.2));
+      inner.add(box(2.36, 0.28, 7.6, trimM, 0, 0.5, -3.2, false));
+      inner.add(box(2.36, 0.1, 7.6, grey, 0, 3.27, -3.2, false));
+      inner.add(box(0.04, 2.4, 0.04, grey, 0, 1.95, -7.02, false));
+    }
+    for (const z of dualZ) { dualWheel(-1, z); dualWheel(1, z); }
+
   // ===== NEW: Police Motorcycle =====
   } else if (kind === 'policeMoto') {
     wheelZ = [-0.95, 0.95]; wheelX = 0; frontZ = 1.3; backZ = -1.1; lightY = 0.75;
@@ -535,7 +575,7 @@ export function buildCar(kind, color, detail = true) {
     }
   }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
   consolidateBody(inner, new Set(Object.values(lights)));

@@ -6,7 +6,7 @@ import { heliModulePath } from './heli-harness.mjs';
 const world = await import(modulePath);
 const { __merge, __checked, textBlocks, generateChunk, disposeChunk, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
 // every vehicle kind the game can build (js/carModels.js); a bay asking for anything else is a bug
-const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'taxi', 'pickup', 'bus', 'schoolbus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
+const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'semi', 'semibox', 'taxi', 'pickup', 'bus', 'schoolbus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
 
 let fails = 0;
 const bad = m => { console.log('  x ' + m); fails++; };

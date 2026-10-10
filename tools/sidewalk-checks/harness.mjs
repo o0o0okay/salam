@@ -99,7 +99,7 @@ const ASSET=new Proxy({windowMats:[{},{},{},{},{},{},{},{}],roofMat:{},pavingMat
   {get:(t,k)=>k in t?t[k]:(String(k).endsWith('Geo')?new THREE.BoxGeometry(1,1,1):{})});
 const makeBuildingGeo=()=>new THREE.BoxGeometry(1,1,1);
 const facadeMat=(c,windows)=>({c,o:{windows},clone(){return {...this};},dispose(){}});
-const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
+const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','semi','semibox','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
 const REAL_DIMS=${JSON.stringify(REAL_DIMS)};
 const CAR_DIMS=new Proxy({},{get:(t,k)=>KNOWN_KINDS.has(k)?(REAL_DIMS[k]||{e1:2,e2:1,mass:1,hp:40}):undefined});
 // strict on purpose: buildCar(undefined) used to slip through a permissive stub and only blew up in the
