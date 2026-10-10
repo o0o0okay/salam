@@ -15,9 +15,10 @@ npm test             # invariant checks over the procedural city (tools/sidewalk
 npm run serve        # static preview on port 8000 (open it in a browser to play)
 ```
 
-The audit scripts in `tools/sidewalk-checks/` are documented in its `README.md`. Snapshot and plan
-scripts (`shot.mjs`, `plan-*.mjs`) write PNGs into that folder and overwrite the committed ones. Write
-them to `/tmp` (pass a path under `/tmp`) unless the user asks to update the committed images.
+The audit scripts in `tools/sidewalk-checks/` are documented in its `README.md`. Most `plan-*.mjs`
+scripts overwrite the committed PNGs in that folder. Run `git checkout -- tools/sidewalk-checks/*.png`
+afterwards unless the user asked to update those images. `shot.mjs` takes an output path, so point it at
+`/tmp`.
 
 ## Where things are
 
