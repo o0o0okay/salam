@@ -677,12 +677,14 @@ function generateChunk(cx, cz, defer = false) {
     const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
     const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
     const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
-    if (onAtGradeLane(x, z, 1.2)) return;                      // the flyover's at-grade lane runs through there
+    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
+    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
+    // The flyover's at-grade lane runs through there: test the whole shelter, not just its centre, since its ends
+    // are 2.5 m from it and the shelter is a solid.
+    for (let ax = -hx; ax <= hx + 1e-9; ax += 0.4) for (let az = -hz; az <= hz + 1e-9; az += 0.4) if (onAtGradeLane(x + ax, z + az, 0.3)) return;
     const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
     const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
     const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
-    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
-    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
     solid(x, z, hx, hz, 'busstop');
     const sEntry = ch.solids[ch.solids.length - 1];
     const rec = { mesh: g, x, z, axis: axisIsZ ? 'z' : 'x', road: roadCoord, along: axisIsZ ? z : x, broken: false, solid: sEntry };
@@ -1006,7 +1008,6 @@ function generateChunk(cx, cz, defer = false) {
       // Clamp building centre so the whole footprint stays within effective bounds
       const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
       const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
-      let hasShops = false;
       // A mid-rise under ~32 m is a walk-up in brick (brownstone / shop-house); the taller blocks keep the glass.
       const walkUp = h <= 32 && rng() < 0.85;
       const geo = makeBuildingGeo(w, h, d);
@@ -1042,7 +1043,6 @@ function generateChunk(cx, cz, defer = false) {
         sEntry.shop = { mesh: gm, x: sx, z: sz, w: shopWide, name: shop.name, kind: shop.kind, broken: false, solid: sEntry, downtown: true };
         ch.shops.push(sEntry.shop);
       }
-      hasShops = true;
       if (walkUp) walkUps.push({ clx, clz, w, d, h, alongX, faceAxis });
       // rooftop details
       if (walkUp) {
@@ -1060,9 +1060,13 @@ function generateChunk(cx, cz, defer = false) {
       } else if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
       else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
       // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
-      // reflective warning cones placed along the sidewalk line in front of it.
-      if (h > 20 && rng() < 0.3 && !hasShops) {          // a shopfront already owns the pavement face
-        const sideS = Math.floor(rng() * 4), faceLen = (sideS === 0 || sideS === 1) ? d : w;
+      // reflective warning cones placed along the sidewalk line in front of it. Every downtown building has its
+      // shopfront on the face that looks at the street, so the scaffolding goes on one of the other three faces,
+      // and only where its whole footprint stays inside the block's building line and clear of every other solid.
+      if (h > 20 && rng() < 0.3) {
+        const shopSide = alongX ? (faceAxis > 0 ? 0 : 1) : (faceAxis > 0 ? 2 : 3);
+        let sideS = Math.floor(rng() * 3); if (sideS >= shopSide) sideS++;
+        const faceLen = (sideS === 0 || sideS === 1) ? d : w;
         const sw = Math.max(4, Math.min(15, faceLen * r(0.5, 0.85)));
         const sh = Math.max(6, Math.min(h - 1.5, h * r(0.55, 0.92)));
         const sd = r(1.5, 2.2), bays = Math.max(2, Math.round(sw / r(1.8, 2.4))), levels = Math.max(3, Math.min(6, Math.round(sh / 2.6)));
@@ -1072,6 +1076,11 @@ function generateChunk(cx, cz, defer = false) {
         const dz = sideS === 2 ? d / 2 + sd / 2 + 0.6 : sideS === 3 ? -(d / 2 + sd / 2 + 0.6) : 0;
         const rotS = (sideS === 0 || sideS === 1) ? PI / 2 : 0;
         const sx = clx + dx, sz = clz + dz;
+        const fhx = rotS === 0 ? sw / 2 + 0.3 : sd / 2 + 0.3, fhz = rotS === 0 ? sd / 2 + 0.3 : sw / 2 + 0.3;
+        if (sx - fhx < loX || sx + fhx > hiX || sz - fhz < loZ || sz + fhz > hiZ) continue;
+        const clash = ch.solids.some(q => !(q.x === clx && q.z === clz && q.kind === 'building') &&
+          sx + fhx > q.x - q.hx - 0.6 && sx - fhx < q.x + q.hx + 0.6 && sz + fhz > q.z - q.hz - 0.6 && sz - fhz < q.z + q.hz + 0.6);
+        if (clash) continue;
         scaffold(sx, sz, rotS, o);
         const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
         const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
