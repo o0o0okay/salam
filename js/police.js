@@ -180,7 +180,10 @@ export function policeAI(p, dt) {
         const tu = alongOf(nf, aimX, aimZ), tv = latOf(nf, aimX, aimZ);
         const my = v >= 0 ? 1 : -1;
         const want = Math.abs(tv) > FLY.halfW ? (tv > 0 ? 1 : -1) : my;   // the lane on the player's side, or its own when the player is under the road itself
-        const beside = (u < nf.lo - FLY.deckHalf || u > nf.hi + FLY.deckHalf) && u > nf.lo - FLY.rampEnd - 3 && u < nf.hi + FLY.rampEnd + 3;
+        // On a long bridge the lane between two junction boxes is beside the structure too: the deck is up over it, and
+        // there is no crossing under it, so the car takes its own lane on to the next box (a plain flyover has none).
+        const beside = (u < nf.lo - FLY.deckHalf || u > nf.hi + FLY.deckHalf || (nf.ext > 0 && !inJunctionBox(nf, u)))
+          && u > nf.lo - FLY.rampEnd - 3 && u < nf.hi + FLY.rampEnd + 3;
         // Which way along the road the car is facing, and the first crossing point of the avenue in front of it:
         // the junction box under the deck while that is still ahead, otherwise the ground past the ramp's foot,
         // where the retaining walls end. Everything below aims at a point in front of the car, so a pursuer never
@@ -205,6 +208,7 @@ export function policeAI(p, dt) {
           // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
           // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
           if (inJunctionBox(nf, u)) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
+          else if (nf.ext > 0 && u > nf.lo && u < nf.hi) laneAim(nf, cross, Math.max(-2.5, Math.min(2.5, v)), _lane);   // mid-span on a long bridge: to the next box, not the far end
           else if (Math.max(u - nf.hi, nf.lo - u, 0) < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), Math.max(-2.5, Math.min(2.5, v)), _lane);
           else laneAim(nf, spanEnd(nf, u, beyondGuard), my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;

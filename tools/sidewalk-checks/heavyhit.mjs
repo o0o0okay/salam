@@ -88,6 +88,7 @@ const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
 const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, addParkedCarToChunk = __world.addParkedCarToChunk;
 const CHUNK = __world.CHUNK;
+const hash2 = (x, y) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return (h ^ (h >>> 16)) >>> 0; };   // js/utils.js's hash2, which flyover.js imports
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const CAR_DIMS = __world.CAR_DIMS;
@@ -810,13 +811,15 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
 // has to pass underneath, not be lifted onto it. The expected heights are worked out here from the geometry alone.
 {
   const longs = [];
+  // every long bridge in the first 125 blocks, on both main roads (the city's first few are two and three junctions long)
   for (const axis of ['z', 'x']) {
-    for (let b = 5; b <= 60; b++) {
+    for (let b = 5; b <= 125; b++) {
       const f = axis === 'z' ? M.nodeAt(0, b) : M.nodeAt(b, 0);
-      if (f && f.ext > 0) { longs.push(f); break; }
+      if (f && f.ext > 0) longs.push(f);
     }
   }
-  if (longs.length < 2) bad('no long bridge found on the avenue and the cross street');
+  if (!longs.some(f => f.axis === 'z') || !longs.some(f => f.axis === 'x')) bad('no long bridge found on the avenue and on the cross street');
+  if (!longs.some(f => f.ext === 1) || !longs.some(f => f.ext === 2)) bad('the city has no two-junction or no three-junction bridge to test');
   for (const f of longs) {
     const F = M.FLY, H = F.deckH, alongX = f.axis === 'x';
     const wx = (u, v) => alongX ? f.node + u : f.road + v;

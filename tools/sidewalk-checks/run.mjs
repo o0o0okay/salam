@@ -487,7 +487,60 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     for (let ix = -13; ix <= 13; ix++) for (let iz = -13; iz <= 13; iz++) { const f = nodeAt(ix, iz); if (f) nodes.push(f); }
     if (!nodes.length) bad('no grade-separated interchange anywhere near the start of the game');
     if (nodeAt(0, 0)) bad('the junction the player starts at is a flyover');
+    // The junctions a flyover opens beside: one block either way from the start, or for a long bridge the block in
+    // front of its start and the one past its far end (the blocks between are on the deck, with no cut corners).
+    const besideAlong = f => { const s = Math.sign(f.node); return f.ext ? [-s, s * (f.ext + 1)] : [-1, 1]; };
+    // A long bridge (ext > 0) is checked on its own. Its deck is flat over the whole span, so the per-junction ramp rules
+    // below do not describe it. What is checked here: the deck tiles the span on both sides with no gaps and sits at the
+    // driving height; the start and the far end each carry a ramp on the side away from the span; no ramp stands over
+    // the span; and nothing reaches past the span plus one ramp run at either end.
+    const checkLongBridge = f => {
+      const s = Math.sign(f.node), far = f.node + s * f.ext * FLY.span, key = `${f.axis}@${f.node}`;
+      const sc = (p) => s * (p.node + p.u);                      // along the road, positive towards the far end
+      const sNode = s * f.node, sFar = s * far;
+      const parts = [], seen = new Set();
+      for (let w = Math.min(f.node, far) - CHUNK; w <= Math.max(f.node, far) + CHUNK; w += CHUNK) {
+        for (const r of [f.road, f.road - CHUNK]) {
+          const cx = f.axis === 'z' ? r / CHUNK : w / CHUNK, cz = f.axis === 'z' ? w / CHUNK : r / CHUNK;
+          for (const ch of [chunks.get(ck(cx, cz)), generateChunk(cx, cz, true)]) {
+            if (!ch || !ch.flyover) continue;
+            for (const p of ch.flyover.pieces) if (p.axis === f.axis && (p.node === f.node || p.node === far)) {
+              const k = `${p.node}|${p.role}|${p.u.toFixed(4)}|${p.v.toFixed(4)}|${p.y.toFixed(4)}`;
+              if (!seen.has(k)) { seen.add(k); parts.push(p); }
+            }
+          }
+        }
+      }
+      if (!parts.length) { bad(`${key}: a long bridge raised no structure at all`); return; }
+      const RAMP = new Set(['embankment', 'approach', 'parapet-ramp', 'coping-ramp']);
+      const DECK = new Set(['deck', 'deck-wear', 'parapet-deck', 'coping-deck', 'dash', 'hazard']);
+      for (const p of parts) {
+        if (Math.abs(p.v) > W + 0.01) bad(`${key}: a piece sits ${Math.abs(p.v).toFixed(2)} m off the road centre line (half width is ${W})`);
+        // the centre of a piece, as the per-junction rule measures it (a ramp's slab is longer than its run)
+        if (sc(p) < sNode - FLY.rampEnd - 0.02 || sc(p) > sFar + FLY.rampEnd + 0.02)
+          bad(`${key}: a ${p.role} stands ${sc(p).toFixed(2)} m along the road, past the far ramp's end (${(sFar + FLY.rampEnd).toFixed(2)})`);
+        if (RAMP.has(p.role) && sc(p) > sNode + 0.01 && sc(p) < sFar - 0.01)
+          bad(`${key}: a ${p.role} stands at ${sc(p).toFixed(2)} m, over the bridge's flat span`);
+        if (DECK.has(p.role) && sc(p) > sNode + 0.01 && sc(p) < sFar - 0.01 && p.role === 'deck' && !near2(p.y + p.h / 2 + 0.08, FLY.deckH))
+          bad(`${key}: a deck's driving surface is at ${(p.y + p.h / 2 + 0.08).toFixed(2)} m, not the ${FLY.deckH} m cars are settled on`);
+      }
+      // the deck over the span, on each side of the centre line: the slabs have to meet end to end
+      for (const sv of [1, -1]) {
+        const slabs = parts.filter(p => p.role === 'deck' && Math.sign(p.v) === sv).map(p => [sc(p) - p.d / 2, sc(p) + p.d / 2]).sort((a, b) => a[0] - b[0]);
+        let cur = sNode, gap = null;
+        for (const [a, b] of slabs) { if (a > cur + 0.01 && gap === null) gap = cur; cur = Math.max(cur, b); }
+        if (gap !== null || cur < sFar - 0.01) bad(`${key}: the deck on side ${sv} does not run unbroken across the ${f.ext + 1}-junction span (${slabs.length} slabs)`);
+      }
+      // a ramp at each end, on the side away from the span, on both sides of the centre line
+      for (const sv of [1, -1]) {
+        const ramps = parts.filter(p => p.role === 'approach' && Math.sign(p.v) === sv);
+        const inner = ramps.filter(p => sc(p) < sNode).length, outer = ramps.filter(p => sc(p) > sFar).length;
+        if (inner < 1) bad(`${key}: no ramp at the start on side ${sv}`);
+        if (outer < 1) bad(`${key}: no ramp at the far end on side ${sv}`);
+      }
+    };
     for (const f of nodes) {
+      if (f.ext > 0) { checkLongBridge(f); continue; }
       const key = `${f.axis}@${f.node}`, at = (u, v) => f.axis === 'z' ? [f.road + v, f.node + u] : [f.node + u, f.road + v];
       // the four blocks that front this junction
       const cxs = f.axis === 'z' ? [f.road, f.road - CHUNK] : [f.node, f.node - CHUNK];
@@ -596,6 +649,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     // ---- the surface the physics hands a car, on both axes ----
     for (const f of nodes) {
+      if (f.ext > 0) continue;
       const [ax, az] = f.axis === 'z' ? [f.road, f.node] : [f.node, f.road];
       const along = (t) => f.axis === 'z' ? [ax, az + t] : [ax + t, az];
       if (Math.abs(surfaceAt(...along(0), FLY.deckH) - FLY.deckH) > 1e-9) bad('a car on a deck over the junction is not handed the deck');
@@ -761,7 +815,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
           // `FLY.chamfer` measured from the corner where the two kerbs meet (see js/world.js `cutClear`). Nothing
           // a block around such a junction stands on its own ground — a tree, a tree pit's kerb, a light, a
           // hydrant, a bin, a post-box, a meter, a hedge — may still be inside one of those cuts.
-          for (const along of [-1, 1]) {
+          for (const along of besideAlong(f2)) {
             // the junction one block either way along the flying road, and the four blocks that meet at it
             const jc = (f2.axis === 'z' ? f2.node : f2.road) / CHUNK + along;
             const jx3 = f2.axis === 'z' ? 0 : jc * CHUNK, jz3 = f2.axis === 'z' ? jc * CHUNK : 0;
@@ -808,7 +862,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
         // the carriageway right where the ramp comes down. The chunk records where its poles went; this reads
         // them back, and fails if the junction built none at all (that would make the check pass for free).
         const n = Math.round(f2.node / CHUNK);
-        const endChunks = f2.axis === 'z' ? [[0, n - 1], [0, n + 1]] : [[n - 1, 0], [n + 1, 0]];
+        const endChunks = besideAlong(f2).map(a => f2.axis === 'z' ? [0, n + a] : [n + a, 0]);
         for (const [jx, jz] of endChunks) {
           const jch = generateChunk(jx, jz, false);
           const poles = jch.signalPoles || [];

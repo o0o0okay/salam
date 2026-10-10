@@ -169,7 +169,7 @@ const bad = m => { fails++; console.log('  X ' + m); };
 }
 
 // The first flyover on the avenue: x = 0, the flying road runs along z. CHASE_BLOCK=<n> puts the same scenarios on the
-// flyover n blocks from the centre instead, e.g. the first long bridge (CHASE_BLOCK=46 in the current city).
+// flyover n blocks from the centre instead, e.g. CHASE_BLOCK=11 is the first long bridge in the current city (two junctions).
 const NODE = process.env.CHASE_BLOCK ? +process.env.CHASE_BLOCK * W.FLY.span : W.nearestNode(0, -1).node;
 const FLY = W.FLY, LANE = FLY.halfW + 7;       // middle of the at-grade lane beside the structure's flank
 console.log(`police chase at the flyover on the avenue at z = ${NODE} (deck ±${FLY.deckHalf} m of it, ramp foot at ±${FLY.rampEnd} m, at-grade lane at ±${LANE} m)`);

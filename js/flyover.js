@@ -112,8 +112,10 @@ export function nodeBlock(blocks) {
 // the next. The extent is a hash of the block index, so every block computes the same bridges.
 export const bridgeExt = b => {
   if (b < FLY.minGap) return 0;
-  const e = hash(b * 13 + 5);
-  return e % 3 === 0 ? 1 + ((e >>> 4) & 1) : 0;
+  // About one bridge in three is long (hash2 with a fixed salt, so the layout is the same for everyone). The salt is
+  // chosen so the long ones are spread through the first few junctions, not left to the far end of the city: the
+  // first is at 880 m, and the flyover at the spawn-side block (5) stays a plain one, as the checks expect.
+  return hash2(b, 58) % 3 === 0 ? 1 + (hash2(b, 108) & 1) : 0;
 };
 // The record of the flyover at `b` blocks from the centre on side `s`. `lo` and `hi` are the along-road extent of the
 // deck measured from the start junction: [0, 0] for an ordinary flyover, [0, ext * span] going outward otherwise.
