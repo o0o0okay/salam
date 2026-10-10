@@ -951,14 +951,13 @@ export function buildStoreMesh(kind, bx, bz, rng) {
   return { group: g, solids, bays };
 }
 
-// ---- Sports and play grounds: basketball, futsal, skate park, baseball diamond, playground ----
+// ---- Sports and play grounds: basketball, futsal, baseball diamond, golf, playground ----
 // Each one is a fenced ground with its own markings and fittings. The fences are solids, so a car stops at them
 // the way it would at a real chain-link fence, and each fence panel breaks on a hard hit (see the fencePieces);
 // the hoops and goal posts are solids too.
 export const SPORT_DEFS = {
   hoops:      { pad: [38, 26], ground: 0xb8653a, court: 0x2d5fa8 },
   futsal:     { pad: [46, 30], ground: 0x9aa0a6, court: 0x2f8f4e },
-  skatepark:  { pad: [38, 30], ground: 0x3f7f3a, court: 0xb7bcc2 },
   baseball:   { pad: [52, 52], ground: 0x6b6f76, court: 0x3f7f3a },
   playground: { pad: [34, 28], ground: 0x4f8f45, court: 0xe8d49a },
   golf:       { pad: [48, 48], ground: 0x2f6b35, court: 0x6fb85a },
@@ -1053,23 +1052,6 @@ export function buildSportMesh(kind, bx, bz, rng) {
       piece({ x: s * w / 2, z: 0, hx: 0.2, hz: 3.7, kind: 'goal', brk: 5, color: 0xffffff }, () => {
         for (const zz of [-3.6, 3.6]) CYL(0.06, 0.06, 2.1, 6, M.white, s * w / 2, 1.05, zz);
         B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
-      });
-    }
-    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
-  } else if (kind === 'skatepark') {
-    const w = CW, d = CD;
-    B(w, 0.03, d, M.court, 0, 0.015, 0);                 // the concrete deck, 80% of the enclosure
-    for (const [rx, rz, ry] of [[-7, -3, 0], [6, 4, Math.PI / 2], [0, 7, Math.PI]]) {
-      // a concrete ramp: its footprint is turned by ry, so its solid is an oriented box
-      const co = Math.cos(ry), si = Math.sin(ry);
-      piece({ x: rx, z: rz, hx: Math.abs(co) * 2.1 + Math.abs(si) * 3.0, hz: Math.abs(si) * 2.1 + Math.abs(co) * 3.0,
-        kind: 'ramp', brk: 9, color: 0xb7bcc2, obox: { ux: co, uz: -si, vx: si, vz: co, e1: 2.1, e2: 3.0 } }, () => {
-        const r = box(4.2, 0.9, 6.0, M.concrete, rx, Y + 0.45, rz); r.rotation.x = 0.26; r.rotation.y = ry; g.add(r);
-      });
-    }
-    for (const [rx, rz] of [[-2, -6], [9, -2]]) {
-      piece({ x: rx, z: rz, hx: 1.7, hz: 0.1, kind: 'rail', brk: 6, color: 0x9aa3ab }, () => {
-        const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
       });
     }
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
