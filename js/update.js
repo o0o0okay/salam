@@ -80,8 +80,8 @@ export function update(dt) {
   if (playing) {
     game.spawnT -= sdt;
     if (game.spawnT <= 0) {
-      const active = police.filter(p => !p.wrecked).length,
-            maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][game.wanted - 1] * DIFF.count));
+      let active = 0; for (const p of police) if (!p.wrecked) active++;
+      const maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][game.wanted - 1] * DIFF.count));
       if (game.tierSpawnPending) { if (spawnPolice(game.tierSpawnPending)) game.tierSpawnPending = 0; }
       else if (active < maxP) spawnPolice();
       game.spawnT = Math.max(1.15, 4.1 - game.wanted * .5 - game.time * 0.012) * DIFF.spawn * rnd(0.8, 1.2);
@@ -120,7 +120,8 @@ export function update(dt) {
     game.civT -= sdt;
     if (game.civT <= 0) {
       game.civT = 0.7;
-      const alive = civs.filter(c => !c.wrecked).length, maxC = menu ? 10 : 13;
+      let alive = 0; for (const c of civs) if (!c.wrecked) alive++;
+      const maxC = menu ? 10 : 13;
       if (alive < maxC) spawnCiv();
     }
   }
