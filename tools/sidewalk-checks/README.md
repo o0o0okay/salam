@@ -21,6 +21,8 @@ node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a par
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
 node tools/sidewalk-checks/plan-roadworks.mjs  # one closed lane: the slabs as laid, the kit around them, the old slab
 node tools/sidewalk-checks/plan-flyover.mjs  # grade-separated interchange: plan + two sections
+node tools/sidewalk-checks/solid-index.mjs  # the solid index (solidsNear) returns exactly what the old 3x3 scan returned
+node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
