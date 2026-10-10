@@ -1016,14 +1016,47 @@ export function buildSportMesh(kind, bx, bz, rng) {
     fence(46, 2.4, 0, -23, 'x'); fence(46, 2.4, 0, 23, 'x');
     fence(46, 2.4, -23, 0, 'z'); fence(46, 2.4, 23, 0, 'z');
   } else if (kind === 'playground') {
-    B(9, 0.04, 6, M.sand, -8, 0.02, -5);                        // sandpit
-    for (const xx of [5.5, 8.5]) B(0.8, 0.1, 0.45, M.dark, xx, 1.2, -6);   // swing seats
-    for (const xx of [3, 11]) CYL(0.08, 0.08, 2.6, 6, M.metal, xx, 1.3, -6);   // swing frame posts
-    B(9, 0.12, 0.12, M.metal, 7, 2.6, -6);
-    for (const xx of [5.5, 8.5]) for (const dz of [-0.2, 0.2]) CYL(0.02, 0.02, 1.4, 4, M.dark, xx + dz, 1.9, -6);
-    for (const cx of [4, 8]) for (const cz of [3, 7]) CYL(0.1, 0.1, 2.4, 6, M.wood, cx, 1.2, cz);   // climbing frame
-    B(4.6, 0.12, 4.6, M.wood, 6, 2.4, 5);
-    const slide = box(0.8, 0.1, 4.2, M.red, 10.2, 1.3, 2.4); slide.rotation.x = -0.3; g.add(slide);
+    // A children's play centre in the style of the reference pictures: a tower with a pitched roof and a platform,
+    // a yellow and a red slide down from it, a swing frame with two seats, a seesaw, a climbing arch and a sandpit.
+    // S() is a box that can be tilted about z (the slides and the seesaw plank); its height is measured from the ground.
+    const S = (w, h, d, m, x, y, z, rz = 0) => { const b = box(w, h, d, m, x, Y + y, z, false); b.rotation.z = rz; g.add(b); };
+    const TW = { x: -2, z: -4 };                                       // tower centre
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 3.4, 0.14, M.wood, TW.x + sx * 2, 1.7, TW.z + sz * 2, false);
+    B(4.4, 0.14, 4.4, M.wood, TW.x, 2.0, TW.z, false);                 // platform deck
+    const roof = cyl(0.01, 3.0, 1.0, 4, M.blue, TW.x, Y + 3.9, TW.z, false); roof.rotation.y = PI / 4; g.add(roof);
+    B(0.1, 1.2, 0.1, M.yellow, TW.x, 4.5, TW.z, false);                // little flag pole on the roof
+    solid(TW.x, TW.z, 2.2, 2.2, 'playground');                         // the tower itself stops a car
+    for (const k of [0.4, 0.9, 1.4, 1.9]) B(1.2, 0.08, 0.12, M.yellow, TW.x, k, TW.z + 2.3, false);   // ladder rungs
+    for (const dx of [-0.6, 0.6]) B(0.08, 2.0, 0.08, M.metal, TW.x + dx, 1.0, TW.z + 2.3, false);     // ladder rails
+    // yellow slide to the east, red slide to the west: each runs from the deck (y 2.0) down to the ground (y 0.3)
+    S(5.3, 0.12, 0.8, M.yellow, 2.7, 1.15, TW.z, -0.33);
+    S(5.3, 0.12, 0.8, M.red, -6.7, 1.15, TW.z, 0.33);
+    // swing frame: a top bar on two posts at each end, two seats hanging from chains
+    const SW = { x: -7, z: 6 };
+    B(6.4, 0.12, 0.12, M.metal, SW.x, 2.6, SW.z, false);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.1, 2.6, 0.1, M.metal, SW.x + sx * 3.2, 1.3, SW.z + sz * 0.6, false);
+    for (const sx of [-1, 1]) {
+      for (const dx of [-0.3, 0.3]) B(0.03, 1.4, 0.03, M.dark, SW.x + sx * 1.4 + dx, 1.9, SW.z, false);
+      B(0.9, 0.08, 0.4, M.wood, SW.x + sx * 1.4, 1.2, SW.z, false);
+    }
+    solid(SW.x, SW.z, 3.4, 0.7, 'playground');
+    // seesaw: a pivot block and a tilted plank with a handle on each side
+    B(0.6, 0.5, 0.6, M.blue, 3, 0.25, 6, false);
+    S(4.0, 0.12, 0.6, M.yellow, 3, 0.6, 6, 0.1);
+    // climbing arch: a semicircle of red tube in the x-y plane (two arches, one each side), with yellow rungs across
+    const AR = { x: 10, z: -6, R: 1.6, N: 8 };
+    for (const dz of [-0.4, 0.4]) for (let i = 0; i < AR.N; i++) {
+      const th = Math.PI * (i + 0.5) / AR.N;
+      S(0.7, 0.14, 0.14, M.red, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z + dz, th + Math.PI / 2);
+    }
+    for (let k = 1; k < AR.N; k++) {
+      const th = Math.PI * k / AR.N;
+      B(0.1, 0.1, 0.9, M.yellow, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z, false);
+    }
+    // sandpit with a wooden border, and grass in the corners of the ground
+    B(6.4, 0.06, 4.4, M.wood, 10, 0.03, 8, false);
+    B(6.0, 0.08, 4.0, M.sand, 10, 0.04, 8, false);
+    for (const [gx, gz] of [[14.5, 11.5], [-14.5, 11.5], [-14.5, -11.5]]) B(3, 0.05, 3, M.green, gx, 0.02, gz, false);
     fence(34, 1.4, 0, 14, 'x'); fence(34, 1.4, 0, -14, 'x');
     fence(28, 1.4, 17, 0, 'z'); fence(28, 1.4, -17, 0, 'z');
   }
