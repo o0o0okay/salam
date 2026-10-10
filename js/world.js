@@ -1428,6 +1428,20 @@ function generateChunk(cx, cz, defer = false) {
     K.group.position.set(bxo, 0, bzo);
     bake(ch, K.group);
     for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+    // The fence panels are handed over one by one, like the schoolyard fence (see the school branch): each is its
+    // own solid and its own mesh, so a hard hit takes panels down and they tumble off the pad.
+    for (const pc of K.fencePieces) {
+      const pm = own(ch, mergeStandalone(pc.group));
+      pm.position.set(pc.x, 0, pc.z);
+      group.add(pm);
+      pc.mesh = pm;
+      solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
+      const sEntry = ch.solids[ch.solids.length - 1];
+      sEntry.fence = true;
+      sEntry.fencePiece = pc;
+      pc.solid = sEntry;
+      ch.fencePanels.push(pc);
+    }
     prop('bench', bxo + S.pad[0] / 2 - 4, bzo - S.pad[1] / 2 + 3, 0, lotSurfaceY + 0.15);
   } else if (type === 'school') {
     // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and

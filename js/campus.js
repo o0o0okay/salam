@@ -933,7 +933,8 @@ export function buildStoreMesh(kind, bx, bz, rng) {
 
 // ---- Sports and play grounds: basketball, futsal, skate park, baseball diamond, playground ----
 // Each one is a fenced ground with its own markings and fittings. The fences are solids, so a car stops at them
-// the way it would at a real chain-link fence; the hoops and goal posts are solids too.
+// the way it would at a real chain-link fence, and each fence panel breaks on a hard hit (see the fencePieces);
+// the hoops and goal posts are solids too.
 export const SPORT_DEFS = {
   hoops:      { pad: [38, 26], ground: 0xb8653a, court: 0x2d5fa8 },
   futsal:     { pad: [46, 30], ground: 0x2f8f4e },
@@ -955,10 +956,20 @@ export function buildSportMesh(kind, bx, bz, rng) {
   const B = (w, h, d, m, x, y, z, cast = false) => g.add(box(w, h, d, m, x, Y + y, z, cast));
   const CYL = (rt, rb, h, seg, m, x, y, z, cast = false) => g.add(cyl(rt, rb, h, seg, m, x, Y + y, z, cast));
   const solid = (x, z, hx, hz, k) => solids.push({ x: bx + x, z: bz + z, hx, hz, kind: k });
-  // a straight fence panel of length L along x or z, centred on (x, z), with its solid
+  // A fence run of length L along x or z, centred on (x, z). It is cut into panels of about 7 m, and every panel is
+  // a stand-alone piece with its own group, so the world can register it as a breakable solid: a hard hit takes down
+  // the panel it lands on (and the ones next to it), the same way the schoolyard fence comes down.
+  const fencePieces = [];
   const fence = (L, h, x, z, along) => {
-    if (along === 'x') { B(L, h, 0.08, M.fence, x, h / 2, z); solid(x, z, L / 2, 0.12, 'fence'); }
-    else { B(0.08, h, L, M.fence, x, h / 2, z); solid(x, z, 0.12, L / 2, 'fence'); }
+    const alongX = along === 'x', segs = Math.max(1, Math.round(L / 7)), segLen = L / segs;
+    for (let i = 0; i < segs; i++) {
+      const off = -L / 2 + (i + 0.5) * segLen;
+      const grp = new THREE.Group();
+      grp.add(alongX ? box(segLen, h, 0.08, M.fence, 0, Y + h / 2, 0, false)
+                     : box(0.08, h, segLen, M.fence, 0, Y + h / 2, 0, false));
+      fencePieces.push({ group: grp, x: bx + x + (alongX ? off : 0), z: bz + z + (alongX ? 0 : off),
+        hx: alongX ? segLen / 2 : 0.12, hz: alongX ? 0.12 : segLen / 2, alongX, segLen, mesh: null, broken: false });
+    }
   };
   const [PW, PD] = S.pad;
 
@@ -1016,5 +1027,5 @@ export function buildSportMesh(kind, bx, bz, rng) {
     fence(34, 1.4, 0, 14, 'x'); fence(34, 1.4, 0, -14, 'x');
     fence(28, 1.4, 17, 0, 'z'); fence(28, 1.4, -17, 0, 'z');
   }
-  return { group: g, solids, pad: [PW, PD] };
+  return { group: g, solids, pad: [PW, PD], fencePieces };
 }
