@@ -671,6 +671,86 @@ function buildPlazaIsland(radius) {
   return g;
 }
 
+/* ---- Estates ----
+ * On some suburb blocks the street grid of the block gives way to a residential estate: one curved road that
+ * comes in from one edge of the block's pad, bends into a loop or a hairpin and ends in a cul-de-sac, with houses
+ * set along both sides of it so they follow its curves. The estate's road is the only road inside the block and
+ * it joins the grid at that one edge; no civilian or police traffic is routed onto it.
+ *
+ * planEstate() is pure geometry: it returns the centre line (world x/z and tangent), the cul-de-sac, the house
+ * footprints and the trees, or null when no layout fits the pad after a few tries (the block then keeps its
+ * ordinary house grid). Houses are registered as axis-aligned solids, each the bounding box of its rotated footprint;
+ * the planner keeps every house at least 5 m from the road's centre line, so no solid sits on the road.
+ */
+const ESTATE_ROAD = 3.5, ESTATE_DISC = 6;
+function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
+  const mx = (lo_x + hi_x) / 2, mz = (lo_z + hi_z) / 2;
+  const Du = side < 2 ? hi_x - lo_x : hi_z - lo_z;        // depth of the pad from the chosen edge, inward
+  const Hv = (side < 2 ? hi_z - lo_z : hi_x - lo_x) / 2;  // half the length of that edge
+  if (Du < 34 || Hv < 16) return null;
+  // (u, v): u runs inward from the edge, v runs along it from the middle of the pad
+  const toW = (u, v) => side === 0 ? [lo_x + u, mz + v] : side === 1 ? [hi_x - u, mz + v] : side === 2 ? [mx + v, lo_z + u] : [mx + v, hi_z - u];
+  // the first path that fits with 6 houses or more wins; otherwise the one with the most houses (at least 4)
+  let best = null;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const s = r(0, 1) < 0.5 ? 1 : -1;
+    const pts = [];
+    let u = 0, v = r(-4, 4), a = 0;
+    const line = L => { const n = Math.max(1, Math.round(L / 0.5)), st = L / n; for (let i = 0; i < n; i++) { pts.push([u, v]); u += Math.cos(a) * st; v += Math.sin(a) * st; } };
+    const arc = (R, ang) => { const n = Math.max(2, Math.round(Math.abs(ang) * R / 0.5)), st = Math.abs(ang) * R / n; for (let i = 0; i < n; i++) { pts.push([u, v]); u += Math.cos(a) * st; v += Math.sin(a) * st; a += ang / n; } };
+    const L1 = r(26, 34);
+    line(L1); arc(r(6, 7), s * r(2.6, 3.4)); line(r(4, Math.max(4, L1 - 18))); arc(r(6, 7), -s * r(0.3, 0.7)); line(r(2, 3));
+    pts.push([u, v]);
+    // the first 4 m run out from the edge itself; past that the path keeps 4 m off the edge, the cul-de-sac centre 6.5 m (its radius is 6), and both stay clear of the sides
+    if (pts.some(([pu, pv], i) => (i > 8 && pu < (i === pts.length - 1 ? 6.5 : 4)) || pu > Du - 8 || Math.abs(pv) > Hv - 8)) continue;
+    const ribbon = pts.map(([pu, pv], i) => {
+      const [x, z] = toW(pu, pv), [ax, az] = toW(...pts[Math.max(0, i - 1)]), [bx2, bz2] = toW(...pts[Math.min(pts.length - 1, i + 1)]);
+      const dx = bx2 - ax, dz = bz2 - az, len = Math.hypot(dx, dz) || 1;
+      return { x, z, tx: dx / len, tz: dz / len };
+    });
+    const last = ribbon[ribbon.length - 1], disc = { x: last.x, z: last.z, r: ESTATE_DISC };
+    // distance from a rectangle (centre c, axes t and n, half sizes w/2 and d/2) to a point
+    const rectDist = (cx, cz, tx, tz, w, d, px, pz) => {
+      const dx = px - cx, dz = pz - cz, du = Math.abs(dx * tx + dz * tz) - w / 2, dn = Math.abs(dx * -tz + dz * tx) - d / 2;
+      return Math.hypot(Math.max(du, 0), Math.max(dn, 0));
+    };
+    const houses = [];
+    let acc = 0, nextAt = r(2, 5);
+    for (let i = 1; i < ribbon.length - 1; i++) {
+      acc += Math.hypot(ribbon[i].x - ribbon[i - 1].x, ribbon[i].z - ribbon[i - 1].z);
+      if (acc < nextAt) continue;
+      nextAt += 9;
+      const p = ribbon[i];
+      for (const k of [-1, 1]) {
+        const w = r(9, 10.5), d = r(7, 8.5), h = r(4.5, 6);
+        const nx = -p.tz, nz = p.tx, dOff = ESTATE_ROAD + 2.6 + d / 2;
+        const cx2 = p.x + k * nx * dOff, cz2 = p.z + k * nz * dOff;
+        const ca = Math.abs(p.tx), sa = Math.abs(p.tz);
+        const hxA = (w * ca + d * sa) / 2, hzA = (w * sa + d * ca) / 2;
+        if (cx2 - hxA < lo_x + 1 || cx2 + hxA > hi_x - 1 || cz2 - hzA < lo_z + 1 || cz2 + hzA > hi_z - 1) continue;
+        let clear = true;
+        for (let j = 0; j < ribbon.length && clear; j += 2) if (rectDist(cx2, cz2, p.tx, p.tz, w, d, ribbon[j].x, ribbon[j].z) < ESTATE_ROAD + 1.5) clear = false;
+        if (clear && rectDist(cx2, cz2, p.tx, p.tz, w, d, disc.x, disc.z) < ESTATE_DISC + 1.5) clear = false;
+        if (!clear) continue;
+        if (houses.some(o => Math.abs(o.x - cx2) < o.hxA + hxA + 1.2 && Math.abs(o.z - cz2) < o.hzA + hzA + 1.2)) continue;
+        houses.push({ x: cx2, z: cz2, w, d, h, tx: p.tx, tz: p.tz, k, hxA, hzA });
+      }
+    }
+    if (houses.length < 4) continue;
+    const trees = [];
+    for (let a2 = 0; a2 < 40 && trees.length < 7; a2++) {
+      const x = r(lo_x + 2, hi_x - 2), z = r(lo_z + 2, hi_z - 2);
+      let ok = Math.hypot(x - disc.x, z - disc.z) >= ESTATE_DISC + 4;
+      for (let j = 0; ok && j < ribbon.length; j += 2) if (Math.hypot(x - ribbon[j].x, z - ribbon[j].z) < ESTATE_ROAD + 4) ok = false;
+      if (ok && houses.some(o => Math.abs(o.x - x) < o.hxA + 2.5 && Math.abs(o.z - z) < o.hzA + 2.5)) ok = false;
+      if (ok) trees.push({ x, z });
+    }
+    if (!best || houses.length > best.houses.length) best = { side, ribbon, disc, houses, trees };
+    if (houses.length >= 6) break;
+  }
+  return best;
+}
+
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
@@ -1048,12 +1128,14 @@ function generateChunk(cx, cz, defer = false) {
     : t < 0.985 ? 'school' : 'industrial';
   // Standalone shops and services (grocery, fast food, pizza, gym, car showroom, pharmacy) take about one commercial or
   // suburban block in ten. The roll comes from the block's own hash, so it is the same every time the block is built.
+  // Suburb blocks become estates (see planEstate) unless they are beside a flyover lane or at spawn.
+  const estateNow = type === 'suburb' && !laneBlock && !nearSpawn;
   const storeRoll = hash2(cx, cz);
-  if (!laneBlock && !nearSpawn && (type === 'commercial' || type === 'suburb') && (storeRoll & 0xFF) < 26)
+  if (!laneBlock && !nearSpawn && (type === 'commercial' || (type === 'suburb' && !estateNow)) && (storeRoll & 0xFF) < 26)
     type = STORE_KINDS[(storeRoll >>> 8) % STORE_KINDS.length];
   // Sports and play grounds: about 15% of park or suburban blocks, from its own hash (a different one from the shops).
   const sportRoll = hash2(cx + 31, cz - 17);
-  if (!laneBlock && !nearSpawn && (type === 'park' || type === 'suburb') && (sportRoll & 0xFF) < 40)
+  if (!laneBlock && !nearSpawn && (type === 'park' || (type === 'suburb' && !estateNow)) && (sportRoll & 0xFF) < 40)
     type = SPORT_KINDS[(sportRoll >>> 8) % SPORT_KINDS.length];
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
@@ -1207,6 +1289,48 @@ function generateChunk(cx, cz, defer = false) {
     const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
     padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
     const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
+    // ---- estate (see planEstate): a curved road, its houses on both sides and a cul-de-sac, instead of the grid ----
+    let plan = null;
+    if (estateNow) {
+      const sides = [0, 1, 2, 3].filter(si => !atGradeSide(cx, cz, si));
+      if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(r(0, sides.length))], r);
+    }
+    if (plan) {
+      const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.29;      // the road sits on the pad, under the walkway's own height
+      const pos = [], idx = [], nrm = [];
+      plan.ribbon.forEach((p, i) => {
+        const ox = -p.tz * ESTATE_ROAD, oz = p.tx * ESTATE_ROAD;
+        pos.push(p.x + ox, Y, p.z + oz, p.x - ox, Y, p.z - oz);
+        nrm.push(0, 1, 0, 0, 1, 0);                                       // the road is flat: every vertex faces up
+        if (i > 0) { const a = 2 * (i - 1), b = 2 * i; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+      });
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3)); rg.setIndex(idx);
+      add(new THREE.Mesh(rg, asph)); ch.geos.push(rg);
+      plan.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
+        if (i % 8 === 0 && i > 2 && i < plan.ribbon.length - 4) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
+      });
+      add(cyl(plan.disc.r, plan.disc.r, 0.04, 28, asph, plan.disc.x, Y + 0.02, plan.disc.z, false));
+      for (const h of plan.houses) {
+        const hg = new THREE.Group();
+        hg.position.set(h.x, 0, h.z); hg.rotation.y = Math.atan2(-h.tz, h.tx);   // local +x runs along the road, +z away from it
+        const wc = walls[Math.floor(r(0, walls.length))], rc = roofs[Math.floor(r(0, roofs.length))];
+        hg.add(box(h.w, h.h, h.d, mat(wc), 0, h.h / 2 + 0.25, 0));
+        const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(h.w * 1.15, 3.2, h.d * 1.15); roof.position.set(0, h.h + 0.25 + 1.6, 0); roof.castShadow = true; hg.add(roof);
+        const front = -h.k * (h.d / 2);                                   // the front faces the road
+        hg.add(box(1.2, 2.1, 0.12, mat(0x5a3a22), 0, 1.3, front - h.k * 0.05, false));
+        for (const sx of [-1, 1]) hg.add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), sx * h.w * 0.28, h.h * 0.58, front - h.k * 0.04, false));
+        add(hg);
+        solid(h.x, h.z, h.hxA, h.hzA, 'building');
+      }
+      for (const t of plan.trees) tree(t.x, t.z);
+      ch.estate = {
+        side: plan.side, entrance: [plan.ribbon[0].x, plan.ribbon[0].z], ribbon: plan.ribbon.map(p => [p.x, p.z]),
+        disc: plan.disc, houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
+        bounds: { lo_x, hi_x, lo_z, hi_z },
+      };
+    }
+    if (!plan) {
     // The house grid fits within the effective block bounds. On at-grade sides the grid shifts
     // and shrinks so no house wall or jitter lands in the carriageway.
     const houseSpanX = Math.max(0, padW - 18.66), houseSpanZ = Math.max(0, padD - 18.66);
@@ -1237,6 +1361,7 @@ function generateChunk(cx, cz, defer = false) {
       if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
     }
     for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + padOx, bz + side * (padD/2 - 0.4) + padOz, 0, 0.2);
+    }
   } else if (type === 'park') {
     // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
     const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
