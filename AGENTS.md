@@ -15,6 +15,10 @@ npm test             # invariant checks over the procedural city (tools/sidewalk
 npm run serve        # static preview on port 8000 (open it in a browser to play)
 ```
 
+Add `?debug` to the page URL (e.g. `http://localhost:8000/?debug`) to show the performance overlay from
+`js/perf.js`: fps, frame / update / render ms, draw calls, triangles, geometry and texture counts, plus
+the car and chunk counts. It is off by default and the frame loop does not time anything without it.
+
 The audit scripts in `tools/sidewalk-checks/` are documented in its `README.md`. Most `plan-*.mjs`
 scripts overwrite the committed PNGs in that folder. Run `git checkout -- tools/sidewalk-checks/*.png`
 afterwards unless the user asked to update those images. `shot.mjs` takes an output path, so point it at
