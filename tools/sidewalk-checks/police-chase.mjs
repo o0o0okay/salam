@@ -92,7 +92,7 @@ const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, CAR_DIMS
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const insideFootprint = __world.insideFootprint, parapetPush = __world.parapetPush;
 const surfaceAt = __world.surfaceAt, flyoverNear = __world.flyoverNear, alongOf = __world.alongOf, latOf = __world.latOf;
-const rampHeight = __world.rampHeight;
+const rampHeight = __world.rampHeight, bridgeHeight = __world.bridgeHeight;
 const laneOffsetOn = __world.laneOffsetOn, rampApproach = __world.rampApproach;
 const rampExit = __world.rampExit, laneAim = __world.laneAim, laneOffset = __world.laneOffset, FLY = __world.FLY;
 const roadEdge = __world.roadEdge;
@@ -107,7 +107,7 @@ const W = M.__world;
 const DT = 1 / 60;
 let seed = 987654321;
 Math.random = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-const reseed = (s = 987654321) => { seed = s; };
+const reseed = (s = +(process.env.CHASE_SEED || 987654321)) => { seed = s; };   // CHASE_SEED=<n> runs the same scenarios on another random stream
 
 function spawnPlayer(x, z, h, y = 0) {
   Object.assign(M.player, M.createCar('player', x, z, h, M.PLAYER_PARAMS, 0));
@@ -168,7 +168,9 @@ const bad = m => { fails++; console.log('  X ' + m); };
   else ok('js/police.js imports every flyover helper its AI uses (a stitched copy hides a missing import)');
 }
 
-const NODE = W.nearestNode(0, -1).node;        // the first flyover on the avenue: x = 0, the flying road runs along z
+// The first flyover on the avenue: x = 0, the flying road runs along z. CHASE_BLOCK=<n> puts the same scenarios on the
+// flyover n blocks from the centre instead, e.g. the first long bridge (CHASE_BLOCK=46 in the current city).
+const NODE = process.env.CHASE_BLOCK ? +process.env.CHASE_BLOCK * W.FLY.span : W.nearestNode(0, -1).node;
 const FLY = W.FLY, LANE = FLY.halfW + 7;       // middle of the at-grade lane beside the structure's flank
 console.log(`police chase at the flyover on the avenue at z = ${NODE} (deck ±${FLY.deckHalf} m of it, ramp foot at ±${FLY.rampEnd} m, at-grade lane at ±${LANE} m)`);
 

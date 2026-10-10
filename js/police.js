@@ -24,6 +24,26 @@ function losBlocked(p, tx, tz, y = 1.2) {
 // block. Only the mound is tested here - a building or a parked truck in the way is the grid waypoint's business,
 // because that is what the waypoint is for, and rerouting every chase past a hydrant into the at-grade lane would
 // be worse than the bug.
+// The bridge in a pursuer's own along-road frame: its junctions are at the offsets `sgOf(f) * k * FLY.span` for k = 0 .. ext
+// (the start is 0), and the deck runs from `lo` to `hi`. A plain flyover has one junction and lo = hi = 0, so every helper
+// below answers exactly as the single-junction code did.
+const sgOf = f => Math.sign(f.node) || 1;
+// Is the along-road coordinate u inside one of the junction boxes under the deck (the open crossings at grade)?
+function inJunctionBox(f, u) {
+  for (let k = 0; k <= f.ext; k++) if (Math.abs(u - sgOf(f) * k * FLY.span) <= FLY.deckHalf - 2) return true;
+  return false;
+}
+// The crossing point a pursuer aims for: the next junction box ahead of it in the direction it is driving, or past the
+// far ramp's foot when no box is left ahead.
+function crossAhead(f, u, dirU) {
+  const J = [];
+  for (let k = 0; k <= f.ext; k++) J.push(sgOf(f) * k * FLY.span);
+  J.sort((a, b) => (a - b) * dirU);
+  for (const j of J) if ((u - j) * dirU < FLY.deckHalf) return j + dirU * (FLY.deckHalf - 2);
+  return (dirU > 0 ? f.hi : f.lo) + dirU * (FLY.rampEnd + 5);
+}
+// The point d metres past the bridge's end nearer to u.
+const spanEnd = (f, u, d) => (u - (f.lo + f.hi) / 2 >= 0 ? f.hi + d : f.lo - d);
 function moundInWay(p, f, tx, tz) {
   const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(24, Math.ceil(d / 5));
   for (let i = 1; i <= n; i++) {
@@ -160,7 +180,7 @@ export function policeAI(p, dt) {
         const tu = alongOf(nf, aimX, aimZ), tv = latOf(nf, aimX, aimZ);
         const my = v >= 0 ? 1 : -1;
         const want = Math.abs(tv) > FLY.halfW ? (tv > 0 ? 1 : -1) : my;   // the lane on the player's side, or its own when the player is under the road itself
-        const beside = Math.abs(u) > FLY.deckHalf && Math.abs(u) < FLY.rampEnd + 3;
+        const beside = (u < nf.lo - FLY.deckHalf || u > nf.hi + FLY.deckHalf) && u > nf.lo - FLY.rampEnd - 3 && u < nf.hi + FLY.rampEnd + 3;
         // Which way along the road the car is facing, and the first crossing point of the avenue in front of it:
         // the junction box under the deck while that is still ahead, otherwise the ground past the ramp's foot,
         // where the retaining walls end. Everything below aims at a point in front of the car, so a pursuer never
@@ -171,7 +191,7 @@ export function policeAI(p, dt) {
         // never a point that runs on ahead of the car either: an aim that keeps the distance while the car drives
         // is what walked pursuers away from the structure, down the lane they happened to be pointing along.
         const tgtU = tu > u ? Math.max(tu, u + 12) : Math.min(tu, u - 12);
-        const cross = dirU * (u * dirU < FLY.deckHalf ? FLY.deckHalf - 2 : FLY.rampEnd + 5);
+        const cross = crossAhead(nf, u, dirU);
         if (Math.abs(v) < FLY.halfW + 1) {                    // still on the road's own lanes: out into the at-grade lane
           // In the junction box the full width is open, so it can step out where it stands; past the box there is a
           // wall of concrete where the ramp rises out of the ground, and the only clear place to step out is the
@@ -184,9 +204,9 @@ export function policeAI(p, dt) {
           const beyondGuard = FLY.rampEnd + 6;
           // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
           // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
-          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
-          else if (Math.abs(u) < beyondGuard - 0.5) laneAim(nf, Math.sign(u || 1) * beyondGuard, Math.max(-2.5, Math.min(2.5, v)), _lane);
-          else laneAim(nf, Math.sign(u || 1) * beyondGuard, my * laneOffset(), _lane);
+          if (inJunctionBox(nf, u)) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
+          else if (Math.max(u - nf.hi, nf.lo - u, 0) < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), Math.max(-2.5, Math.min(2.5, v)), _lane);
+          else laneAim(nf, spanEnd(nf, u, beyondGuard), my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
         } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
           laneAim(nf, beside ? cross : u, (beside ? my : want) * laneOffset(), _lane);   //   its own lane up to the crossing, then straight across

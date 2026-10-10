@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, flyoverFlats, besideFlyover, plazaAt } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of

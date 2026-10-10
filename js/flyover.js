@@ -276,7 +276,9 @@ export function rampExit(f, x, z, nose, off, lead, out) {
   const u = alongOf(f, x, z);
   // Carry on the way it is pointing (the aim must always sit in front of the car, or it turns round on the deck
   // and mules against a parapet getting nowhere); a car stopped square across the road takes the nearer end.
-  const dir = Math.abs(nose) > 0.25 ? (nose > 0 ? 1 : -1) : (u > 0 ? 1 : -1);
+  // A car stopped square across the road takes the ramp nearer to it: the end on its own side of the bridge's middle
+  // (for a plain flyover, the side of the junction it is on).
+  const dir = Math.abs(nose) > 0.25 ? (nose > 0 ? 1 : -1) : (u - (f.lo + f.hi) / 2 > 0 ? 1 : -1);
   return laneAim(f, u + dir * lead, (latOf(f, x, z) >= 0 ? 1 : -1) * off, out);   // out to the end, in the lane it is already in
 }
 // How far the at-grade lane's own centre line sits from the road's centre line: the lane runs beside the
