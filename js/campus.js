@@ -732,3 +732,117 @@ export function buildFuelStationMesh(bx, bz, rng) {
 
   return { group: g, solids, pumps, brand, canopy: CAN, store: S, pylon: P, lamps };
 }
+
+// ---- Bank ----
+// A neoclassical bank: a cream stone hall on a podium with a six-column portico under a gable whose pediment faces
+// the street, gold lettering (BANK) and a gold coin in the tympanum, a blue-grey wing on the left with a row of tall
+// windows, and a stepped forecourt with planters and lamps. The front faces +z, like the other campus builders.
+// A triangular prism (the gable roof and the pediment) is built as indexed geometry with the same attributes as the
+// boxes, so the chunk's merge keeps it: mergeGeometries drops any piece that does not match the rest.
+function prism(pts, z0, z1, ox, oy, m) {
+  const pos = [], nor = [], uv = [];
+  const cxm = pts.reduce((s, p) => s + p[0], 0) / pts.length + ox, cym = pts.reduce((s, p) => s + p[1], 0) / pts.length + oy;
+  const cz = (z0 + z1) / 2;
+  const V = (p, z) => [p[0] + ox, p[1] + oy, z];
+  const tri = (a, b, c) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const mx = (a[0] + b[0] + c[0]) / 3 - cxm, my = (a[1] + b[1] + c[1]) / 3 - cym, mz = (a[2] + b[2] + c[2]) / 3 - cz;
+    if (nx * mx + ny * my + nz * mz < 0) { [b, c] = [c, b]; nx = -nx; ny = -ny; nz = -nz; }   // outward, CCW from outside
+    for (const p of [a, b, c]) { pos.push(p[0], p[1], p[2]); nor.push(nx, ny, nz); uv.push(0, 0); }
+  };
+  const n = pts.length;
+  for (let i = 1; i < n - 1; i++) { tri(V(pts[0], z1), V(pts[i], z1), V(pts[i + 1], z1)); tri(V(pts[0], z0), V(pts[i], z0), V(pts[i + 1], z0)); }
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    tri(V(pts[i], z0), V(pts[j], z0), V(pts[j], z1));
+    tri(V(pts[i], z0), V(pts[j], z1), V(pts[i], z1));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(Array.from({ length: pos.length / 3 }, (_, k) => k));
+  const mesh = new THREE.Mesh(geo, m); mesh.castShadow = true; mesh.receiveShadow = true;
+  return mesh;
+}
+export function buildBankMesh(bx, bz, rng) {
+  const g = new THREE.Group(), solids = [];
+  const M = {
+    stone: mat(0xf1ebdc), trim: mat(0xf8f6ef), roof: mat(0x4f6b8a), roofCap: mat(0x3f5873), wing: mat(0x8397ae),
+    glass: mat(0x2b4c75), glassDeep: mat(0x1d3658), gold: mat(0xd9a92e), steel: mat(0x2c3138),
+    green: mat(0x4f8f3d), planter: mat(0xf3f1ea),
+  };
+  const Y = 0.25;                                              // forecourt surface (the block lays the pad)
+  const B = (w, h, d, m, x, y, z, cast = true) => g.add(box(w, h, d, m, x, Y + y, z, cast));
+  const CYL = (rt, rb, h, seg, m, x, y, z, cast = false) => g.add(cyl(rt, rb, h, seg, m, x, Y + y, z, cast));
+
+  // ---- dimensions (local, origin on the block centre) ----
+  const HW = 24, HD = 17, HH = 11;                             // main hall: width, depth, wall height
+  const WW = 13, WH = 9.5;                                     // blue-grey wing on the -x side, same depth as the hall
+  const L = HW + WW;                                           // the whole front, centred on x = 0
+  const hallX = L / 2 - HW / 2, wingX = -L / 2 + WW / 2;
+  const hallZ = -2, frontZ = hallZ + HD / 2;
+  const podiumTop = 0.9, colBase = podiumTop, colTop = HH - 1.9;
+  const y0 = HH + 0.3, gableP = 4.6;                           // roof base and ridge height above the hall wall top
+
+  // podium, hall and wing
+  B(L + 1.4, podiumTop, HD + 1.4, M.stone, 0, podiumTop / 2, hallZ);
+  B(HW, HH, HD, M.stone, hallX, HH / 2, hallZ);
+  B(WW, WH, HD, M.wing, wingX, WH / 2, hallZ);
+  B(WW + 0.6, 0.5, HD + 0.6, M.roofCap, wingX, WH + 0.25, hallZ, false);
+  solids.push({ x: bx + hallX, z: bz + hallZ, hx: HW / 2 + 0.6, hz: HD / 2 + 0.6 });
+  solids.push({ x: bx + wingX, z: bz + hallZ, hx: WW / 2 + 0.6, hz: HD / 2 + 0.6 });
+
+  // wing: three by two tall windows in white frames on its front
+  for (let i = 0; i < 3; i++) for (const yc of [2.6, 6.4]) {
+    const x = wingX + (i - 1) * 3.7;
+    B(2.6, 3.4, 0.12, M.trim, x, yc, frontZ + 0.02, false);
+    B(2.2, 3.0, 0.12, M.glass, x, yc, frontZ + 0.1, false);
+  }
+
+  // hall front: blue glass panels with gold transoms between the columns; the centre bay is the door
+  const colX = [-11, -6.6, -2.2, 2.2, 6.6, 11];
+  for (const c of [-8.8, -4.4, 4.4, 8.8]) {
+    B(3.0, colTop - 2.6, 0.2, M.glass, hallX + c, (1.6 + colTop - 0.7) / 2, frontZ + 0.05, false);
+    for (const yb of [4.2, 7.4]) B(3.0, 0.25, 0.25, M.gold, hallX + c, yb, frontZ + 0.2, false);
+  }
+  // the door: gold frame, dark glass, a gold mullion
+  B(3.0, 5.8, 0.25, M.gold, hallX, podiumTop + 2.9, frontZ + 0.1, false);
+  B(2.4, 5.0, 0.12, M.glassDeep, hallX, podiumTop + 2.5, frontZ + 0.2, false);
+  B(0.12, 5.0, 0.1, M.gold, hallX, podiumTop + 2.5, frontZ + 0.24, false);
+
+  // six columns on the portico, each with a plinth and a capital, under a plain entablature and a cornice
+  const colZ = frontZ + 0.9, colH = colTop - colBase;
+  for (const cx of colX) {
+    CYL(0.6, 0.6, colH, 14, M.trim, hallX + cx, (colBase + colTop) / 2, colZ);
+    B(1.7, 0.35, 1.7, M.trim, hallX + cx, colBase + 0.175, colZ);
+    B(1.6, 0.4, 1.6, M.trim, hallX + cx, colTop + 0.2, colZ);
+  }
+  B(HW + 1.2, 1.3, 2.0, M.trim, hallX, colTop + 0.65, frontZ + 0.7);
+  B(HW + 1.6, 0.6, 2.4, M.trim, hallX, HH, frontZ + 0.9);
+
+  // gable roof: a prism whose triangle runs across the hall, so the front of it is the pediment
+  const hw = HW / 2 + 0.8;
+  g.add(prism([[-hw, y0], [hw, y0], [0, y0 + gableP]], hallZ - HD / 2 - 0.4, frontZ + 0.2, hallX, Y, M.roof));
+  // the cream pediment stands in front of the roof's gable, with BANK on it and a gold coin above
+  const pw = 11.2, ph = 3.9;
+  g.add(prism([[-pw, y0 + 0.05], [pw, y0 + 0.05], [0, y0 + ph]], frontZ + 0.2, frontZ + 1.1, hallX, Y, M.trim));
+  const sign = textBlocks('BANK', M.gold, 2.0, 0.32, 0.5);
+  sign.position.set(hallX, Y + y0 + 1.0, frontZ + 1.3); g.add(sign);
+  const coin = cyl(0.6, 0.6, 0.22, 16, M.gold, hallX, Y + y0 + 3.3, frontZ + 1.15);
+  coin.rotation.x = PI / 2; g.add(coin);
+
+  // forecourt: two stepped treads down to the pavement, planters and lamps beside them
+  const stepW = HW + 1.0, stepZ = frontZ + 0.7;
+  B(stepW, 0.6, 0.8, M.stone, hallX, 0.3, stepZ + 0.4);
+  B(stepW + 0.8, 0.3, 0.8, M.stone, hallX, 0.15, stepZ + 1.2);
+  for (const sx of [-1, 1]) {
+    const px = hallX + sx * 13.5, pz = frontZ + 4.2;
+    B(2.0, 0.8, 2.0, M.planter, px, 0.4, pz);
+    const bush = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6), M.green); bush.position.set(px, Y + 1.5, pz); g.add(bush);
+    CYL(0.07, 0.1, 3.2, 6, M.steel, hallX + sx * 16, 1.6, frontZ + 3.5);
+    B(0.5, 0.5, 0.5, M.trim, hallX + sx * 16, 3.4, frontZ + 3.5);
+  }
+  return { group: g, solids };
+}

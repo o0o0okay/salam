@@ -41,7 +41,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
-import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, FUEL_BRANDS, textBlocks } from './campus.js';
+import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, FUEL_BRANDS, textBlocks } from './campus.js';
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
@@ -268,6 +268,7 @@ function pickSidewalkStyle(type, rng) {
   if (type === 'fuel') return 'panel';                                    // a forecourt is plain concrete too
   if (type === 'shops') return rng() < 0.5 ? 'brick' : 'slab';           // a shopping street gets brick or stone
   if (type === 'school') return rng() < 0.55 ? 'slab' : 'panel';      // a school frontage is plain paved stone
+  if (type === 'bank') return 'slab';                                   // a bank forecourt is pale stone, like its steps
   return rng() < 0.5 ? 'slab' : 'panel';                                  // parks mix the two paved styles
 }
 // Empty box lists for one chunk's sidewalk ring. Each entry is then merged into a single mesh per material.
@@ -976,10 +977,11 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
     : (cx === 1 && cz === -1) ? 'downtown'                     // the north-east corner beside the start: brick walk-ups (high street, shopfronts on the walk)
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
+    : (cx === -1 && cz === 1) ? 'bank'                         // a bank on the block across from the school
     : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
-    : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'hospital'
-    : t < 0.975 ? 'school' : 'industrial';
+    : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'bank' : t < 0.965 ? 'hospital'
+    : t < 0.985 ? 'school' : 'industrial';
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
   const sw = sidewalkPieces(cx, cz, swStyle);
@@ -1386,6 +1388,17 @@ function generateChunk(cx, cz, defer = false) {
     }
     for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 20.5, lotSurfaceY + 0.02);
     prop('bench', bxo - 6, bzo + 19.5, 0, lotSurfaceY + 0.15);
+  } else if (type === 'bank') {
+    // A bank on its own block: a neoclassical hall with a six-column portico and a gold BANK pediment, a blue-grey
+    // wing, a stepped forecourt with planters and lamps. Its front is the same face the other campuses use.
+    const lotSurfaceY = 0.25;
+    padBox(56, 42, mat(0xb9bec5), bxo - bx, bzo - bz);                     // forecourt pad
+    const K = buildBankMesh(bxo, bzo, rng);
+    K.group.position.set(bxo, 0, bzo);
+    bake(ch, K.group);
+    for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+    for (const sx of [-1, 1]) tree(bxo + sx * 21, bzo + 14, lotSurfaceY + 0.02);
+    prop('bench', bxo - 9, bzo + 16, 0, lotSurfaceY + 0.15);
   } else if (type === 'school') {
     // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
     // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.
