@@ -10,7 +10,7 @@ const C = await import('../../js/carModels.js');
 
 let fails = 0;
 const bad = m => { console.log('  x ' + m); fails++; };
-const KINDS = ['civ', 'sedan', 'suv', 'taxi', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeVan',
+const KINDS = ['player', 'civ', 'sedan', 'suv', 'taxi', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeVan',
   'bus', 'schoolbus', 'firetruck', 'ambulance', 'cementtruck', 'fueltanker', 'sportscar', 'pickup', 'hatchback', 'oldclassic', 'limo'];
 const COLOURS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
 

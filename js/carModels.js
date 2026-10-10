@@ -516,6 +516,24 @@ export function buildCar(kind, color, detail = true) {
     if (wheelScale !== 1) w.scale.setScalar(wheelScale);
     w.castShadow = true; inner.add(w);
   }
+  if (kind === 'player') {
+    // The player's car gets the finish the traffic does not: chrome rims with dark hubs, a grille with a chrome bar and
+    // an intake, wing mirrors, two exhaust tips and door seams. Every piece is a cached unit box or cylinder, so
+    // spawning the car again adds no geometry, and all of it stays inside the car's own dimensions.
+    const chrome = mat(0xc9cdd2), trim = mat(0x111216), bc = mat(color);
+    for (const sx of [-1, 1]) for (const sz of wheelZ) {
+      const rim = cyl(0.3, 0.3, 0.05, 14, chrome, sx * (wheelX + 0.22), wheelY, sz); rim.rotation.z = Math.PI / 2; inner.add(rim);
+      const hub = cyl(0.12, 0.12, 0.06, 10, trim, sx * (wheelX + 0.25), wheelY, sz); hub.rotation.z = Math.PI / 2; inner.add(hub);
+    }
+    inner.add(box(1.0, 0.26, 0.06, trim, 0, 0.66, 2.12));                 // grille
+    inner.add(box(0.9, 0.04, 0.07, chrome, 0, 0.8, 2.13));                // chrome bar across it
+    inner.add(box(1.3, 0.1, 0.06, trim, 0, 0.42, 2.12));                  // lower intake
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.2, 0.16, 0.3, bc, sx * 0.97, 1.2, 0.5));            // wing mirror
+      const tip = cyl(0.1, 0.1, 0.08, 10, chrome, sx * 0.5, 0.3, -2.08); tip.rotation.x = Math.PI / 2; inner.add(tip);
+      inner.add(box(0.02, 0.4, 2.0, trim, sx * 1.005, 0.85, -0.2, false)); // door seam
+    }
+  }
   if (detail) {
     const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
