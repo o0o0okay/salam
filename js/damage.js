@@ -2,7 +2,7 @@
 import { $, rnd } from './utils.js';
 import { ASSET } from './assets.js';
 import { game, cars, fires } from './state.js';
-import { DIFF } from './config.js';
+import { DIFF, ENV_DMG } from './config.js';
 import { sparks, smoke, explosion, emit } from './particles.js';
 import { sfx } from './audio.js';
 import { toast } from './ui.js';
@@ -23,6 +23,9 @@ export function hurtCar(c, amt) {
   const armor = c.isPolice ? [1, .82, .62, .42, .28][c.tier - 1] : (c.isTanker ? 2.2 : 1);
   c.hp -= amt * armor; if (c.hp <= 0) wreckCar(c);
 }
+// Hits on the scenery (see ENV_DMG in config.js): the same damage, scaled down.
+export function hurtPlayerEnv(amt) { hurtPlayer(amt * ENV_DMG); }
+export function hurtCarEnv(c, amt) { hurtCar(c, amt * ENV_DMG); }
 export function wreckCar(c) {
   c.wrecked = true; c.wreckT = 0; c.mass = Math.max(1.8, c.mass);
   c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });

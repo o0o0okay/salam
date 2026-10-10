@@ -1836,7 +1836,7 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === -1 && cz === 0) ? 'hospital'
     : (cx === 0 && cz === -1) ? 'fire'                          // the block the player starts beside
     : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
-    : (cx === 1 && cz === -1) ? 'shops'                        // a shopping street on the fourth corner of the spawn
+    : (cx === 1 && cz === -1) ? 'downtown'                     // the north-east corner beside the start: brick walk-ups (high street, shopfronts on the walk)
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
     : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'

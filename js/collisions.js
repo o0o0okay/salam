@@ -13,7 +13,7 @@ import { flyingFloor } from './flying.js';
 import { carBox, createCar } from './vehicle.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
-import { hurtPlayer, hurtCar, impactFx } from './damage.js';
+import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx } from './damage.js';
 import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
@@ -109,7 +109,7 @@ export function collideSolids(c) {
       const keep = heavyWall ? 0.86 : 0.99;                                // and a real chunk of speed gone
       c.vx *= keep; c.vz *= keep;
       impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer);
-      if (c.isPlayer) hurtPlayer(Math.max(0, vn - 8) * 0.6); else hurtCar(c, Math.max(0, vn - 8) * 0.8);
+      if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 8) * 0.6); else hurtCarEnv(c, Math.max(0, vn - 8) * 0.8);
     }
     c.lastWall = game.time;
   }
@@ -133,7 +133,7 @@ export function collideFlyover(c) {
     if (game.time - (c.lastFlyWall || -99) > 0.4) {
       c.lastFlyWall = game.time;
       impactFx(c.x + (sz ? p.sv * 0.9 : 0), c.z + (sz ? 0 : p.sv * 0.9), vn, sz ? p.sv : 0, sz ? 0 : p.sv, c.isPlayer);
-      if (vn > 6) { if (c.isPlayer) { hurtPlayer(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCar(c, Math.max(0, vn - 8) * 0.5); }
+      if (vn > 6) { if (c.isPlayer) { hurtPlayerEnv(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCarEnv(c, Math.max(0, vn - 8) * 0.5); }
     }
   }
   c.lastWall = game.time;
@@ -146,8 +146,8 @@ function breakTree(t, c, vn) {
   fallingTrees.push({ mesh: m, axis: new THREE.Vector3(dz, 0, -dx), yaw: new THREE.Quaternion().setFromAxisAngle(_Y, t.rot), ang: 0, w: 1 + vn * 0.15, life: 3 });
   debris(t.x, 4, t.z, t.v >= 4 ? 0x2f7d46 : 0x4caf50, 10); debris(t.x, 3, t.z, 0x66bb6a, 5); debris(t.x, 1, t.z, 0x7a5230, 5);
   const f = 1 - 0.26 / c.mass; c.vx *= f; c.vz *= f;           // heavier = less slowdown
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 14) * 0.2); }
-  else hurtCar(c, Math.max(0, vn - 14) * 0.3);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(vn * 0.8); hurtPlayerEnv(Math.max(0, vn - 14) * 0.2); }
+  else hurtCarEnv(c, Math.max(0, vn - 14) * 0.3);
 }
 // A heavy parked vehicle takes the hit instead of flying: it shifts, dents, smokes, and once its hit points
 // are gone it burns where it stands. Nothing here launches the mesh, so nothing can sink into the road.
@@ -251,8 +251,8 @@ function breakBusStop(bs, c, vn) {
   flying.push({ mesh: m, vx: c.vx * 0.5 + nx * rnd(4, 7), vy: rnd(4, 8), vz: c.vz * 0.5 + nz * rnd(4, 7), sx: rnd(-6, 6), sz: rnd(-6, 6), life: 2.2 });
   debris(bs.x, 1.2, bs.z, 0x8a6a3a, 10); sparks(bs.x, 1.2, bs.z, 6, nx, nz, 7);
   const f = 1 - 0.22 / c.mass; c.vx *= f; c.vz *= f;
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(vn * 0.7); hurtPlayer(Math.max(0, vn - 7) * 0.35); }
-  else hurtCar(c, Math.max(0, vn - 7) * 0.6);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(vn * 0.7); hurtPlayerEnv(Math.max(0, vn - 7) * 0.35); }
+  else hurtCarEnv(c, Math.max(0, vn - 7) * 0.6);
 }
 function breakScaffold(sc, c, vn) {
   sc.broken = true; sc.solid.hx = sc.solid.hz = -999;
@@ -261,8 +261,8 @@ function breakScaffold(sc, c, vn) {
   flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(3, 6), vy: rnd(5, 10), vz: c.vz * 0.4 + nz * rnd(3, 6), sx: rnd(-7, 7), sz: rnd(-7, 7), life: 2.4 });
   debris(sc.x, 2, sc.z, 0x8a8f96, 12); sparks(sc.x, 1.5, sc.z, 8, nx, nz, 8);
   const f = 1 - 0.26 / c.mass; c.vx *= f; c.vz *= f;
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.28); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 8) * 0.4); }
-  else hurtCar(c, Math.max(0, vn - 8) * 0.7);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.28); sfx.crash(vn * 0.8); hurtPlayerEnv(Math.max(0, vn - 8) * 0.4); }
+  else hurtCarEnv(c, Math.max(0, vn - 8) * 0.7);
 }
 // A shop window taking a hit: the pane comes out of its frame in one piece and tumbles off down the street,
 // the shop itself carries on trading behind it. Bumping a window at a crawl just rattles it.
@@ -274,7 +274,7 @@ function breakShopFront(sp, c, vn, nx, nz) {
   sparks(sp.x, 1.6, sp.z, 6, nx, nz, 5);
   const f = 1 - 0.04 / c.mass; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(Math.min(22, vn + 6)); toast('SHOP WINDOW!'); }
-  else hurtCar(c, Math.max(0, vn - 4) * 0.4);
+  else hurtCarEnv(c, Math.max(0, vn - 4) * 0.4);
 }
 // ---- Fuel: a dispenser going up ----
 const pumpFuses = [];                                        // dispensers that caught the fire and are about to go
@@ -345,7 +345,7 @@ function breakFence(pc, c, vn, nx, nz) {
   sparks(x, 1.3, z, 8, nx, nz, 8);
   const f = 1 - 0.03 / c.mass; c.vx *= f; c.vz *= f;           // a wire fence barely slows a car down
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(Math.min(20, vn + 5)); toast('FENCE DOWN!'); }
-  else hurtCar(c, Math.max(0, vn - 8) * 0.3);
+  else hurtCarEnv(c, Math.max(0, vn - 8) * 0.3);
 }
 function tearFencePanel(pc, c, nx, nz) {
   pc.broken = true;
@@ -399,8 +399,8 @@ function breakProp(pr, c) {
   // Damage: proportional to impact speed. A car that hits a plaza at 30 m/s takes more damage than one
   // that bumps it at 8 m/s. The player feels it; civilian cars and police do too.
   const dmg = sp * 0.8;
-  if (c.isPlayer) { hurtPlayer(dmg); }
-  else if (!c.wrecked) { hurtCar(c, dmg); }
+  if (c.isPlayer) { hurtPlayerEnv(dmg); }
+  else if (!c.wrecked) { hurtCarEnv(c, dmg); }
   const f = pr.drag; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.25); sfx.crash(sp * 0.5); }
 }
