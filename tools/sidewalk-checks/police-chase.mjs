@@ -77,7 +77,7 @@ const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => {} });
-const hurtPlayer = () => { fx.hurtPlayer++; };
+const hurtPlayer = amt => { fx.hurtPlayer++; game.hp = Math.max(0, game.hp - (amt > 0 ? amt : 0) * (DIFF.dmg || 1)); };
 const ENV_DMG = 0.3;                                       // js/config.js: scenery hits are scaled before they hurt
 const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
 const ARMOR = [1, .82, .62, .42, .28];
@@ -91,6 +91,7 @@ const __world = await import(${JSON.stringify(modulePath)});
 const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, CAR_DIMS = __world.CAR_DIMS, solidAt = __world.solidAt;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const insideFootprint = __world.insideFootprint, parapetPush = __world.parapetPush;
+const structureLevel = __world.structureLevel;
 const surfaceAt = __world.surfaceAt, flyoverNear = __world.flyoverNear, alongOf = __world.alongOf, latOf = __world.latOf;
 const rampHeight = __world.rampHeight, bridgeHeight = __world.bridgeHeight;
 const laneOffsetOn = __world.laneOffsetOn, rampApproach = __world.rampApproach;
@@ -126,11 +127,11 @@ function spawnCop(x, z, h, { tier = 2, role = 'chaser', y = null } = {}) {
 /* Runs one chase: the player sits still with the hand brake on (the reported case - hiding, not fleeing) and
    every pursuer is driven by the real policeAI. Returns the per-unit trace. */
 function chase(player, cops, seconds = 26) {
-  M.cars.length = 0; M.police.length = 0; M.sight.t = -99; M.game.time = 0; M.game.t = 0; reseed();
+  M.cars.length = 0; M.police.length = 0; M.sight.t = -99; M.game.time = 0; M.game.t = 0; M.game.hp = 100; reseed();
   spawnPlayer(player.x, player.z, player.h, player.y || 0);
   const units = cops.map(c => spawnCop(c.x, c.z, c.h, c));
   W.updateChunks(player.x, player.z, 999);
-  const trace = units.map(() => []);
+  const trace = units.map(() => []), plTrace = [];
   let budgetT = 0;
   for (let i = 0; i < Math.round(seconds / DT); i++) {
     M.game.time += DT; M.game.t = M.game.time;
@@ -146,8 +147,10 @@ function chase(player, cops, seconds = 26) {
     for (const c of M.cars) { M.collideFlyover(c); M.syncCarMesh(c, DT); }
     budgetT += DT;
     if (budgetT > 1) { budgetT = 0; W.updateChunks(player.x, player.z, 999); }
-    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp }));
+    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role }));
+    plTrace.push({ t: M.game.time, x: M.player.x, z: M.player.z, y: M.player.y, hp: M.game.hp });
   }
+  trace.pl = plTrace;
   return trace;
 }
 
@@ -203,26 +206,67 @@ for (const [name, player, cops, limit] of cases) {
   else ok(`${name}: reached the player in ${reach.t.toFixed(1)} s (${line})`);
 }
 
-// ---- the bridge hold: a player who sits on the deck gets both ends of the structure blocked ----
-// The player parks up on the deck (slow, so the dwell clock runs). Four cruisers start at grade on the avenue, two beyond
-// each end of the span. After the hold time, a cruiser must be parked within 8 m of each outer end of the structure.
+// ---- the height probe: is a car on the deck, beneath it, or clear of the structure? ----
+// structureLevel() is what the trap reads, so each probe point is checked against what the level should be.
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  if (!f || f.axis !== 'z') bad('no flyover on the avenue at the block the test uses');
+  else {
+    const at = (u, lat) => ({ x: f.road + lat, z: f.node + u });        // the avenue runs along z here
+    const mid = (f.lo + f.hi) / 2, rampU = f.hi + W.FLY.deckHalf + 10, beyondU = f.hi + W.FLY.rampEnd + 6;
+    const probes = [
+      ['on the deck, mid-span', at(mid, 0), W.FLY.deckH, 'deck'],
+      ['beneath the deck, in the junction box', at(mid, 0), 0, 'under'],
+      ['on the ramp, climbing', at(rampU, 0), W.bridgeHeight(f, rampU) + 0.05, 'deck'],
+      ['beneath the ramp, at grade', at(rampU, 0), 0, 'under'],
+      ['past the ramp foot, at grade', at(beyondU, 0), 0, null],
+      ['beside the structure, at grade', at(mid, W.FLY.halfW + 7), 0, null],
+    ];
+    const bad0 = probes.filter(([, pt, y, want]) => { const L = W.structureLevel(pt.x, y, pt.z); return (L ? L.level : null) !== want; });
+    if (bad0.length) bad(`height probe: ${bad0.map(b => `${b[0]} (wanted ${b[3]})`).join('; ')}`);
+    else ok(`height probe: ${probes.length} of ${probes.length} points read the right level (deck, under, or clear)`);
+  }
+}
+
+// ---- the bridge trap: a player who sits on the deck is closed off at one end, and rammed from the other ----
+// The player sits up on the deck, facing the +z end, with the hand brake on. Three cruisers start beyond the +z end and
+// three beyond the -z end, on the ground. The checkpoint should park across the deck short of the +z end, the -z cruisers
+// should come up their ramp and ram him, and his hp should reach zero within the time limit.
 {
   const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
   if (!f) bad('no flyover at the block the bridge test uses');
   else {
-    const endA = { x: 0, z: f.node + f.hi + W.FLY.rampEnd + 6 }, endB = { x: 0, z: f.node + f.lo - W.FLY.rampEnd - 6 };
-    const player1 = { x: 2.5, z: NODE, h: 0, y: W.FLY.deckH };
-    // the cruisers start beyond each outer end of the structure, so none of them starts under the deck
     const zA = f.node + f.hi + 150, zB = f.node + f.lo - 150;
-    const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }];
-    const tr = chase(player1, cops, 40);
-    const last = tr.map(t => t[t.length - 1]);
-    const near = e => Math.min(...last.map(s2 => Math.hypot(s2.x - e.x, s2.z - e.z)));
-    const dA = near(endA), dB = near(endB), parkedN = last.filter(s2 => s2.speed < 2).length;
-    const line = `nearest cruiser ${dA.toFixed(1)} m from one end and ${dB.toFixed(1)} m from the other, ${parkedN} of ${last.length} stopped`;
-    if (dA <= 8 && dB <= 8) ok(`the player sat on the deck and both ends were blocked (${line})`);
-    else bad(`the player sat on the deck and the ends were not both blocked (${line})`);
+    const player1 = { x: 2.5, z: NODE, h: 0, y: W.FLY.deckH };
+    const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 0, z: zA - 10, h: Math.PI },
+                  { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }, { x: 0, z: zB + 10, h: 0 }];
+    const tr = chase(player1, cops, 60);
+    const lineZ = f.node + f.hi + 8;
+    // the checkpoint: most cruisers stopped on their slots at once, and when two of them first were
+    const onLine = s2 => s2.role === 'bridgeBlock' && s2.speed < 2 && Math.hypot(s2.x - f.road, s2.z - lineZ) < 9 && Math.abs(s2.y - W.FLY.deckH) < 1.5;
+    let parkedAtCP = 0, tPark = null;
+    for (let i = 0; i < tr[0].length; i++) {
+      const n = tr.filter(t => onLine(t[i])).length;
+      parkedAtCP = Math.max(parkedAtCP, n);
+      if (n >= 2 && tPark === null) tPark = tr[0][i].t;
+    }
+    const everAtk = tr.some(t => t.some(s2 => s2.role === 'bridgeAtk'));
+    const dead = tr.pl.find(s2 => s2.hp <= 0);
+    const line = `checkpoint: ${parkedAtCP} cruisers parked on the deck${tPark !== null ? ' (two of them by ' + tPark.toFixed(1) + ' s)' : ''}; attack group used: ${everAtk ? 'yes' : 'no'}; hp ${dead ? 'reached 0 at ' + dead.t.toFixed(1) + ' s' : 'stayed above 0 (' + Math.round(tr.pl[tr.pl.length - 1].hp) + ')'}`;
+    if (dead && dead.t <= 45 && tPark !== null && everAtk) ok(`the player sat on the deck and was trapped: ${line}`);
+    else bad(`the player sat on the deck and the trap did not close and destroy him: ${line}`);
   }
+}
+
+// ---- beneath the deck is not up on it: a player in the junction box at grade is never trapped ----
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  const zA = f.node + f.hi + 150, zB = f.node + f.lo - 150;
+  const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }];
+  const tr = chase({ x: 2.5, z: f.node, h: 0, y: 0 }, cops, 40);
+  const trapped = tr.some(t => t.some(s2 => s2.role === 'bridgeBlock' || s2.role === 'bridgeAtk'));
+  if (trapped) bad('the player sat in the junction box beneath the deck and was trapped as if he were up on it');
+  else ok('the player in the junction box beneath the deck was never trapped (no unit took a trap role)');
 }
 
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');

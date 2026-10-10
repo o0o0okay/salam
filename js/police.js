@@ -7,7 +7,7 @@ import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt } from './world.js';
 import { overlapsAnything } from './collisions.js';
-import { FLY, flyoverNear, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
+import { FLY, flyoverNear, structureLevel, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
   return Math.random() < 0.5
     ? { x: Math.round((x + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3), z: z + rnd(-spread, spread) }
@@ -67,54 +67,81 @@ function navWaypoint(p, tx, tz) {
   p.navX = wx; p.navZ = wz;
 }
 const _ramp = { x: 0, z: 0 }, _lane = { x: 0, z: 0 };
-// ---------- BRIDGE HOLD ----------
-// A player who sits up on a flyover, and stays slow there, gets both ends of the structure blocked. The nearest
-// pursuers park sideways across the avenue beyond each ramp's foot, up to three per end and as many as the chase has.
-// They hold until the player has been off the structure for a moment (he came down a ramp, or was knocked off), and
-// then they rejoin the chase like any other unit. The hold does not end because the player is close: the units at the
-// ends are often the ones that were nearest to him. A player who only drives across is not held: the dwell time counts
-// only while the player is slow up there, and drains while he is moving.
-const HOLD = { t: -1, dwell: 0, away: 0, on: null };
-const HOLD_DWELL = 5, HOLD_AWAY = 2, HOLD_SLOW = 6, HOLD_SPACING = 4.4, HOLD_PER_END = 3;
+// ---------- BRIDGE TRAP ----------
+// A player who stays up on a flyover's deck, and stays slow there, is trapped. Once HOLD_DWELL seconds have passed, the
+// chase closes one end of the structure with a checkpoint: up to three cruisers parked across the deck, HOLD_LINE metres
+// beyond the span's end (short of the ramp), on the side the player is facing. The pursuers at the other end drive up that ramp, and once they
+// are up on the deck they ram him, which is what wrecks the car. The attack starts when two of the checkpoint cruisers are
+// stopped at it, or after HOLD_ATTACK_MAX seconds anyway.
+// The trap is lifted once the player has been off the deck for a moment. Below the deck (at grade, in a junction box or
+// under a ramp) it lifts at once: he is no longer up there. A player who only drives across is not trapped: the dwell
+// counts only while he is slow on the deck, and drains while he is moving.
+const HOLD = { t: -1, dwell: 0, away: 0, on: null, side: 0, t0: 0, attack: false };
+const HOLD_DWELL = 5, HOLD_AWAY = 2, HOLD_UNDER = 0.5, HOLD_SLOW = 6, HOLD_SPACING = 4.4;
+const HOLD_LINE = 8, HOLD_CHECK_MAX = 3, HOLD_ATTACK_MAX = 8, HOLD_ATTACKERS_MAX = 3, HOLD_CLEAR = 25;   // HOLD_CLEAR: how far off the structure counts as clear
 const worldAt = (f, u, v) => f.axis === 'z' ? { x: f.road + v, z: f.node + u } : { x: f.node + u, z: f.road + v };
+const edgeAt = (f, s) => (s > 0 ? f.hi : f.lo);   // the outer end of the span on side s (+1 or -1)
 function releaseHold() {
-  for (const q of police) if (q.role === 'bridgeBlock') { q.role = 'chaser'; q.blockSlot = null; }
-  HOLD.on = null; HOLD.dwell = 0; HOLD.away = 0;
+  for (const q of police) if (q.role === 'bridgeBlock' || q.role === 'bridgeAtk') { q.role = 'chaser'; q.blockSlot = null; q.parked = false; }
+  HOLD.on = null; HOLD.side = 0; HOLD.dwell = 0; HOLD.away = 0; HOLD.attack = false;
 }
-function assignHold(f) {
-  // the two outer ends of the structure: beyond the ramp's foot on each side of the span (plain flyovers: both ramps)
-  const ends = [f.hi + FLY.rampEnd + 6, f.lo - FLY.rampEnd - 6];
-  const pool = police.filter(q => !q.wrecked && q.role !== 'roadblock' && q.role !== 'bridgeBlock');
-  const perEnd = Math.max(1, Math.min(HOLD_PER_END, Math.floor(pool.length / 2)));
-  const at = e => worldAt(f, e, 0);
-  const dist = (q, e) => Math.hypot(q.x - at(e).x, q.z - at(e).z);
-  // split by which end each unit is nearer to: the most end-A units take end A, the most end-B units take end B, so
-  // the two ends are not left to whichever units happened to be nearest the player
-  const sorted = [...pool].sort((a, b) => (dist(a, ends[0]) - dist(a, ends[1])) - (dist(b, ends[0]) - dist(b, ends[1])));
-  const groups = [sorted.slice(0, perEnd), sorted.slice(Math.max(perEnd, sorted.length - perEnd))];
-  const h = f.axis === 'z' ? PI / 2 : 0;                  // laid sideways across the road, as the roadblock is
-  ends.forEach((e, k) => {
-    groups[k].forEach((q, i) => {
-      const v = (i - (groups[k].length - 1) / 2) * HOLD_SPACING, pt = worldAt(f, e, v);
-      q.role = 'bridgeBlock'; q.blockSlot = { x: pt.x, z: pt.z, h };
-    });
+// Which end the checkpoint closes: the end ahead of the player along the structure (the nearer end when he faces across
+// it), unless he is already past that end's line, then the other end. 0 when he is past both lines.
+function planTrap(f, u) {
+  const heading = f.axis === 'z' ? Math.cos(player.h) : Math.sin(player.h);
+  const s0 = Math.abs(heading) > 0.3 ? Math.sign(heading) : (u >= (f.lo + f.hi) / 2 ? 1 : -1);
+  for (const s of [s0, -s0]) {
+    const line = edgeAt(f, s) + s * HOLD_LINE;
+    if ((line - u) * s > 4) return s;                 // still short of that line: the checkpoint can go between him and the end
+  }
+  return 0;
+}
+// Splits the chase: the cruisers nearest the checkpoint's end park across the deck there, and the nearest of the rest,
+// measured to the foot of the ramp at the other end, are the attackers. Needs two cruisers at least.
+function assignTrap(f, s) {
+  const pool = police.filter(q => !q.wrecked && q.role !== 'roadblock');
+  if (pool.length < 2) return false;
+  const nChk = Math.min(HOLD_CHECK_MAX, pool.length - 1), nAtk = Math.min(HOLD_ATTACKERS_MAX, pool.length - nChk);
+  const cAt = worldAt(f, edgeAt(f, s) + s * FLY.rampEnd, 0), oAt = worldAt(f, edgeAt(f, -s) - s * FLY.rampEnd, 0);
+  const dist = (q, e) => Math.hypot(q.x - e.x, q.z - e.z);
+  const byCheckpoint = [...pool].sort((a, b) => dist(a, cAt) - dist(b, cAt));
+  const chk = byCheckpoint.slice(0, nChk);
+  const atk = byCheckpoint.slice(nChk).sort((a, b) => dist(a, oAt) - dist(b, oAt)).slice(0, nAtk);
+  const h = f.axis === 'z' ? PI / 2 : 0;              // laid sideways across the deck, as the roadblock is
+  chk.forEach((q, i) => {
+    const v = (i - (chk.length - 1) / 2) * HOLD_SPACING, pt = worldAt(f, edgeAt(f, s) + s * HOLD_LINE, v);
+    q.role = 'bridgeBlock'; q.blockSlot = { x: pt.x, z: pt.z, h }; q.parked = false;
   });
+  for (const q of atk) { q.role = 'bridgeAtk'; q.blockSlot = null; q.parked = false; }
+  return true;
 }
-// Once per frame (the first police unit to ask): the dwell clock, the release clock, and the assignment.
+// Once per frame (the first police unit to ask): the dwell clock, the trap, and when the attack goes in.
 function bridgeHold() {
   if (game.t < HOLD.t || HOLD.t < 0) { releaseHold(); HOLD.t = game.t; return; }   // a new run restarts the clock
   if (game.t === HOLD.t) return;
   const dt = Math.min(0.25, game.t - HOLD.t);
   HOLD.t = game.t;
-  const f = player.y > 2 ? flyoverNear(player.x, player.z) : null;
-  if (f) {
+  const L = structureLevel(player.x, player.y, player.z);
+  if (L && L.level === 'deck') {
     HOLD.away = 0;
     if (Math.hypot(player.vx, player.vz) < HOLD_SLOW) HOLD.dwell += dt;
     else HOLD.dwell = Math.max(0, HOLD.dwell - dt);
-    if (!HOLD.on && HOLD.dwell >= HOLD_DWELL) { HOLD.on = f; assignHold(f); }
+    if (!HOLD.on && HOLD.dwell >= HOLD_DWELL) {
+      const u = alongOf(L.f, player.x, player.z), s = planTrap(L.f, u);
+      if (s && assignTrap(L.f, s)) { HOLD.on = L.f; HOLD.side = s; HOLD.t0 = game.t; }
+    }
+    if (HOLD.on && !HOLD.attack) {
+      const parked = police.filter(q => q.role === 'bridgeBlock' && q.parked).length;
+      if (parked >= 2 || game.t - HOLD.t0 >= HOLD_ATTACK_MAX) HOLD.attack = true;
+    }
   } else if (HOLD.on || HOLD.dwell > 0) {
-    HOLD.away += dt;
-    if (HOLD.away >= HOLD_AWAY) releaseHold();
+    // Not on the deck. Below it (L 'under') lifts the trap quickly. Clear of the structure by HOLD_CLEAR metres lifts it
+    // after HOLD_AWAY. Nearer than that - he was knocked down a ramp to its foot, or is still on the ramp's lower end -
+    // the trap holds: he has not left the bridge.
+    if (L && L.level === 'under') HOLD.away += dt;
+    else if (!L && !flyoverNear(player.x, player.z, HOLD_CLEAR)) HOLD.away += dt;
+    const limit = L ? HOLD_UNDER : HOLD_AWAY;
+    if (HOLD.away >= limit) releaseHold();
   }
 }
 export function policeAI(p, dt) {
@@ -169,6 +196,9 @@ export function policeAI(p, dt) {
     }
     tx = p.search.x; tz = p.search.z;
   }
+  // The attack: the attackers at the open end of a trap drive for the player - at grade they go up the ramp first
+  // (not ramming, so the ramp approach below applies), and once they are on the deck they ram him.
+  if (p.role === 'bridgeAtk' && HOLD.attack) { tx = player.x + player.vx * 0.5; tz = player.z + player.vz * 0.5; ramming = p.y > 1.2; }
   // Separation from teammates
   if (d > 16 && !ramming) {
     let sx = 0, sz = 0;
@@ -186,7 +216,10 @@ export function policeAI(p, dt) {
     else {
       tx = p.blockSlot.x; tz = p.blockSlot.z; ramming = false;
       const toSlot = Math.hypot(tx - p.x, tz - p.z);
-      if (toSlot < 8 && Math.abs(p.vf) < 4) return { throttle: 0, hand: true };     // parked: near its slot and slow (a tighter radius left them circling)
+      // parked: on its slot up on the deck, near it and slow (a tighter radius left them circling). At grade under the
+      // structure a unit that is 8 m from the slot is still on its way up the ramp, not parked.
+      p.parked = toSlot < 8 && Math.abs(p.vf) < 4 && Math.abs(p.y - FLY.deckH) < 1.5;
+      if (p.parked) return { throttle: 0, hand: true };
       holdBrake = toSlot < Math.abs(p.vf) ** 2 / 12 + 6;   // brake early enough to stop on the slot: a fast car overshoots it onto the ramp's foot
     }
   }
@@ -217,9 +250,22 @@ export function policeAI(p, dt) {
   //    to the lane on the player's side: the structure's own retaining wall runs the whole length of the ramp, so
   //    a diagonal aim across it just scrapes along the wall.
   let bridgeTurn = false;
-  const pf = flyoverNear(player.x, player.z);
-  if (pf && player.y > 2) {                                // the player is up on the structure
-    if (p.y > 1.2) {                                        // already up there: hold the lane it is driving in
+  const plv = structureLevel(player.x, player.y, player.z), pf = plv && plv.level === 'deck' ? plv.f : null;
+  if (pf) {                                // the player is up on the structure
+    if (p.y > 1.2 && (p.role === 'bridgeBlock' || (p.role === 'bridgeAtk' && HOLD.attack))) {
+      // a trap unit up on the deck: its own target (the checkpoint slot, or the player) stands, no lane correction
+    } else if (p.role === 'bridgeBlock' && p.y <= 1.2 && HOLD.on) {
+      // At grade: beyond the foot of its ramp it drives straight in to the foot. In the junction box under the deck, or beside
+      // the structure short of the foot, it first goes out along the at-grade lane beside the structure (the ramp's own
+      // embankment is solid, so a diagonal from under the deck to the foot scrapes or stalls); then it turns in at the foot.
+      const H = HOLD.on, sd = HOLD.side, ft = edgeAt(H, sd) + sd * FLY.rampEnd;
+      const out = (alongOf(H, p.x, p.z) - edgeAt(H, sd)) * sd;   // how far past the span end, on the checkpoint's side
+      const lat = latOf(H, p.x, p.z), side = lat >= 0 ? 1 : -1;
+      if (out >= FLY.rampEnd - 2) laneAim(H, ft, 0, _lane);                                  // beyond the foot: in to it
+      else if (Math.abs(lat) < FLY.halfW + 2) laneAim(H, alongOf(H, p.x, p.z), side * laneOffset(), _lane);   // under the deck: sideways out of the box, level with it
+      else laneAim(H, ft + sd * 10, side * laneOffset(), _lane);                              // beside it, short of the foot: along the lane to it
+      tx = _lane.x; tz = _lane.z; bridgeTurn = true;
+    } else if (p.y > 1.2) {                                        // already up there: hold the lane it is driving in
       const want = laneOffsetOn(pf.axis, Math.sign(pf.axis === 'z' ? p.vz : p.vx) || 1, 2.5);
       const verr = want - latOf(pf, p.x, p.z);
       tx += (pf.axis === 'z' ? 0 : verr) * 2.2; tz += (pf.axis === 'z' ? verr : 0) * 2.2;

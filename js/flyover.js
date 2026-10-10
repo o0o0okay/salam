@@ -212,6 +212,20 @@ export function surfaceAt(x, z, y) {
   const h = bridgeHeight(f, alongOf(f, x, z));
   return h > 0 && y > h - FLY.on ? h : 0;
 }
+// Where a car is in relation to a flyover, from its own height. 'deck': it is up on the structure's surface (the flat
+// deck, or a ramp it is driving on). 'under': it is at grade beneath the structure (the junction box, or the underside of
+// a ramp). null: it is clear of the structure, or it is on the ground beside it. A car this low is treated as being on the
+// ground: a ramp's foot is at grade, and the first metres of a ramp are not yet a deck to be on.
+export const UP = 2;
+export function structureLevel(x, y, z) {
+  const f = flyoverNear(x, z);
+  if (!f) return null;
+  const h = bridgeHeight(f, alongOf(f, x, z));
+  if (h <= UP) return null;
+  if (y > UP && y > h - FLY.on) return { f, level: 'deck' };
+  if (y <= h - FLY.on) return { f, level: 'under' };
+  return null;
+}
 
 // The structure's footprint in plan: the embankments and the deck, used to keep street furniture, parked cars,
 // lane pickups and roadworks out of the concrete (and spawning traffic off it).

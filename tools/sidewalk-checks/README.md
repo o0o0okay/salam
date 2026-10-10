@@ -188,6 +188,16 @@ at-grade lane, under the deck, and beside the abutment, with pursuers coming fro
 at-grade lane, the deck, the ramps and the cross street, and requires the car on the player, at his own height,
 every time.
 
+The bridge trap is the second half of that test. A player who sits on the deck, slow, for five seconds has one end of
+the structure closed by a checkpoint (up to three cruisers parked across the deck, eight metres beyond the span's end,
+on the side he faces) while the cruisers at the other end drive up their ramp and ram him. The harness requires the
+checkpoint to park two cruisers on the deck and his hp to reach zero within 45 s; a player below the deck, in a junction
+box, must never be given a trap role. Each run prints whether the trap closed, how many cruisers parked and when, and
+when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test the trap reads: 'deck' or 'under' or clear,
+from the car's own height. The height probe checks six points against it. Known gap: the test does not model the
+BUSTED rule in `js/update.js` (a pinned player is arrested rather than wrecked), and a few seeds still leave one cruiser
+at the checkpoint, or let the rams push the car off the far ramp.
+
 The shopping streets come from `buildShopParadeMesh()` / `buildShopFrontMesh()` in `js/world.js`: fourteen
 invented businesses (cafe, bakery, pizza, market, pharmacy, books, barber, donuts, flowers, hardware, laundry,
 shoes, arcade, grill), each with its own fascia colour, striped awning, blade sign, lit window pane with
