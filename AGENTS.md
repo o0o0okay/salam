@@ -15,6 +15,7 @@ npm test             # invariant checks over the procedural city (tools/sidewalk
 npm run serve        # static preview on port 8000 (open it in a browser to play)
 npm run build        # optional: dist/ with the game in one bundled app.js (three.js included)
 npm run serve:dist   # preview of dist/ on port 8001
+node tools/bench/query-bench.mjs   # build time per block, solidAt cost, in Node (not a frame time; see below)
 ```
 
 Add `?debug` to the page URL (e.g. `http://localhost:8000/?debug`) to show the performance overlay from

@@ -241,10 +241,11 @@ export function spawnPolice(forceTier = 0) {
     if (overlapsAnything(tmp, null)) continue;
     const p = makePoliceUnit(tier, x, z, h, kind);
     // Pick least-used role for tactical variety
-    const used = r => police.filter(q => !q.wrecked && q.role === r).length;
+    const used = r => { let n = 0; for (const q of police) if (!q.wrecked && q.role === r) n++; return n; };
     p.role = info.roles.map(r => ({ r, s: used(r) + Math.random() })).sort((a, b) => a.s - b.s)[0].r;
     // Split flank between left/right
-    const nL = police.filter(q => !q.wrecked && q.flank < 0).length, nR = police.filter(q => !q.wrecked && q.flank > 0).length;
+    let nL = 0, nR = 0;
+    for (const q of police) { if (q.wrecked) continue; if (q.flank < 0) nL++; else if (q.flank > 0) nR++; }
     p.flank = nL > nR ? 1 : -1;
     police.push(p); cars.push(p); return true;
   }

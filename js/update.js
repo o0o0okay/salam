@@ -98,15 +98,18 @@ export function update(dt) {
     }
   }
   const ph = Math.floor(game.t * 7) % 2;
-  for (const p of police.slice()) {
+  // Walks the live list by index, without copying it each frame: removeCar() splices the car out, so the index steps
+  // back to visit the car that moved into its place.
+  for (let i = 0; i < police.length; i++) {
+    const p = police[i];
     const dp = Math.hypot(p.x - player.x, p.z - player.z);
-    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, 1, p.z, 6, true, 1.6); removeCar(p); continue; } }
+    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, 1, p.z, 6, true, 1.6); removeCar(p); i--; continue; } }
     else {
       driveCar(p, policeAI(p, sdt), sdt);
       p.lights.red.color.setHex(ph ? 0xff2020 : 0x330606); p.lights.blue.color.setHex(ph ? 0x061233 : 0x2a6bff);
       p.smokeT -= sdt;
       if (p.smokeT <= 0) { p.smokeT = 0.1; if (p.hp < p.maxHp * .4) smoke(p.x + Math.sin(p.h) * p.box.e1 * .85, 1.3, p.z + Math.cos(p.h) * p.box.e1 * .85, 1, true, 1.1); if (Math.abs(p.vl) > 6 && p.speed > 10) smoke(p.x - Math.sin(p.h) * p.box.e1 * .68, 0.3, p.z - Math.cos(p.h) * p.box.e1 * .68, 1, false, 0.8); }
-      if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) removeCar(p);   // lost cop replaced
+      if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) { removeCar(p); i--; }   // lost cop replaced
     }
   }
   updateHelicopter(sdt, playing && game.wanted >= 5);
@@ -125,14 +128,15 @@ export function update(dt) {
       if (alive < maxC) spawnCiv();
     }
   }
-  for (const c of civs.slice()) {
+  for (let i = 0; i < civs.length; i++) {          // same index walk as the police loop above
+    const c = civs[i];
     const dp = Math.hypot(c.x - player.x, c.z - player.z);
-    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, 1, c.z, 6, true, 1.6); removeCar(c); continue; } }
+    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, 1, c.z, 6, true, 1.6); removeCar(c); i--; continue; } }
     else {
       driveCar(c, civAI(c, sdt), sdt);
       c.smokeT -= sdt;
       if (c.smokeT <= 0) { c.smokeT = 0.1; if (c.hp < CAR_DIMS[c.kind].hp * 0.4) smoke(c.x + Math.sin(c.h) * c.box.e1 * 0.85, 1.3, c.z + Math.cos(c.h) * c.box.e1 * 0.85, 1, true, 1.1); if (Math.abs(c.vl) > 5 && c.speed > 8) smoke(c.x - Math.sin(c.h) * 1.4, 0.3, c.z - Math.cos(c.h) * 1.4, 1, false, 0.8); }
-      if (dp > 190) removeCar(c);
+      if (dp > 190) { removeCar(c); i--; }
     }
   }
   /* --- burning hulls (parked appliances that burned out): they roll, they burn, they never go away --- */
