@@ -41,7 +41,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
-import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, buildSportMesh, SPORT_KINDS, SPORT_DEFS, FUEL_BRANDS, textBlocks } from './campus.js';
+import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, buildSportMesh, SPORT_KINDS, SPORT_DEFS, sportScale, FUEL_BRANDS, textBlocks } from './campus.js';
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
@@ -1422,8 +1422,8 @@ function generateChunk(cx, cz, defer = false) {
     prop('bench', bxo - S.pad[0] / 2 + 4, bzo + S.pad[1] / 2 - 4, 0, lotSurfaceY + 0.15);
   } else if (SPORT_KINDS.includes(type)) {
     // A fenced ground with its own markings: the fences and hoops or goals are solids, so a car stops at them.
-    const lotSurfaceY = 0.25, S = SPORT_DEFS[type];
-    padBox(S.pad[0], S.pad[1], mat(S.ground), bxo - bx, bzo - bz);
+    const lotSurfaceY = 0.25, S = SPORT_DEFS[type], sc = sportScale(type), PW = S.pad[0] * sc, PD = S.pad[1] * sc;
+    padBox(PW, PD, mat(S.ground), bxo - bx, bzo - bz);
     const K = buildSportMesh(type, bxo, bzo, rng);
     K.group.position.set(bxo, 0, bzo);
     bake(ch, K.group);
@@ -1455,7 +1455,7 @@ function generateChunk(cx, cz, defer = false) {
       sEntry.playPiece = pc;
       pc.solid = sEntry;
     }
-    prop('bench', bxo + S.pad[0] / 2 - 4, bzo - S.pad[1] / 2 + 3, 0, lotSurfaceY + 0.15);
+    prop('bench', bxo + PW / 2 - 4, bzo - PD / 2 + 3, 0, lotSurfaceY + 0.15);
   } else if (type === 'school') {
     // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
     // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.

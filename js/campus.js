@@ -963,6 +963,13 @@ export const SPORT_DEFS = {
   playground: { pad: [34, 28], ground: 0x4f8f45, court: 0xe8d49a },
 };
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
+// How far a ground is grown: 1.5 times, or as far as the block allows. A block's interior is 56 m across (the paving
+// takes the rest), so the longest side is held to SPORT_MAX_SIDE, which keeps a little clear of the pad edge.
+export const SPORT_MAX_SIDE = 55;
+export function sportScale(kind) {
+  const [w, d] = SPORT_DEFS[kind].pad;
+  return Math.min(1.5, SPORT_MAX_SIDE / Math.max(w, d));
+}
 export function buildSportMesh(kind, bx, bz, rng) {
   const S = SPORT_DEFS[kind];
   const root = new THREE.Group(), solids = [];
@@ -996,8 +1003,9 @@ export function buildSportMesh(kind, bx, bz, rng) {
         for (const ry of [0.2, h / 2, h - 0.15]) grp.add(box(wire, 0.05, segLen, M.fence, 0, Y + ry, 0, false));
         for (const pz of [-segLen / 2, segLen / 2]) grp.add(box(0.1, h + 0.3, 0.1, M.metal, 0, Y + (h + 0.3) / 2, pz, false));
       }
-      fencePieces.push({ group: grp, x: bx + x + (alongX ? off : 0), z: bz + z + (alongX ? 0 : off),
-        hx: alongX ? segLen / 2 : 0.12, hz: alongX ? 0.12 : segLen / 2, alongX, segLen, mesh: null, broken: false });
+      grp.scale.set(sc, 1, sc);
+      fencePieces.push({ group: grp, x: bx + (x + (alongX ? off : 0)) * sc, z: bz + (z + (alongX ? 0 : off)) * sc,
+        hx: (alongX ? segLen / 2 : 0.12) * sc, hz: (alongX ? 0.12 : segLen / 2) * sc, alongX, segLen, mesh: null, broken: false });
     }
   };
   // A breakable element (a hoop, a goal, a ramp, a piece of play equipment): its geometry goes into its own group, so
@@ -1008,10 +1016,13 @@ export function buildSportMesh(kind, bx, bz, rng) {
   const piece = (spec, fn) => {
     const outer = g; g = new THREE.Group();
     fn();
-    breakable.push({ group: g, x: bx + spec.x, z: bz + spec.z, hx: spec.hx, hz: spec.hz, kind: spec.kind, brk: spec.brk,
-      color: spec.color, obox: spec.obox || null, mesh: null, broken: false });
+    g.scale.set(sc, 1, sc);
+    const ob = spec.obox ? { ...spec.obox, e1: spec.obox.e1 * sc, e2: spec.obox.e2 * sc } : null;
+    breakable.push({ group: g, x: bx + spec.x * sc, z: bz + spec.z * sc, hx: spec.hx * sc, hz: spec.hz * sc, kind: spec.kind,
+      brk: spec.brk, color: spec.color, obox: ob, mesh: null, broken: false });
     g = outer;
   };
+  const sc = sportScale(kind);                   // growth in x and z; heights stay
   const [PW, PD] = S.pad;
   // The playing surface takes about 80% of the enclosure: CW x CD is the court, the field or the deck, and a strip of
   // the pad's own colour (A wide) is left round it. A solves (PW-2A)(PD-2A) = 0.8 PW PD. The fences stand on the pad's edge.
@@ -1126,5 +1137,6 @@ export function buildSportMesh(kind, bx, bz, rng) {
     CYL(0.09, 0.12, 7.0, 8, M.metal, lx, 3.5, lz, false);
     B(1.2, 0.3, 0.6, mat(0xfff3c4), lx, 7.1, lz, false);
   }
-  return { group: root, solids, pad: [PW, PD], fencePieces, breakable };
+  root.scale.set(sc, 1, sc);                     // the baked geometry (surface, markings, masts) grows the same way
+  return { group: root, solids, pad: [PW * sc, PD * sc], fencePieces, breakable };
 }
