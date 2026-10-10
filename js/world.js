@@ -1986,11 +1986,58 @@ export function addParkedCarToChunk(ch, kind, color, slot) {
 // solid that is only real for what is below it (`maxY` — the interchange's embankment walls) is skipped when the
 // asker is above it. That is what lets a car up on a flyover look down the road ahead of it and see clear
 // asphalt, while a car at grade beside the same spot is told the concrete is there.
+const _probeSolids = [];                                     // solidAt() never nests, so one scratch list is enough
 export function solidAt(x, z, m, y = 0) {
-  const list = nearChunks(x, z);
-  for (const ch of list) for (const s of ch.solids) {
+  for (const s of solidsNear(x, z, m, _probeSolids)) {
     if (s.maxY !== undefined && y > s.maxY) continue;
     if (Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m) return true;
   }
   return false;
+}
+// ---- solid index --------------------------------------------------------------------------------------------
+// The collision and AI queries used to scan every solid of the 3x3 chunks around them (about 260-290 entries a
+// query, most of them street trees). Each chunk now keeps its static solids in a grid of GRID_CELL-metre cells.
+// A solid goes into every cell its footprint grown by GRID_PAD reaches, so a query for a point with a reach of
+// up to GRID_PAD only reads the one cell that holds the point. Parked cars are the only solids that move (a shove
+// changes x/z) and they come back when woken, so they sit in a short per-chunk list that is always read live.
+// Solids disabled with hx = hz = -999 are still returned where they are indexed: every caller checks the live
+// extents, so the index never has to follow them. Chunks are generated whole before anything queries them, and
+// ch.solids is only ever appended to, so the index catches up by counting entries (ch.gridN).
+const GRID_CELL = 10, GRID_PAD = 10;
+const cellKey = (ix, iz) => (ix + 32768) * 65536 + (iz + 32768);
+function indexChunk(ch) {
+  if (!ch.grid) { ch.grid = new Map(); ch.gridN = 0; ch.movers = []; }
+  const S = ch.solids;
+  for (; ch.gridN < S.length; ch.gridN++) {
+    const s = S[ch.gridN];
+    if (s.parked) { ch.movers.push(s); continue; }
+    if (!(s.hx >= 0 && s.hz >= 0)) continue;                 // disabled for good (a felled tree, a burst pickup)
+    const x0 = Math.floor((s.x - s.hx - GRID_PAD) / GRID_CELL), x1 = Math.floor((s.x + s.hx + GRID_PAD) / GRID_CELL);
+    const z0 = Math.floor((s.z - s.hz - GRID_PAD) / GRID_CELL), z1 = Math.floor((s.z + s.hz + GRID_PAD) / GRID_CELL);
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) {
+      const k = cellKey(ix, iz);
+      let cell = ch.grid.get(k);
+      if (!cell) ch.grid.set(k, cell = []);
+      cell.push(s);
+    }
+  }
+}
+// Every solid that could be within `reach` metres of (x, z), from the 3x3 chunks nearChunks() would scan. Callers
+// still apply their own test to each one. Fills `out` (cleared first) and returns it. A caller that loops over the
+// list while another query runs must give that query its own list: collideSolids() does, see collisions.js.
+export function solidsNear(x, z, reach, out = []) {
+  out.length = 0;
+  const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+  const wide = !(reach <= GRID_PAD);                         // also true for NaN: fall back to the full scan
+  const k = cellKey(Math.floor(x / GRID_CELL), Math.floor(z / GRID_CELL));
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const ch = chunks.get(ck(cx + i, cz + j));
+    if (!ch) continue;
+    indexChunk(ch);
+    if (wide) { for (const s of ch.solids) out.push(s); continue; }
+    const cell = ch.grid.get(k);
+    if (cell) for (const s of cell) out.push(s);
+    for (const s of ch.movers) out.push(s);
+  }
+  return out;
 }

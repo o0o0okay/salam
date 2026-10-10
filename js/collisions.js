@@ -7,7 +7,7 @@ import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
 import { DIFF, HULK_PARAMS } from './config.js';
 import { game, cars, flying, fallingTrees, geysers, fires, plazaBreaking } from './state.js';
-import { nearChunks, isHeavyParked, parkedShove, parkedDamage } from './world.js';
+import { nearChunks, solidsNear, isHeavyParked, parkedShove, parkedDamage } from './world.js';
 import { insideFootprint, parapetPush } from './flyover.js';
 import { flyingFloor } from './flying.js';
 import { carBox, createCar } from './vehicle.js';
@@ -52,20 +52,22 @@ export function sat(A, B) {
   }
   hit.nx = nx; hit.nz = nz; hit.depth = minO; return true;
 }
+// Scratch lists for solidsNear(). Each query site has its own, because collideSolids() is still looping over its
+// list when hitParkedHeavy() -> canShift() asks for another one.
+const _scanSolids = [], _hitSolids = [], _shiftSolids = [];
 export function overlapsAnything(b, self) {
   // Nothing spawns inside the interchange: a car placed in the embankment would sit in the concrete, and the
   // deck above is no place to drop traffic into mid-air either.
   if (insideFootprint(b.x, b.z, 2 + b.e1)) return true;
-  const list = nearChunks(b.x, b.z);
-  for (const ch of list) for (const s of ch.solids) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
+  for (const s of solidsNear(b.x, b.z, 4, _scanSolids)) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
   return false;
 }
 export function collideSolids(c) {
-  const list = nearChunks(c.x, c.z); const b = carBox(c);
-  for (const ch of list) for (const s of ch.solids) {
+  const reach = c.box.e1 + c.box.e2; const b = carBox(c);
+  for (const s of solidsNear(c.x, c.z, reach, _hitSolids)) {
     if (s.maxY !== undefined && c.y > s.maxY) continue;          // a wall under a deck: only for what is under it
-    if (Math.abs(s.x - c.x) > s.hx + c.box.e1 + c.box.e2 || Math.abs(s.z - c.z) > s.hz + c.box.e1 + c.box.e2) continue;
+    if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
     if (!sat(b, s.box)) continue;
     if (s.tree && !s.tree.broken) {
       const vnT = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards tree
@@ -175,7 +177,7 @@ export function hitParkedHeavy(pc, c, vn) {
 // already taken, it stays exactly where it stands — still absorbing the hit, still catching fire there.
 function canShift(pc, dx, dz) {
   const x = pc.x + dx, z = pc.z + dz, r = Math.max(pc.len || 2, pc.wid || 1) * 0.8;
-  for (const ch of nearChunks(x, z)) for (const s of ch.solids) {
+  for (const s of solidsNear(x, z, r, _shiftSolids)) {
     if (s === pc.solid || s.parked === pc) continue;
     if (Math.abs(s.x - x) < s.hx + r && Math.abs(s.z - z) < s.hz + r) return false;
   }
