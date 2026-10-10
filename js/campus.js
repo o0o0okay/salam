@@ -930,3 +930,91 @@ export function buildStoreMesh(kind, bx, bz, rng) {
   }
   return { group: g, solids, bays };
 }
+
+// ---- Sports and play grounds: basketball, futsal, skate park, baseball diamond, playground ----
+// Each one is a fenced ground with its own markings and fittings. The fences are solids, so a car stops at them
+// the way it would at a real chain-link fence; the hoops and goal posts are solids too.
+export const SPORT_DEFS = {
+  hoops:      { pad: [38, 26], ground: 0xb8653a, court: 0x2d5fa8 },
+  futsal:     { pad: [46, 30], ground: 0x2f8f4e },
+  skatepark:  { pad: [38, 30], ground: 0x9aa0a6 },
+  baseball:   { pad: [52, 52], ground: 0x3f7f3a },
+  playground: { pad: [34, 28], ground: 0xd7c59a },
+};
+export const SPORT_KINDS = Object.keys(SPORT_DEFS);
+export function buildSportMesh(kind, bx, bz, rng) {
+  const S = SPORT_DEFS[kind];
+  const g = new THREE.Group(), solids = [];
+  const M = {
+    line: mat(0xf4f4f0), white: mat(0xffffff), fence: mat(0x7d8790), metal: mat(0x9aa3ab), dark: mat(0x3a3f46),
+    orange: mat(0xf07a1e), dirt: mat(0xb88a5a), sand: mat(0xe8d49a), wood: mat(0x8a5a32), concrete: mat(0xb7bcc2),
+    red: mat(0xd8452f), yellow: mat(0xf2c230), blue: mat(0x2d5fa8), green: mat(0x2f8f4e), ground: mat(S.ground),
+    court: mat(S.court || S.ground), grass: mat(0x3f7f3a),
+  };
+  const Y = 0.25;
+  const B = (w, h, d, m, x, y, z, cast = false) => g.add(box(w, h, d, m, x, Y + y, z, cast));
+  const CYL = (rt, rb, h, seg, m, x, y, z, cast = false) => g.add(cyl(rt, rb, h, seg, m, x, Y + y, z, cast));
+  const solid = (x, z, hx, hz, k) => solids.push({ x: bx + x, z: bz + z, hx, hz, kind: k });
+  // a straight fence panel of length L along x or z, centred on (x, z), with its solid
+  const fence = (L, h, x, z, along) => {
+    if (along === 'x') { B(L, h, 0.08, M.fence, x, h / 2, z); solid(x, z, L / 2, 0.12, 'fence'); }
+    else { B(0.08, h, L, M.fence, x, h / 2, z); solid(x, z, 0.12, L / 2, 'fence'); }
+  };
+  const [PW, PD] = S.pad;
+
+  if (kind === 'hoops') {
+    const w = 28, d = 15;
+    B(w, 0.03, d, M.court, 0, 0.015, 0);
+    for (const s of [-1, 1]) { B(w, 0.02, 0.12, M.line, 0, 0.03, s * d / 2); B(0.12, 0.02, d, M.line, s * w / 2, 0.03, 0); }
+    B(0.12, 0.02, d, M.line, 0, 0.03, 0);
+    for (const s of [-1, 1]) {
+      const hx = s * (w / 2 + 0.9);
+      CYL(0.12, 0.12, 3.4, 8, M.metal, hx, 1.7, 0, true); solid(hx, 0, 0.2, 0.2, 'hoop');
+      B(0.12, 1.1, 1.7, M.white, s * (w / 2 + 0.45), 3.5, 0);
+      CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
+    }
+    fence(w + 5.6, 2.6, 0, d / 2 + 1.2, 'x'); fence(w + 5.6, 2.6, 0, -d / 2 - 1.2, 'x');
+    fence(d + 2.4, 2.6, w / 2 + 2.0, 0, 'z'); fence(d + 2.4, 2.6, -w / 2 - 2.0, 0, 'z');
+  } else if (kind === 'futsal') {
+    const w = 38, d = 22;
+    B(w, 0.03, d, M.court, 0, 0.015, 0);
+    for (const s of [-1, 1]) { B(w, 0.02, 0.14, M.line, 0, 0.03, s * d / 2); B(0.14, 0.02, d, M.line, s * w / 2, 0.03, 0); }
+    B(0.14, 0.02, d, M.line, 0, 0.03, 0);
+    for (const s of [-1, 1]) {
+      for (const zz of [-3.6, 3.6]) { CYL(0.06, 0.06, 2.1, 6, M.white, s * w / 2, 1.05, zz); solid(s * w / 2, zz, 0.15, 0.15, 'goal'); }
+      B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
+    }
+    fence(w + 2.8, 3.0, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 3.0, 0, -d / 2 - 1.0, 'x');
+    fence(d + 2.0, 3.0, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 3.0, -w / 2 - 1.0, 0, 'z');
+  } else if (kind === 'skatepark') {
+    const w = 30, d = 22;
+    for (const [rx, rz, ry] of [[-7, -3, 0], [6, 4, Math.PI / 2], [0, 7, Math.PI]]) {
+      const r = box(4.2, 0.9, 6.0, M.concrete, rx, Y + 0.45, rz); r.rotation.x = 0.26; r.rotation.y = ry; g.add(r);
+    }
+    for (const [rx, rz] of [[-2, -6], [9, -2]]) {
+      const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
+    }
+    fence(w + 2.8, 2.6, 0, d / 2 + 1.0, 'x'); fence(w + 2.8, 2.6, 0, -d / 2 - 1.0, 'x');
+    fence(d + 2.0, 2.6, w / 2 + 1.0, 0, 'z'); fence(d + 2.0, 2.6, -w / 2 - 1.0, 0, 'z');
+  } else if (kind === 'baseball') {
+    CYL(12, 12, 0.04, 24, M.dirt, 0, 0.02, 0);                 // infield dirt
+    CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                  // pitcher's mound
+    for (const [bxp, bzp] of [[9, 0], [0, -9], [-9, 0]]) B(0.7, 0.06, 0.7, M.white, bxp, 0.03, bzp);
+    B(0.9, 0.04, 0.9, M.white, 0, 0.02, 9.2);                   // home plate
+    fence(28, 2.4, 0, 13.5, 'x');                               // backstop
+    fence(46, 2.4, 0, -23, 'x'); fence(46, 2.4, 0, 23, 'x');
+    fence(46, 2.4, -23, 0, 'z'); fence(46, 2.4, 23, 0, 'z');
+  } else if (kind === 'playground') {
+    B(9, 0.04, 6, M.sand, -8, 0.02, -5);                        // sandpit
+    for (const xx of [5.5, 8.5]) B(0.8, 0.1, 0.45, M.dark, xx, 1.2, -6);   // swing seats
+    for (const xx of [3, 11]) CYL(0.08, 0.08, 2.6, 6, M.metal, xx, 1.3, -6);   // swing frame posts
+    B(9, 0.12, 0.12, M.metal, 7, 2.6, -6);
+    for (const xx of [5.5, 8.5]) for (const dz of [-0.2, 0.2]) CYL(0.02, 0.02, 1.4, 4, M.dark, xx + dz, 1.9, -6);
+    for (const cx of [4, 8]) for (const cz of [3, 7]) CYL(0.1, 0.1, 2.4, 6, M.wood, cx, 1.2, cz);   // climbing frame
+    B(4.6, 0.12, 4.6, M.wood, 6, 2.4, 5);
+    const slide = box(0.8, 0.1, 4.2, M.red, 10.2, 1.3, 2.4); slide.rotation.x = -0.3; g.add(slide);
+    fence(34, 1.4, 0, 14, 'x'); fence(34, 1.4, 0, -14, 'x');
+    fence(28, 1.4, 17, 0, 'z'); fence(28, 1.4, -17, 0, 'z');
+  }
+  return { group: g, solids, pad: [PW, PD] };
+}
