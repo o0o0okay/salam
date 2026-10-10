@@ -15,12 +15,14 @@ $('game').appendChild(renderer.domElement);
 
 // Quality tiers, best first: render resolution and shadow-map resolution. The frame loop walks down the list
 // when frames take too long and back up when there is headroom, so a weak GPU still drives smoothly and a
-// strong one gets the sharp picture back.
+// strong one gets the sharp picture back. `filter` is the shadow filter: PCF soft costs about the same per
+// pixel as plain PCF in this three.js version (both take ~17 depth reads), so only the last tier gives up the
+// soft edge for BasicShadowMap, which reads the depth map once.
 export const QUALITY = [
-  { pixelRatio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, shadowsEvery: 2 },
-  { pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), shadow: 2048, shadowsEvery: 2 },
-  { pixelRatio: 1, shadow: 1024, shadowsEvery: 3 },
-  { pixelRatio: 0.85, shadow: 1024, shadowsEvery: 4 },
+  { pixelRatio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, shadowsEvery: 2, filter: THREE.PCFSoftShadowMap },
+  { pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), shadow: 2048, shadowsEvery: 2, filter: THREE.PCFSoftShadowMap },
+  { pixelRatio: 1, shadow: 1024, shadowsEvery: 3, filter: THREE.PCFSoftShadowMap },
+  { pixelRatio: 0.85, shadow: 1024, shadowsEvery: 4, filter: THREE.BasicShadowMap },
 ];
 export let qualityLevel = 0;
 export function applyQuality(level) {
@@ -29,6 +31,8 @@ export function applyQuality(level) {
   qualityLevel = QUALITY.indexOf(q);
   renderer.setPixelRatio(q.pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // three.js compiles the materials again for a new shadow type (it is part of the program key), once per type
+  if (renderer.shadowMap.type !== q.filter) renderer.shadowMap.type = q.filter;
   if (sun.shadow.mapSize.width !== q.shadow) {
     sun.shadow.mapSize.set(q.shadow, q.shadow);
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }   // three.js allocates the next one
