@@ -175,8 +175,14 @@ export function policeAI(p, dt) {
           // wall of concrete where the ramp rises out of the ground, and the only clear place to step out is the
           // lane just outside the ramp's foot - a fixed point, so the aim cannot walk out from under a car that is
           // still crossing. A car that has been carried onto the low end of a ramp is taken off it the same way.
+          // Still at the foot of the ramp, the nose guard stands at the lane's edge (lateral -7.3 m) just short of the lane
+          // point, and it is a solid: a diagonal aim from here runs into it, and a car that comes in at an angle wedges
+          // its front corner against it. So first run along the foot to the far side of the guard, drawn in toward the
+          // middle of the road (2.5 m off the centre line), then cut out to the lane.
+          const beyondGuard = FLY.rampEnd + 6;
           if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, my * laneOffset(), _lane);
-          else laneAim(nf, Math.sign(u || 1) * (FLY.rampEnd + 6), my * laneOffset(), _lane);
+          else if (Math.abs(u) < beyondGuard - 0.5) laneAim(nf, Math.sign(u || 1) * beyondGuard, Math.max(-2.5, Math.min(2.5, v)), _lane);
+          else laneAim(nf, Math.sign(u || 1) * beyondGuard, my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
         } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
           laneAim(nf, beside ? cross : u, (beside ? my : want) * laneOffset(), _lane);   //   its own lane up to the crossing, then straight across
