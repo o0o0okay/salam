@@ -22,7 +22,10 @@ them to `/tmp` (pass a path under `/tmp`) unless the user asks to update the com
 ## Where things are
 
 - `js/world.js` — chunk generation (blocks, buildings, sidewalks, trees, props, parked cars), chunk
-  streaming (`updateChunks`) and disposal (`disposeChunk`). Every block is a 80 m square chunk.
+  streaming (`updateChunks`) and disposal (`disposeChunk`). Every block is an 80 m square chunk. The top
+  of the file documents the chunk record (`ch`), its solids and the geometry lifecycle.
+- `js/campus.js` — the hospital (with the air ambulance and the box-pixel lettering), fire station, school
+  and filling station builders. `js/shops.js` — shop kits and high-street parades.
 - `js/assets.js` — shared materials, textures and geometry (window glass, brick facades, road, paving).
 - `js/flyover.js` — the grade-separated interchange numbers (imported by world.js and the harness).
 - `js/trafficLights.js`, `js/carModels.js`, `js/props.js`, `js/trees.js` — street furniture and vehicles.

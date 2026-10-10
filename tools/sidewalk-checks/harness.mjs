@@ -30,6 +30,13 @@ export function build() {
   let lightSrc = fs.readFileSync(path.join(repo, 'js/trafficLights.js'), 'utf8');
   lightSrc = lightSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = lightSrc + '\n' + src;
+  // ... and the campus buildings and the shop kits, split out of world.js: stitched in front of it, in the order
+  // they depend on (campus first: the shops use its text lettering).
+  for (const f of ['shops.js', 'campus.js']) {
+    let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
+    part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    src = part + '\n' + src;
+  }
 
   const stubs = `
 // geom counts merged pieces, geosCreated/geosDisposed count BufferGeometry objects: one block must not leave
