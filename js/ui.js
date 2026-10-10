@@ -78,7 +78,7 @@ export function updateHUD() {
   const kmh = Math.round(player.speed * 3.6);
   setText('speed', kmh); setText('cash', game.cash); setText('takedowns', game.takedowns);
   const arc = clamp(kmh / GAUGE_MAX, 0, 1) * 100;
-  if (hudCache.arc !== arc) { hudCache.arc = arc; $('gaugeFill').setAttribute('stroke-dasharray', arc.toFixed(1) + ' 100'); }
+  if (hudCache.arc !== arc) { hudCache.arc = arc; $('gaugeFill').style.strokeDasharray = arc.toFixed(1) + ' 100'; }
   const hrs = (env.phase * 24 + 6) % 24, hh = Math.floor(hrs), mm = Math.floor((hrs - hh) * 60);
   setText('clock', (env.day > 0.5 ? '☀ ' : '🌙 ') + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'));
   const hp = clamp(game.hp, 0, 100); $('hpFill').style.width = hp + '%';
