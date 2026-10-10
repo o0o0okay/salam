@@ -67,7 +67,58 @@ function navWaypoint(p, tx, tz) {
   p.navX = wx; p.navZ = wz;
 }
 const _ramp = { x: 0, z: 0 }, _lane = { x: 0, z: 0 };
+// ---------- BRIDGE HOLD ----------
+// A player who sits up on a flyover, and stays slow there, gets both ends of the structure blocked. The nearest
+// pursuers park sideways across the avenue beyond each ramp's foot, up to three per end and as many as the chase has.
+// They hold until the player has been off the structure for a moment (he came down a ramp, or was knocked off), and
+// then they rejoin the chase like any other unit. The hold does not end because the player is close: the units at the
+// ends are often the ones that were nearest to him. A player who only drives across is not held: the dwell time counts
+// only while the player is slow up there, and drains while he is moving.
+const HOLD = { t: -1, dwell: 0, away: 0, on: null };
+const HOLD_DWELL = 5, HOLD_AWAY = 2, HOLD_SLOW = 6, HOLD_SPACING = 4.4, HOLD_PER_END = 3;
+const worldAt = (f, u, v) => f.axis === 'z' ? { x: f.road + v, z: f.node + u } : { x: f.node + u, z: f.road + v };
+function releaseHold() {
+  for (const q of police) if (q.role === 'bridgeBlock') { q.role = 'chaser'; q.blockSlot = null; }
+  HOLD.on = null; HOLD.dwell = 0; HOLD.away = 0;
+}
+function assignHold(f) {
+  // the two outer ends of the structure: beyond the ramp's foot on each side of the span (plain flyovers: both ramps)
+  const ends = [f.hi + FLY.rampEnd + 6, f.lo - FLY.rampEnd - 6];
+  const pool = police.filter(q => !q.wrecked && q.role !== 'roadblock' && q.role !== 'bridgeBlock');
+  const perEnd = Math.max(1, Math.min(HOLD_PER_END, Math.floor(pool.length / 2)));
+  const at = e => worldAt(f, e, 0);
+  const dist = (q, e) => Math.hypot(q.x - at(e).x, q.z - at(e).z);
+  // split by which end each unit is nearer to: the most end-A units take end A, the most end-B units take end B, so
+  // the two ends are not left to whichever units happened to be nearest the player
+  const sorted = [...pool].sort((a, b) => (dist(a, ends[0]) - dist(a, ends[1])) - (dist(b, ends[0]) - dist(b, ends[1])));
+  const groups = [sorted.slice(0, perEnd), sorted.slice(Math.max(perEnd, sorted.length - perEnd))];
+  const h = f.axis === 'z' ? PI / 2 : 0;                  // laid sideways across the road, as the roadblock is
+  ends.forEach((e, k) => {
+    groups[k].forEach((q, i) => {
+      const v = (i - (groups[k].length - 1) / 2) * HOLD_SPACING, pt = worldAt(f, e, v);
+      q.role = 'bridgeBlock'; q.blockSlot = { x: pt.x, z: pt.z, h };
+    });
+  });
+}
+// Once per frame (the first police unit to ask): the dwell clock, the release clock, and the assignment.
+function bridgeHold() {
+  if (game.t < HOLD.t || HOLD.t < 0) { releaseHold(); HOLD.t = game.t; return; }   // a new run restarts the clock
+  if (game.t === HOLD.t) return;
+  const dt = Math.min(0.25, game.t - HOLD.t);
+  HOLD.t = game.t;
+  const f = player.y > 2 ? flyoverNear(player.x, player.z) : null;
+  if (f) {
+    HOLD.away = 0;
+    if (Math.hypot(player.vx, player.vz) < HOLD_SLOW) HOLD.dwell += dt;
+    else HOLD.dwell = Math.max(0, HOLD.dwell - dt);
+    if (!HOLD.on && HOLD.dwell >= HOLD_DWELL) { HOLD.on = f; assignHold(f); }
+  } else if (HOLD.on || HOLD.dwell > 0) {
+    HOLD.away += dt;
+    if (HOLD.away >= HOLD_AWAY) releaseHold();
+  }
+}
 export function policeAI(p, dt) {
+  bridgeHold();
   // ---------- STATIONARY ROADBLOCK ----------
   // Parked across the road with the handbrake on, lights still flashing (handled generically by the main loop).
   // Breaks formation and joins the normal chase once the player gets close, or the hold timer runs out.
@@ -127,6 +178,17 @@ export function policeAI(p, dt) {
       if (od < 14 && od > 0.1) { const w = (14 - od) / 14; sx += ox / od * w; sz += oz / od * w; }
     }
     tx += sx * 9; tz += sz * 9;
+  }
+  // A unit holding an end of the structure drives to its slot and parks there until the hold is released.
+  let holdBrake = false;
+  if (p.role === 'bridgeBlock') {
+    if (!p.blockSlot) p.role = 'chaser';
+    else {
+      tx = p.blockSlot.x; tz = p.blockSlot.z; ramming = false;
+      const toSlot = Math.hypot(tx - p.x, tz - p.z);
+      if (toSlot < 8 && Math.abs(p.vf) < 4) return { throttle: 0, hand: true };     // parked: near its slot and slow (a tighter radius left them circling)
+      holdBrake = toSlot < Math.abs(p.vf) ** 2 / 12 + 6;   // brake early enough to stop on the slot: a fast car overshoots it onto the ramp's foot
+    }
   }
   const aimX = tx, aimZ = tz;   // the aim before the grid waypoint below replaces it: the interchange rules test the road against this
   p.navT -= dt;
@@ -227,6 +289,7 @@ export function policeAI(p, dt) {
   if (Math.abs(diff) > 1.0 && vf > (p.tier >= 4 ? 30 : 22)) throttle = -0.1;
   // Brake for the tight turn off a ramp; do not rely on sliding through the parapet.
   if (bridgeTurn && Math.abs(diff) > 0.65 && vf > 12) throttle = -1;
+  if (holdBrake && vf > 3) throttle = -1;
   if (blockerHold) throttle = vf > 2 ? -1 : 0;
   if (d > 14) {
     const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y); };

@@ -203,5 +203,27 @@ for (const [name, player, cops, limit] of cases) {
   else ok(`${name}: reached the player in ${reach.t.toFixed(1)} s (${line})`);
 }
 
+// ---- the bridge hold: a player who sits on the deck gets both ends of the structure blocked ----
+// The player parks up on the deck (slow, so the dwell clock runs). Four cruisers start at grade on the avenue, two beyond
+// each end of the span. After the hold time, a cruiser must be parked within 8 m of each outer end of the structure.
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  if (!f) bad('no flyover at the block the bridge test uses');
+  else {
+    const endA = { x: 0, z: f.node + f.hi + W.FLY.rampEnd + 6 }, endB = { x: 0, z: f.node + f.lo - W.FLY.rampEnd - 6 };
+    const player1 = { x: 2.5, z: NODE, h: 0, y: W.FLY.deckH };
+    // the cruisers start beyond each outer end of the structure, so none of them starts under the deck
+    const zA = f.node + f.hi + 150, zB = f.node + f.lo - 150;
+    const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }];
+    const tr = chase(player1, cops, 40);
+    const last = tr.map(t => t[t.length - 1]);
+    const near = e => Math.min(...last.map(s2 => Math.hypot(s2.x - e.x, s2.z - e.z)));
+    const dA = near(endA), dB = near(endB), parkedN = last.filter(s2 => s2.speed < 2).length;
+    const line = `nearest cruiser ${dA.toFixed(1)} m from one end and ${dB.toFixed(1)} m from the other, ${parkedN} of ${last.length} stopped`;
+    if (dA <= 8 && dB <= 8) ok(`the player sat on the deck and both ends were blocked (${line})`);
+    else bad(`the player sat on the deck and the ends were not both blocked (${line})`);
+  }
+}
+
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);
