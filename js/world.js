@@ -838,7 +838,7 @@ function generateChunk(cx, cz, defer = false) {
     for (let i = 0; i < NS; i++) {
       const u0 = FLY.deckHalf + i * slice, u1 = u0 + slice, cu = Q.su * (u0 + u1) / 2;
       const p = at(cu, 0, Q.sv * W / 2), top = rampHeight(u1) - FLY.solidDrop;
-      ch.solids.push({ x: p[0], z: p[2], hx: alongX ? slice / 2 : W / 2, hz: alongX ? W / 2 : slice / 2, kind: 'flyover', maxY: top,
+      ch.solids.push({ x: p[0], z: p[2], hx: alongX ? slice / 2 : W / 2, hz: alongX ? W / 2 : slice / 2, kind: 'flyover', ramp: true, maxY: top,
         box: { x: p[0], z: p[2], ux: 1, uz: 0, vx: 0, vz: 1, e1: alongX ? slice / 2 : W / 2, e2: alongX ? W / 2 : slice / 2 } });
     }
     //  - the retaining wall down each flank. It sits *inside* the structure's own edge, so the at-grade lane runs
@@ -2084,9 +2084,11 @@ export function addParkedCarToChunk(ch, kind, color, slot) {
 // asker is above it. That is what lets a car up on a flyover look down the road ahead of it and see clear
 // asphalt, while a car at grade beside the same spot is told the concrete is there.
 const _probeSolids = [];                                     // solidAt() never nests, so one scratch list is enough
-export function solidAt(x, z, m, y = 0) {
+// `skipRamp` leaves out a flyover's ramp slices: a car that is riding the structure's surface reads those as the road.
+export function solidAt(x, z, m, y = 0, skipRamp = false) {
   for (const s of solidsNear(x, z, m, _probeSolids)) {
     if (s.maxY !== undefined && y > s.maxY) continue;
+    if (skipRamp && s.ramp) continue;
     if (Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m) return true;
   }
   return false;

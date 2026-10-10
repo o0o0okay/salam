@@ -88,7 +88,14 @@ export function driveCar(c, inp, dt) {
   // down the slope. Both halves matter: without the first the crest is a trampoline, without the second the car
   // floats the whole way down a ramp. While the wheels are only just off the surface they also drag it back down.
   const G = 29, HOP = 0.18, PULL = 3.0;
-  const gy = surfaceAt(c.x, c.z, c.y), wasY = c.y;
+  // Ground follow. The car is one rigid body on its surface, so its height comes from the surface under its nose,
+  // its tail and its centre together: it rests on the higher of the centre and the mean of the two ends, and its
+  // pitch is the slope between the ends. Sampling the centre alone let a nose two metres ahead sit up to 0.37 m
+  // inside a ramp's slope (the ramp's grade times that distance). Flat ground and the flat deck give zero pitch.
+  const F = c.box ? c.box.e1 : 2.05;
+  const gyF = surfaceAt(c.x + s * F, c.z + co * F, c.y), gyR = surfaceAt(c.x - s * F, c.z - co * F, c.y);
+  const gy = Math.max(surfaceAt(c.x, c.z, c.y), (gyF + gyR) / 2), wasY = c.y;
+  c.surfPitch = Math.atan2(gyF - gyR, 2 * F);                   // nose up is positive
   c.vy -= G * (c.air && c.y - gy < 1.0 ? PULL : 1) * dt;
   const ny = c.y + c.vy * dt;
   if (ny <= gy + 0.02) {
@@ -104,13 +111,11 @@ export function syncCarMesh(c, dt) {
   c.mesh.position.set(c.x, c.y, c.z); c.mesh.rotation.y = c.h;
   const tr = clamp(c.steer * c.speed * 0.0007 + c.vl * 0.004, -0.09, 0.09), tp = clamp(-c.acc * 0.0016, -0.05, 0.05);
   const a = 1 - Math.exp(-dt * 9); c.roll = lerp(c.roll, tr, a); c.pitch = lerp(c.pitch, tp, a);
-  // A car on a flyover ramp leans with the slope: the surface a nose ahead against the surface a tail behind.
-  // Flat ground and the flat deck both come out at zero, so this only ever tilts a car on the approaches.
-  const sh = Math.sin(c.h), ch = Math.cos(c.h), up = c.y + 0.5;
-  const rise = surfaceAt(c.x + sh * 3, c.z + ch * 3, up) - surfaceAt(c.x - sh * 3, c.z - ch * 3, up);
+  // A car on a slope leans with it. The pitch is the one driveCar measured from the surface under the nose and
+  // the tail, so the body and the height the car drives on are the same numbers.
   // ... and while it is off the ground (the hop off a bridge) the nose follows the flight instead of the road.
   const target = c.air && c.speed > 3 ? clamp(-Math.atan2(c.vy, Math.max(6, c.speed)) * 0.7, -0.25, 0.25)
-    : clamp(-Math.atan2(rise, 6), -0.3, 0.3);
+    : clamp(-(c.surfPitch || 0), -0.3, 0.3);
   c.gpitch = lerp(c.gpitch || 0, target, 1 - Math.exp(-dt * (c.air ? 4.5 : 8)));
   c.inner.rotation.z = c.roll; c.inner.rotation.x = c.pitch + c.gpitch;
   if (c.mesh.userData.mixer) c.mesh.userData.mixer.rotation.z += dt * (0.6 + Math.min(2, c.speed * 0.08));
