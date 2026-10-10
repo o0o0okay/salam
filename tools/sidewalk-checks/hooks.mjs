@@ -8,7 +8,7 @@ const here = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, '../..') + path.sep;
 // three is not vendored in this repo: take it from wherever it can be found (NODE_PATH, a local install, or the
 // scratch install the audit tools use).
-const candidates = [process.env.THREE_DIR, path.join(here, 'node_modules/three'), '/tmp/3t/node_modules/three'].filter(Boolean);
+const candidates = [process.env.THREE_DIR, path.join(REPO, 'node_modules/three'), path.join(here, 'node_modules/three'), '/tmp/3t/node_modules/three'].filter(Boolean);
 const threeDir = candidates.find(d => fs.existsSync(path.join(d, 'build/three.module.js')));
 if (!threeDir) throw new Error('hooks.mjs: three not found — npm i three, or set THREE_DIR to its package root');
 const THREE = path.join(threeDir, 'build/three.module.js');

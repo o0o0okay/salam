@@ -11,7 +11,7 @@ import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses, updatePlazaBreaking } from './collisions.js';
+import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
@@ -80,8 +80,8 @@ export function update(dt) {
   if (playing) {
     game.spawnT -= sdt;
     if (game.spawnT <= 0) {
-      const active = police.filter(p => !p.wrecked).length,
-            maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][game.wanted - 1] * DIFF.count));
+      let active = 0; for (const p of police) if (!p.wrecked) active++;
+      const maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][game.wanted - 1] * DIFF.count));
       if (game.tierSpawnPending) { if (spawnPolice(game.tierSpawnPending)) game.tierSpawnPending = 0; }
       else if (active < maxP) spawnPolice();
       game.spawnT = Math.max(1.15, 4.1 - game.wanted * .5 - game.time * 0.012) * DIFF.spawn * rnd(0.8, 1.2);
@@ -98,15 +98,18 @@ export function update(dt) {
     }
   }
   const ph = Math.floor(game.t * 7) % 2;
-  for (const p of police.slice()) {
+  // Walks the live list by index, without copying it each frame: removeCar() splices the car out, so the index steps
+  // back to visit the car that moved into its place.
+  for (let i = 0; i < police.length; i++) {
+    const p = police[i];
     const dp = Math.hypot(p.x - player.x, p.z - player.z);
-    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, 1, p.z, 6, true, 1.6); removeCar(p); continue; } }
+    if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, 1, p.z, 6, true, 1.6); removeCar(p); i--; continue; } }
     else {
       driveCar(p, policeAI(p, sdt), sdt);
       p.lights.red.color.setHex(ph ? 0xff2020 : 0x330606); p.lights.blue.color.setHex(ph ? 0x061233 : 0x2a6bff);
       p.smokeT -= sdt;
       if (p.smokeT <= 0) { p.smokeT = 0.1; if (p.hp < p.maxHp * .4) smoke(p.x + Math.sin(p.h) * p.box.e1 * .85, 1.3, p.z + Math.cos(p.h) * p.box.e1 * .85, 1, true, 1.1); if (Math.abs(p.vl) > 6 && p.speed > 10) smoke(p.x - Math.sin(p.h) * p.box.e1 * .68, 0.3, p.z - Math.cos(p.h) * p.box.e1 * .68, 1, false, 0.8); }
-      if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) removeCar(p);   // lost cop replaced
+      if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) { removeCar(p); i--; }   // lost cop replaced
     }
   }
   updateHelicopter(sdt, playing && game.wanted >= 5);
@@ -120,18 +123,20 @@ export function update(dt) {
     game.civT -= sdt;
     if (game.civT <= 0) {
       game.civT = 0.7;
-      const alive = civs.filter(c => !c.wrecked).length, maxC = menu ? 10 : 13;
+      let alive = 0; for (const c of civs) if (!c.wrecked) alive++;
+      const maxC = menu ? 10 : 13;
       if (alive < maxC) spawnCiv();
     }
   }
-  for (const c of civs.slice()) {
+  for (let i = 0; i < civs.length; i++) {          // same index walk as the police loop above
+    const c = civs[i];
     const dp = Math.hypot(c.x - player.x, c.z - player.z);
-    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, 1, c.z, 6, true, 1.6); removeCar(c); continue; } }
+    if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, 1, c.z, 6, true, 1.6); removeCar(c); i--; continue; } }
     else {
       driveCar(c, civAI(c, sdt), sdt);
       c.smokeT -= sdt;
       if (c.smokeT <= 0) { c.smokeT = 0.1; if (c.hp < CAR_DIMS[c.kind].hp * 0.4) smoke(c.x + Math.sin(c.h) * c.box.e1 * 0.85, 1.3, c.z + Math.cos(c.h) * c.box.e1 * 0.85, 1, true, 1.1); if (Math.abs(c.vl) > 5 && c.speed > 8) smoke(c.x - Math.sin(c.h) * 1.4, 0.3, c.z - Math.cos(c.h) * 1.4, 1, false, 0.8); }
-      if (dp > 190) removeCar(c);
+      if (dp > 190) { removeCar(c); i--; }
     }
   }
   /* --- burning hulls (parked appliances that burned out): they roll, they burn, they never go away --- */
@@ -173,7 +178,6 @@ export function update(dt) {
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
   updateFlying(sdt);
-  updatePlazaBreaking(sdt);
   /* --- falling trees --- */
   for (let i = fallingTrees.length - 1; i >= 0; i--) {
     const f = fallingTrees[i]; f.life -= sdt;

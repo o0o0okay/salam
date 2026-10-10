@@ -78,14 +78,17 @@ const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris')
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => {} });
 const hurtPlayer = () => { fx.hurtPlayer++; };
+const ENV_DMG = 0.3;                                       // js/config.js: scenery hits are scaled before they hurt
+const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
 const ARMOR = [1, .82, .62, .42, .28];
+const hurtCarEnv = (c, amt) => hurtCar(c, amt * ENV_DMG);
 const hurtCar = (c, amt) => { fx.hurtCar++; if (c.wrecked || !(amt > 0)) return; const armor = c.isPolice ? ARMOR[Math.min(4, Math.max(0, (c.tier || 1) - 1))] : 1; c.hp -= amt * armor; if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; } };
 const civPanic = () => {};
 const toast = () => {};
 const wreckTick = (c, dt) => { c.wreckT += dt; };
 const tickHulks = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
-const nearChunks = __world.nearChunks, CAR_DIMS = __world.CAR_DIMS, solidAt = __world.solidAt;
+const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, CAR_DIMS = __world.CAR_DIMS, solidAt = __world.solidAt;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const insideFootprint = __world.insideFootprint, parapetPush = __world.parapetPush;
 const surfaceAt = __world.surfaceAt, flyoverNear = __world.flyoverNear, alongOf = __world.alongOf, latOf = __world.latOf;

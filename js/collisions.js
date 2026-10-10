@@ -6,14 +6,14 @@ import { ASSET } from './assets.js';
 import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
 import { DIFF, HULK_PARAMS } from './config.js';
-import { game, cars, flying, fallingTrees, geysers, fires, plazaBreaking } from './state.js';
-import { nearChunks, isHeavyParked, parkedShove, parkedDamage } from './world.js';
+import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
+import { nearChunks, solidsNear, isHeavyParked, parkedShove, parkedDamage } from './world.js';
 import { insideFootprint, parapetPush } from './flyover.js';
 import { flyingFloor } from './flying.js';
 import { carBox, createCar } from './vehicle.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
-import { hurtPlayer, hurtCar, impactFx } from './damage.js';
+import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx } from './damage.js';
 import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
@@ -52,20 +52,22 @@ export function sat(A, B) {
   }
   hit.nx = nx; hit.nz = nz; hit.depth = minO; return true;
 }
+// Scratch lists for solidsNear(). Each query site has its own, because collideSolids() is still looping over its
+// list when hitParkedHeavy() -> canShift() asks for another one.
+const _scanSolids = [], _hitSolids = [], _shiftSolids = [];
 export function overlapsAnything(b, self) {
   // Nothing spawns inside the interchange: a car placed in the embankment would sit in the concrete, and the
   // deck above is no place to drop traffic into mid-air either.
   if (insideFootprint(b.x, b.z, 2 + b.e1)) return true;
-  const list = nearChunks(b.x, b.z);
-  for (const ch of list) for (const s of ch.solids) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
+  for (const s of solidsNear(b.x, b.z, 4, _scanSolids)) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
   return false;
 }
 export function collideSolids(c) {
-  const list = nearChunks(c.x, c.z); const b = carBox(c);
-  for (const ch of list) for (const s of ch.solids) {
+  const reach = c.box.e1 + c.box.e2; const b = carBox(c);
+  for (const s of solidsNear(c.x, c.z, reach, _hitSolids)) {
     if (s.maxY !== undefined && c.y > s.maxY) continue;          // a wall under a deck: only for what is under it
-    if (Math.abs(s.x - c.x) > s.hx + c.box.e1 + c.box.e2 || Math.abs(s.z - c.z) > s.hz + c.box.e1 + c.box.e2) continue;
+    if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
     if (!sat(b, s.box)) continue;
     if (s.tree && !s.tree.broken) {
       const vnT = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards tree
@@ -99,6 +101,10 @@ export function collideSolids(c) {
       const vnF = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards the schoolyard fence
       if (vnF > FENCE_BREAK_V / Math.sqrt(c.mass)) { breakFence(s.fencePiece, c, vnF, hit.nx, hit.nz); continue; }
     }
+    if (s.playPiece && !s.playPiece.broken) {
+      const vnE = c.vx * hit.nx + c.vz * hit.nz;                 // speed towards a hoop, goal, ramp or play piece
+      if (vnE > s.playPiece.brk / Math.sqrt(c.mass)) { breakPlayPiece(s.playPiece, c, vnE, hit.nx, hit.nz); continue; }
+    }
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
     const vn = c.vx * nx + c.vz * nz;
@@ -109,7 +115,7 @@ export function collideSolids(c) {
       const keep = heavyWall ? 0.86 : 0.99;                                // and a real chunk of speed gone
       c.vx *= keep; c.vz *= keep;
       impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer);
-      if (c.isPlayer) hurtPlayer(Math.max(0, vn - 8) * 0.6); else hurtCar(c, Math.max(0, vn - 8) * 0.8);
+      if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 8) * 0.6); else hurtCarEnv(c, Math.max(0, vn - 8) * 0.8);
     }
     c.lastWall = game.time;
   }
@@ -133,7 +139,7 @@ export function collideFlyover(c) {
     if (game.time - (c.lastFlyWall || -99) > 0.4) {
       c.lastFlyWall = game.time;
       impactFx(c.x + (sz ? p.sv * 0.9 : 0), c.z + (sz ? 0 : p.sv * 0.9), vn, sz ? p.sv : 0, sz ? 0 : p.sv, c.isPlayer);
-      if (vn > 6) { if (c.isPlayer) { hurtPlayer(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCar(c, Math.max(0, vn - 8) * 0.5); }
+      if (vn > 6) { if (c.isPlayer) { hurtPlayerEnv(Math.max(0, vn - 8) * 0.5); game.shake = Math.max(game.shake, 0.12); } else hurtCarEnv(c, Math.max(0, vn - 8) * 0.5); }
     }
   }
   c.lastWall = game.time;
@@ -146,8 +152,8 @@ function breakTree(t, c, vn) {
   fallingTrees.push({ mesh: m, axis: new THREE.Vector3(dz, 0, -dx), yaw: new THREE.Quaternion().setFromAxisAngle(_Y, t.rot), ang: 0, w: 1 + vn * 0.15, life: 3 });
   debris(t.x, 4, t.z, t.v >= 4 ? 0x2f7d46 : 0x4caf50, 10); debris(t.x, 3, t.z, 0x66bb6a, 5); debris(t.x, 1, t.z, 0x7a5230, 5);
   const f = 1 - 0.26 / c.mass; c.vx *= f; c.vz *= f;           // heavier = less slowdown
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 14) * 0.2); }
-  else hurtCar(c, Math.max(0, vn - 14) * 0.3);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(vn * 0.8); hurtPlayerEnv(Math.max(0, vn - 14) * 0.2); }
+  else hurtCarEnv(c, Math.max(0, vn - 14) * 0.3);
 }
 // A heavy parked vehicle takes the hit instead of flying: it shifts, dents, smokes, and once its hit points
 // are gone it burns where it stands. Nothing here launches the mesh, so nothing can sink into the road.
@@ -175,7 +181,7 @@ export function hitParkedHeavy(pc, c, vn) {
 // already taken, it stays exactly where it stands — still absorbing the hit, still catching fire there.
 function canShift(pc, dx, dz) {
   const x = pc.x + dx, z = pc.z + dz, r = Math.max(pc.len || 2, pc.wid || 1) * 0.8;
-  for (const ch of nearChunks(x, z)) for (const s of ch.solids) {
+  for (const s of solidsNear(x, z, r, _shiftSolids)) {
     if (s === pc.solid || s.parked === pc) continue;
     if (Math.abs(s.x - x) < s.hx + r && Math.abs(s.z - z) < s.hz + r) return false;
   }
@@ -251,8 +257,8 @@ function breakBusStop(bs, c, vn) {
   flying.push({ mesh: m, vx: c.vx * 0.5 + nx * rnd(4, 7), vy: rnd(4, 8), vz: c.vz * 0.5 + nz * rnd(4, 7), sx: rnd(-6, 6), sz: rnd(-6, 6), life: 2.2 });
   debris(bs.x, 1.2, bs.z, 0x8a6a3a, 10); sparks(bs.x, 1.2, bs.z, 6, nx, nz, 7);
   const f = 1 - 0.22 / c.mass; c.vx *= f; c.vz *= f;
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(vn * 0.7); hurtPlayer(Math.max(0, vn - 7) * 0.35); }
-  else hurtCar(c, Math.max(0, vn - 7) * 0.6);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(vn * 0.7); hurtPlayerEnv(Math.max(0, vn - 7) * 0.35); }
+  else hurtCarEnv(c, Math.max(0, vn - 7) * 0.6);
 }
 function breakScaffold(sc, c, vn) {
   sc.broken = true; sc.solid.hx = sc.solid.hz = -999;
@@ -261,8 +267,8 @@ function breakScaffold(sc, c, vn) {
   flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(3, 6), vy: rnd(5, 10), vz: c.vz * 0.4 + nz * rnd(3, 6), sx: rnd(-7, 7), sz: rnd(-7, 7), life: 2.4 });
   debris(sc.x, 2, sc.z, 0x8a8f96, 12); sparks(sc.x, 1.5, sc.z, 8, nx, nz, 8);
   const f = 1 - 0.26 / c.mass; c.vx *= f; c.vz *= f;
-  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.28); sfx.crash(vn * 0.8); hurtPlayer(Math.max(0, vn - 8) * 0.4); }
-  else hurtCar(c, Math.max(0, vn - 8) * 0.7);
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.28); sfx.crash(vn * 0.8); hurtPlayerEnv(Math.max(0, vn - 8) * 0.4); }
+  else hurtCarEnv(c, Math.max(0, vn - 8) * 0.7);
 }
 // A shop window taking a hit: the pane comes out of its frame in one piece and tumbles off down the street,
 // the shop itself carries on trading behind it. Bumping a window at a crawl just rattles it.
@@ -274,7 +280,7 @@ function breakShopFront(sp, c, vn, nx, nz) {
   sparks(sp.x, 1.6, sp.z, 6, nx, nz, 5);
   const f = 1 - 0.04 / c.mass; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.3); sfx.crash(Math.min(22, vn + 6)); toast('SHOP WINDOW!'); }
-  else hurtCar(c, Math.max(0, vn - 4) * 0.4);
+  else hurtCarEnv(c, Math.max(0, vn - 4) * 0.4);
 }
 // ---- Fuel: a dispenser going up ----
 const pumpFuses = [];                                        // dispensers that caught the fire and are about to go
@@ -345,7 +351,7 @@ function breakFence(pc, c, vn, nx, nz) {
   sparks(x, 1.3, z, 8, nx, nz, 8);
   const f = 1 - 0.03 / c.mass; c.vx *= f; c.vz *= f;           // a wire fence barely slows a car down
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.22); sfx.crash(Math.min(20, vn + 5)); toast('FENCE DOWN!'); }
-  else hurtCar(c, Math.max(0, vn - 8) * 0.3);
+  else hurtCarEnv(c, Math.max(0, vn - 8) * 0.3);
 }
 function tearFencePanel(pc, c, nx, nz) {
   pc.broken = true;
@@ -356,6 +362,20 @@ function tearFencePanel(pc, c, nx, nz) {
   m.position.y = flyingFloor(m.rotation, probe);               // seated on its own floor, so it does not pop upward
   flying.push({ mesh: m, vx: c.vx * 0.4 + nx * rnd(2, 5) + rnd(-1.5, 1.5), vy: rnd(4, 8),
     vz: c.vz * 0.4 + nz * rnd(2, 5) + rnd(-1.5, 1.5), sx: rnd(-7, 7), sz: rnd(-7, 7), life: rnd(1.6, 2.4), probe });
+}
+// An element of a sports or play ground (a hoop, a goal, a ramp, a rail or a piece of play equipment) takes a hard
+// hit: it comes off its base as one piece, tumbles away, and the car loses a little speed. Light things give way
+// easily, the heavy ones (the tower, the swing frame, a concrete ramp) need a proper hit.
+function breakPlayPiece(pc, c, vn, nx, nz) {
+  pc.broken = true; pc.solid.hx = pc.solid.hz = -999;
+  const m = pc.mesh; if (!m) return;
+  scene.add(m);                                                 // off the chunk group, so it can tumble on its own
+  flying.push({ mesh: m, vx: c.vx * 0.45 + nx * rnd(2.5, 5), vy: rnd(4, 8), vz: c.vz * 0.45 + nz * rnd(2.5, 5),
+    sx: rnd(-7, 7), sz: rnd(-7, 7), life: 2.2 });
+  debris(pc.x, 1.2, pc.z, pc.color, 8); sparks(pc.x, 1.2, pc.z, 6, nx, nz, 7);
+  const f = 1 - 0.2 / c.mass; c.vx *= f; c.vz *= f;
+  if (c.isPlayer) { game.shake = Math.max(game.shake, 0.2); sfx.crash(vn * 0.6); hurtPlayerEnv(Math.max(0, vn - pc.brk) * 0.3); }
+  else hurtCarEnv(c, Math.max(0, vn - pc.brk) * 0.5);
 }
 function smashPlaza(pr) {
   // Plaza features smash into small debris (stone, bronze, water, wood, leaf) rather than flying away whole.
@@ -382,57 +402,23 @@ function smashPlaza(pr) {
 function breakProp(pr, c) {
   pr.broken = true; const m = pr.mesh; scene.add(m);
   const sp = Math.max(8, c.speed);
-  // Plaza features smash into pieces instead of flying away whole: they break where they stand and leave the
-  // island empty, the way a real fountain or statue would when a car drives through it.
-  if (pr.kind.startsWith('plaza')) {
-    smashPlaza(pr);
-    sparks(pr.x, 1, pr.z, 6, 0, 0, 8);
-    // Progressive destruction: the mesh tilts in the impact direction and shrinks over ~1.5 s,
-    // emitting small debris as it crumbles. The island stays; the feature is gone.
-    const impDir = Math.atan2(c.vx, c.vz);
-    plazaBreaking.push({ mesh: m, x: pr.x, z: pr.z, kind: pr.kind, life: 1.5, maxLife: 1.5, tiltX: Math.cos(impDir), tiltZ: Math.sin(impDir) });
-  } else {
-    flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
-    debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, 4, 0, 0, 6);
-  }
+  // Every prop, plaza features included, is thrown off its base as a whole piece, tumbles and goes. A plaza
+  // feature also smashes into its own debris (stone, bronze, water, wood, leaf) where it stood, so the island
+  // reads as a fountain or a statue breaking up, not as a thing that quietly shrinks away.
+  if (pr.kind.startsWith('plaza')) smashPlaza(pr);
+  flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
+  debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, pr.kind.startsWith('plaza') ? 6 : 4, 0, 0, pr.kind.startsWith('plaza') ? 8 : 6);
   if (pr.kind === 'hydrant') { geysers.push({ x: pr.x, z: pr.z, life: 7 }); for (let i = 0; i < 20; i++) emit(pr.x, 0.6, pr.z, rnd(-4, 4), rnd(8, 16), rnd(-4, 4), 0x8fd3ff, rnd(0.2, 0.45), rnd(0.8, 1.4), 26); }
   // Damage: proportional to impact speed. A car that hits a plaza at 30 m/s takes more damage than one
   // that bumps it at 8 m/s. The player feels it; civilian cars and police do too.
-  const dmg = sp * 0.8;
-  if (c.isPlayer) { hurtPlayer(dmg); }
-  else if (!c.wrecked) { hurtCar(c, dmg); }
+  // Street props (cones, barriers, crates, drums, bins, lamps, benches...) are soft: a bump at city speed costs
+  // nothing, and only a fast hit costs anything: about 1.1 HP for the player at top speed (48), 0.15 HP at 15 m/s.
+  // Plaza features are not soft; they smash and keep their full damage.
+  const dmg = pr.soft ? Math.max(0, sp - 10) * 0.1 : sp * 0.8;
+  if (c.isPlayer) { hurtPlayerEnv(dmg); }
+  else if (!c.wrecked) { hurtCarEnv(c, dmg); }
   const f = pr.drag; c.vx *= f; c.vz *= f;
   if (c.isPlayer) { game.shake = Math.max(game.shake, 0.25); sfx.crash(sp * 0.5); }
-}
-// Progressive destruction: a plaza feature tilts, shrinks and emits debris over 1.5 s before disappearing.
-// Each frame it shrinks by a bit, tilts further in the impact direction, and drops a few particles so the
-// destruction looks like a real collapse, not an instant vanish.
-export function updatePlazaBreaking(sdt) {
-  for (let i = plazaBreaking.length - 1; i >= 0; i--) {
-    const pb = plazaBreaking[i]; pb.life -= sdt;
-    const t = 1 - pb.life / pb.maxLife;                          // 0 → 1 over the animation
-    const m = pb.mesh;
-    const s = Math.max(0.01, 1 - t * 0.9);                     // shrink to ~10% over the animation
-    m.scale.set(s, s * Math.max(0.3, 1 - t * 0.7), s);
-    m.rotation.x = pb.tiltZ * t * 0.6;                         // tilt in the impact direction
-    m.rotation.z = -pb.tiltX * t * 0.6;
-    m.position.y = Math.max(0, 0.34 - t * 0.3);
-    // Emit a few particles each frame proportional to remaining life — heavier at the start.
-    if (Math.random() < (1 - t) * 0.7) {
-      const x = pb.x, z = pb.z;
-      if (pb.kind === 'plazaFountain') {
-        const stone = 0xbfb7a8, water = 0x3aa8d8;
-        emit(x + rnd(-1, 1), 0.5 + t, z + rnd(-1, 1), rnd(-2, 2), rnd(2, 5), rnd(-2, 2), Math.random() < 0.6 ? stone : water, rnd(0.08, 0.2), rnd(0.3, 0.7), 14);
-      } else if (pb.kind === 'plazaStatue') {
-        const stone = 0xbfb7a8, bronze = 0xb87333;
-        emit(x + rnd(-1, 1), 0.6 + t, z + rnd(-1, 1), rnd(-3, 3), rnd(3, 7), rnd(-3, 3), Math.random() < 0.5 ? stone : bronze, rnd(0.1, 0.25), rnd(0.3, 0.8), 18);
-      } else {
-        const wood = 0x5a3a1e, leaf = 0x2a6a28;
-        emit(x + rnd(-1, 1), 0.4 + t * 0.8, z + rnd(-1, 1), rnd(-2, 2), rnd(2, 5), rnd(-2, 2), Math.random() < 0.5 ? wood : leaf, rnd(0.08, 0.2), rnd(0.3, 0.6), 12);
-      }
-    }
-    if (pb.life <= 0) { scene.remove(m); plazaBreaking.splice(i, 1); }
-  }
 }
 export function collideProps(c) {
   const list = nearChunks(c.x, c.z); const s = Math.sin(c.h), co = Math.cos(c.h);

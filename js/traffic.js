@@ -60,7 +60,7 @@ function staffSlots(ch, slots, want) {
       slot.car = null;
     }
   }
-  let live = slots.filter(sl => sl.car && !sl.out).length;
+  let live = 0; for (const sl of slots) if (sl.car && !sl.out) live++;
   // Send an extra unit out (an ambulance on a call) and bring it back when the roster needs it again. The
   // bays are walked backwards so it is the relief unit that goes out, never one of the two front bays.
   for (let i = slots.length - 1; i >= 0; i--) {

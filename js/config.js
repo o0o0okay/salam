@@ -16,6 +16,9 @@ try { cfg.diffKey = localStorage.getItem('escape_road_diff') || 'normal'; } catc
 if (!DIFFICULTIES[cfg.diffKey]) cfg.diffKey = 'normal';
 // DIFF is a persistent object (mutated in place) so every module always sees the current difficulty
 export const DIFF = Object.assign({}, DIFFICULTIES[cfg.diffKey]);
+// Scale on the damage taken from the scenery: walls, trees, street props, plaza features, bus shelters, scaffolding,
+// shop windows, fences and flyover parapets. A bump with a bin or a wall should cost a little, not a chunk of health.
+export const ENV_DMG = 0.3;
 export function setDiff(k) {
   cfg.diffKey = k; Object.assign(DIFF, DIFFICULTIES[k]);
   try { localStorage.setItem('escape_road_diff', k); } catch (e) {}

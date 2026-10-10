@@ -1,0 +1,16 @@
+# Dependencies (installed by `npm install`, see package.json)
+node_modules/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and scratch output from the local tools
+*.log
+npm-debug.log*
+/tmp/
+
+# Output of `npm run build` (the optional bundle)
+dist/

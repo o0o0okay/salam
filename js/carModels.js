@@ -72,6 +72,40 @@ function busSignGeometry(str, h, depth, gap) {
   busSignCache.set(key, geo);
   return geo;
 }
+// ---- merged body geometry ----
+// A car is some dozens of boxes and cylinders, and each of them was its own draw call (and, in the shadow pass,
+// its own caster). The static pieces that share a material are merged into one geometry per material and shadow
+// flags. The merged geometry is cached by its exact content (every piece's geometry, transform and material), so
+// cars built the same way share one geometry and nothing is merged twice. Light materials are not merged: each
+// car owns its own (update.js changes their colour for the police flash and vehicle.js disposes them), so those
+// pieces stay separate meshes.
+const mergedBodyCache = new Map();
+function consolidateBody(inner, ownMats) {
+  const items = inner.children.filter(o => o.isMesh && o.children.length === 0 && Object.keys(o.userData).length === 0 && !ownMats.has(o.material));
+  const groups = new Map();
+  for (const o of items) {
+    o.updateMatrix();
+    const k = o.material.uuid + (o.castShadow ? '|c' : '|-') + (o.receiveShadow ? 'r' : '-');
+    let list = groups.get(k); if (!list) groups.set(k, list = []);
+    list.push(o);
+  }
+  for (const [k, list] of groups) {
+    if (list.length < 2) continue;
+    const sig = k + '#' + list.map(o => o.geometry.uuid + ':' + o.matrix.elements.join(',')).join(';');
+    let geo = mergedBodyCache.get(sig);
+    if (geo === undefined) {
+      const parts = list.map(o => o.geometry.clone().applyMatrix4(o.matrix));
+      geo = mergeGeometries(parts, false) || null;           // null when the pieces do not share attributes: keep them apart
+      parts.forEach(p => p.dispose());
+      mergedBodyCache.set(sig, geo);
+    }
+    if (!geo) continue;
+    for (const o of list) inner.remove(o);
+    const m = new THREE.Mesh(geo, list[0].material);
+    m.castShadow = list[0].castShadow; m.receiveShadow = list[0].receiveShadow;
+    inner.add(m);
+  }
+}
 export function buildCar(kind, color, detail = true) {
   if (!CAR_DIMS[kind]) kind = 'civ';                            // never throw on an unknown vehicle type
   const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);
@@ -486,6 +520,7 @@ export function buildCar(kind, color, detail = true) {
     const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
+  consolidateBody(inner, new Set(Object.values(lights)));
   g.userData.inner = inner; g.userData.lights = lights;
   return g;
 }

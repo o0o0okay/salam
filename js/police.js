@@ -175,15 +175,23 @@ export function policeAI(p, dt) {
           // wall of concrete where the ramp rises out of the ground, and the only clear place to step out is the
           // lane just outside the ramp's foot - a fixed point, so the aim cannot walk out from under a car that is
           // still crossing. A car that has been carried onto the low end of a ramp is taken off it the same way.
-          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, my * laneOffset(), _lane);
-          else laneAim(nf, Math.sign(u || 1) * (FLY.rampEnd + 6), my * laneOffset(), _lane);
+          // Still at the foot of the ramp, the nose guard stands at the lane's edge (lateral -7.3 m) just short of the lane
+          // point, and it is a solid: a diagonal aim from here runs into it, and a car that comes in at an angle wedges
+          // its front corner against it. So first run along the foot to the far side of the guard, drawn in toward the
+          // middle of the road (2.5 m off the centre line), then cut out to the lane.
+          const beyondGuard = FLY.rampEnd + 6;
+          // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
+          // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
+          if (Math.abs(u) <= FLY.deckHalf - 2) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
+          else if (Math.abs(u) < beyondGuard - 0.5) laneAim(nf, Math.sign(u || 1) * beyondGuard, Math.max(-2.5, Math.min(2.5, v)), _lane);
+          else laneAim(nf, Math.sign(u || 1) * beyondGuard, my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
         } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
           laneAim(nf, beside ? cross : u, (beside ? my : want) * laneOffset(), _lane);   //   its own lane up to the crossing, then straight across
           tx = _lane.x; tz = _lane.z;
         } else if (Math.abs(tu - u) >= 14) {                  // in the lane that helps, but not yet level with the player
           laneAim(nf, tgtU, want * laneOffset(), _lane);                          //   close along the lane
-          tx = _lane.x; tz = _lane.z;
+          tx = _lane.x; tz = _lane.z; bridgeTurn = true;   // it has just come across: brake for the turn into the lane
         }                                                     // in the lane that helps with the player in it: the aim straight at him already stands
       }
     }
@@ -241,10 +249,11 @@ export function spawnPolice(forceTier = 0) {
     if (overlapsAnything(tmp, null)) continue;
     const p = makePoliceUnit(tier, x, z, h, kind);
     // Pick least-used role for tactical variety
-    const used = r => police.filter(q => !q.wrecked && q.role === r).length;
+    const used = r => { let n = 0; for (const q of police) if (!q.wrecked && q.role === r) n++; return n; };
     p.role = info.roles.map(r => ({ r, s: used(r) + Math.random() })).sort((a, b) => a.s - b.s)[0].r;
     // Split flank between left/right
-    const nL = police.filter(q => !q.wrecked && q.flank < 0).length, nR = police.filter(q => !q.wrecked && q.flank > 0).length;
+    let nL = 0, nR = 0;
+    for (const q of police) { if (q.wrecked) continue; if (q.flank < 0) nL++; else if (q.flank > 0) nR++; }
     p.flank = nL > nR ? 1 : -1;
     police.push(p); cars.push(p); return true;
   }

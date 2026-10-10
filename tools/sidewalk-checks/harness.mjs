@@ -30,6 +30,13 @@ export function build() {
   let lightSrc = fs.readFileSync(path.join(repo, 'js/trafficLights.js'), 'utf8');
   lightSrc = lightSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = lightSrc + '\n' + src;
+  // ... and the campus buildings and the shop kits, split out of world.js: stitched in front of it, in the order
+  // they depend on (campus first: the shops use its text lettering).
+  for (const f of ['shops.js', 'campus.js']) {
+    let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
+    part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    src = part + '\n' + src;
+  }
 
   const stubs = `
 // geom counts merged pieces, geosCreated/geosDisposed count BufferGeometry objects: one block must not leave
@@ -74,7 +81,8 @@ const THREE={Group:Obj3D,Mesh,InstancedMesh,BoxGeometry,Matrix4:M4,
   Color:class{constructor(c){this.h=c|0;}setHex(v){this.h=v;return this;}getHex(){return this.h;}setRGB(){return this;}},
   MeshBasicMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
   MeshLambertMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
-  CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry};
+  CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry,
+  BufferGeometry:function(){BoxGeometry.call(this,1,1,1);this.setAttribute=()=>{};this.setIndex=()=>{};},Float32BufferAttribute:function(a,n){this.array=a;this.count=a.length/n;}};
 const scene=new THREE.Group();
 // the merged result has to behave like a BufferGeometry: js/world.js shares merged text geometries between
 // signs and the chunk/prop mergers clone them, exactly as three.js would
@@ -90,6 +98,7 @@ const cyl=(rt,rb,h,s,m,x,y,z)=>{const r=((rt||1)+(rb||1))/2;const g=new THREE.Me
 const ASSET=new Proxy({windowMats:[{},{},{},{},{},{},{},{}],roofMat:{},pavingMat:{},pavePanelMat:{},paveBrickMat:{},borderMat:{},curbTopMat:{},curbPaintMat:{},curbMat:{},soilMat:{},grassMat:{},roadMat:{},snowRoadMat:{},lampMat:{},coinMat:{},burnt:{},headMat:{},tailMat:{},beamMat:{},spikeMat:{},spikeLit:{},treeMat:{}},
   {get:(t,k)=>k in t?t[k]:(String(k).endsWith('Geo')?new THREE.BoxGeometry(1,1,1):{})});
 const makeBuildingGeo=()=>new THREE.BoxGeometry(1,1,1);
+const facadeMat=(c,windows)=>({c,o:{windows},clone(){return {...this};},dispose(){}});
 const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
 const REAL_DIMS=${JSON.stringify(REAL_DIMS)};
 const CAR_DIMS=new Proxy({},{get:(t,k)=>KNOWN_KINDS.has(k)?(REAL_DIMS[k]||{e1:2,e2:1,mass:1,hp:40}):undefined});
@@ -112,7 +121,7 @@ const ck=(cx,cz)=>cx*100003+cz;
 
   src = src.replace('  bakeRing(sw.curb', '  swCapture.set(ch, sw);\n  bakeRing(sw.curb');
   const out = stubs + '\n' + src +
-    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim };\n' +
+    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, solidsNear, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim };\n' +
     'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\n';
   const file = path.join(os.tmpdir(), 'salam-world.test.mjs');
   fs.writeFileSync(file, out);

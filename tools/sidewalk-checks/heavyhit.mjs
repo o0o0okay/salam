@@ -62,12 +62,12 @@ const TREE_BREAK_V = 10; const DIFF = {};
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0 };
 const player = { x: 0, z: 0 };
 const cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];
-export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0 };
+export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0, hurtAmt: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => { fx.crash++; } });
-const hurtPlayer = () => { fx.hurtPlayer++; };
+const hurtPlayer = amt => { fx.hurtPlayer++; fx.hurtAmt += amt || 0; };   // hurtAmt: total HP the player lost
 // hurtCar mirrors js/damage.js: police carry armor by tier, anything at 0 hp is a wreck. The pump-blast test
 // needs the real numbers so "the blast kills a police car" is measured, not assumed.
 const ARMOR = [1, .82, .62, .42, .28];
@@ -79,10 +79,14 @@ const hurtCar = (c, amt) => {
   if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; c.lastPlayerHit = game.time; }
 };
 const civPanic = () => {};
+// scenery hits: js/damage.js scales them by ENV_DMG (js/config.js) before they reach the normal hurt functions
+const ENV_DMG = 0.3;
+const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
+const hurtCarEnv = (c, amt) => hurtCar(c, amt * ENV_DMG);
 // the interchange's maths, shared with the world module (the stitched sources strip their imports)
 const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
-const nearChunks = __world.nearChunks, addParkedCarToChunk = __world.addParkedCarToChunk;
+const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, addParkedCarToChunk = __world.addParkedCarToChunk;
 const CHUNK = __world.CHUNK;
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
@@ -771,5 +775,33 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   else ok('update resolves car-car shoves against the parapet before syncing meshes');
 }
 
+// ---- street props are soft: a bump at city speed is a knock, and a fast hit costs little ----
+// (before: a cone cost 2.4 HP at 10 m/s and a crate 7.2 HP at 30 m/s; a tree costs about 1 HP at 30 m/s)
+{
+  const px = 40, pz = 40;                                   // inside block (0, 0), which the checks above generated
+  const near = world.nearChunks(px, pz);
+  const saved = near.map(ch => ch.props);
+  const hitAt = (kind, speed) => {
+    fx.hurtAmt = 0;
+    near.forEach(ch => { ch.props = []; });                 // only the prop under test can break here
+    const pr = { kind, x: px, z: pz, r: 0.65, drag: 0.95, color: 0xffffff, broken: false, soft: true, mesh: {} };
+    near[0].props.push(pr);
+    const c = { x: px, z: pz, h: 0, y: 0, speed, vx: 0, vz: speed, mass: 1.3, isPlayer: true, wrecked: false, box: { e1: 2.05, e2: 0.95 } };
+    M.collideProps(c);
+    return { hp: fx.hurtAmt, broke: pr.broken };
+  };
+  const results = {};
+  for (const kind of ['cone', 'crate', 'streetlight']) results[kind] = [10, 15, 30].map(v => hitAt(kind, v));
+  near.forEach((ch, i) => { ch.props = saved[i]; });
+  for (const kind of Object.keys(results)) {
+    const [slow, mid, fast] = results[kind];
+    if (!slow.broke || !mid.broke || !fast.broke) bad(`${kind}: must still knock over when it is hit`);
+    if (slow.hp > 0.01) bad(`${kind} hit at 10 m/s costs ${slow.hp.toFixed(2)} HP: a bump at city speed should cost nothing`);
+    if (mid.hp > 0.3) bad(`${kind} hit at 15 m/s costs ${mid.hp.toFixed(2)} HP (limit 0.3)`);
+    if (fast.hp > 1.0) bad(`${kind} hit at 30 m/s costs ${fast.hp.toFixed(2)} HP (limit 1.0, about a tree's)`);
+    if (slow.broke && mid.broke && fast.broke && slow.hp <= 0.01 && mid.hp <= 0.3 && fast.hp <= 1.0)
+      ok(`${kind}: knocked over, 0 HP at 10 m/s, ${mid.hp.toFixed(2)} HP at 15 m/s, ${fast.hp.toFixed(2)} HP at 30 m/s`);
+  }
+}
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);
