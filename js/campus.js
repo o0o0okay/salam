@@ -852,7 +852,7 @@ export function buildBankMesh(bx, bz, rng) {
 // the only things that differ, plus a few extras (a pole sign, a terrace, a second storey, display cars, a cross).
 export const STORE_DEFS = {
   grocery:  { W: 30, D: 22, H: 6.8, fascia: 0xe9ebe6, trim: 0x2e8b57, glass: 0x1e3a4c, board: 0x2e8b57, ink: 0xffffff, text: 'GROCERY', awn: 0x2e8b57, pad: [48, 38] },
-  fastfood: { W: 14, D: 12, H: 5.2, fascia: 0xd7342a, trim: 0xffc72c, glass: 0x253b4a, board: 0xd7342a, ink: 0xffc72c, text: 'FAST FOOD', awn: 0xffc72c, pole: true, pad: [36, 34] },
+  fastfood: { W: 14, D: 12, H: 5.2, fascia: 0xf2efe6, trim: 0xd7342a, glass: 0x253b4a, board: 0xd7342a, ink: 0xffc72c, text: 'FAST FOOD', awn: 0xd7342a, pole: true, pad: [36, 34] },
   pizza:    { W: 16, D: 14, H: 5.6, fascia: 0xf4f1e8, trim: 0xc8322b, glass: 0x2a3c46, board: 0xc8322b, ink: 0xf4f1e8, text: 'PIZZA', awn: 0xc8322b, terrace: true, pad: [40, 40] },
   gym:      { W: 22, D: 18, H: 8.4, fascia: 0x2b2f36, trim: 0xd9dde2, glass: 0x1d2b38, board: 0x14171c, ink: 0xff6a1a, text: 'GYM', awn: null, twoStorey: true, pad: [40, 36] },
   showroom: { W: 34, D: 22, H: 7.2, fascia: 0xeef0f2, trim: 0x1c2a3a, glass: 0x2f4f66, board: 0x1c2a3a, ink: 0xffffff, text: 'AUTO', awn: null, glassFront: true, flags: true, pad: [56, 46] },
@@ -895,14 +895,22 @@ export function buildStoreMesh(kind, bx, bz, rng) {
   B(Math.min(W - 3, 12), 1.7, 0.3, M.board, 0, boardY, fz + 0.15, false);
   const sign = textBlocks(S.text, M.ink, 1.1, 0.2, 0.3);
   sign.position.set(0, Y + boardY, fz + 0.36); g.add(sign);
-  if (M.awn) B(W - 2, 0.35, 1.8, M.awn, 0, 3.4, fz + 0.9, false);
+  if (M.awn && kind !== 'fastfood') B(W - 2, 0.35, 1.8, M.awn, 0, 3.4, fz + 0.9, false);   // the fast food has striped ones below
 
-  if (S.pole) {                                                 // fast food pole sign by the kerb corner
+  if (S.pole) {                                                 // pole sign by the kerb corner
     const px = W / 2 - 2.5, pz = fz - 1.5;
     CYL(0.14, 0.14, 6.2, 8, M.trim, px, 3.1, pz);
-    B(2.6, 2.6, 0.4, M.board, px, 6.6, pz, false);
-    const disc = cyl(1.0, 1.0, 0.25, 16, M.ink, px, Y + 6.6, pz + 0.3, false);
-    disc.rotation.x = PI / 2; g.add(disc);
+    if (kind === 'fastfood') {
+      // a burger sign, face-on to the street: a red backing disc, the bun, and a lettuce band and a patty band across it
+      const back = cyl(1.2, 1.2, 0.2, 16, M.board, px, Y + 6.6, pz + 0.1, false); back.rotation.x = PI / 2; g.add(back);
+      const bun = cyl(1.0, 1.0, 0.25, 16, mat(0xe39b3f), px, Y + 6.6, pz + 0.3, false); bun.rotation.x = PI / 2; g.add(bun);
+      B(1.9, 0.16, 0.12, mat(0x3c9a3c), px, 6.75, pz + 0.45, false);
+      B(1.9, 0.2, 0.12, mat(0x6b3a1e), px, 6.45, pz + 0.45, false);
+    } else {
+      B(2.6, 2.6, 0.4, M.board, px, 6.6, pz, false);
+      const disc = cyl(1.0, 1.0, 0.25, 16, M.ink, px, Y + 6.6, pz + 0.3, false);
+      disc.rotation.x = PI / 2; g.add(disc);
+    }
   }
   if (S.terrace) {                                              // pizza terrace: three tables with parasols
     for (const tx of [-5, 0, 5]) {
@@ -924,6 +932,18 @@ export function buildStoreMesh(kind, bx, bz, rng) {
   if (S.cross) {                                                // pharmacy: green cross over the front
     B(0.5, 2.4, 0.3, M.board, 0, H + 1.6, fz + 0.2, false);
     B(2.4, 0.5, 0.3, M.board, 0, H + 1.6, fz + 0.2, false);
+  }
+  if (kind === 'fastfood') {
+    // the striped awning over the front, two rooftop units with fans, a hedge by the glass, and a menu board on the pavement
+    const n = 10, sw = (W - 2) / n;
+    for (let i = 0; i < n; i++) B(sw, 0.35, 1.8, mat(i % 2 ? 0xffffff : 0xd7342a), -(W - 2) / 2 + sw / 2 + i * sw, 3.4, fz + 0.9, false);
+    for (const ax of [-3.2, 0.2]) {
+      B(2.4, 1.0, 1.8, mat(0xd9dde2), ax, H + 1.0, -1.5, false);
+      CYL(0.7, 0.7, 0.12, 12, mat(0x3a3f46), ax, H + 1.56, -1.5);
+    }
+    for (const hx2 of [-6.2, 6.2]) B(1.1, 1.0, 1.1, mat(0x2f8f4e), hx2, 0.8, fz + 0.9, false);
+    B(0.1, 1.6, 0.1, M.trim, -8.6, 0.8, fz + 1.6, false);
+    B(1.0, 1.2, 0.1, mat(0x22262b), -8.6, 1.9, fz + 1.6, false);
   }
   if (kind === 'grocery') {                                     // a trolley corral by the entrance
     for (let i = 0; i < 3; i++) B(0.8, 1.0, 0.8, M.trim, W / 2 - 3 + i * 0.9, 0.5, fz + 2.5);
