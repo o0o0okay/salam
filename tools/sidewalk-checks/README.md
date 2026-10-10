@@ -194,9 +194,9 @@ on the side he faces) while the cruisers at the other end drive up their ramp an
 checkpoint to park two cruisers on the deck and his hp to reach zero within 45 s; a player below the deck, in a junction
 box, must never be given a trap role. Each run prints whether the trap closed, how many cruisers parked and when, and
 when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test the trap reads: 'deck' or 'under' or clear,
-from the car's own height. The height probe checks six points against it. Known gap: the test does not model the
-BUSTED rule in `js/update.js` (a pinned player is arrested rather than wrecked), and a few seeds still leave one cruiser
-at the checkpoint, or let the rams push the car off the far ramp.
+from the car's own height. The height probe checks six points against it. A trapped player can still be arrested: the
+existing BUSTED rule in `js/update.js` applies on the deck as anywhere else, and the test does not model it. A few seeds
+still leave one cruiser at the checkpoint, or let the rams push the car off the far ramp.
 
 The shopping streets come from `buildShopParadeMesh()` / `buildShopFrontMesh()` in `js/world.js`: fourteen
 invented businesses (cafe, bakery, pizza, market, pharmacy, books, barber, donuts, flowers, hardware, laundry,
