@@ -968,7 +968,7 @@ export function buildSportMesh(kind, bx, bz, rng) {
   const root = new THREE.Group(), solids = [];
   let g = root;                                  // where geometry goes; a breakable piece swaps in its own group
   const M = {
-    line: mat(0xf4f4f0), white: mat(0xffffff), fence: mat(0x7d8790), metal: mat(0x9aa3ab), dark: mat(0x3a3f46),
+    line: mat(0xf4f4f0), white: mat(0xffffff), fence: mat(0x3b4a44), metal: mat(0x9aa3ab), dark: mat(0x3a3f46),
     orange: mat(0xf07a1e), dirt: mat(0xb88a5a), sand: mat(0xe8d49a), wood: mat(0x8a5a32), concrete: mat(0xb7bcc2),
     red: mat(0xd8452f), yellow: mat(0xf2c230), blue: mat(0x2d5fa8), green: mat(0x2f8f4e), ground: mat(S.ground),
     court: mat(S.court || S.ground), grass: mat(0x3f7f3a),
@@ -985,9 +985,17 @@ export function buildSportMesh(kind, bx, bz, rng) {
     const alongX = along === 'x', segs = Math.max(1, Math.round(L / 7)), segLen = L / segs;
     for (let i = 0; i < segs; i++) {
       const off = -L / 2 + (i + 0.5) * segLen;
-      const grp = new THREE.Group();
-      grp.add(alongX ? box(segLen, h, 0.08, M.fence, 0, Y + h / 2, 0, false)
-                     : box(0.08, h, segLen, M.fence, 0, Y + h / 2, 0, false));
+      const grp = new THREE.Group(), wire = 0.04;
+      // a welded-mesh panel, as on a real court: vertical wires every 0.25 m, three rails and a post at each end
+      if (alongX) {
+        for (let t = -segLen / 2 + 0.12; t <= segLen / 2 - 0.12 + 1e-6; t += 0.25) grp.add(box(wire, h, wire, M.fence, t, Y + h / 2, 0, false));
+        for (const ry of [0.2, h / 2, h - 0.15]) grp.add(box(segLen, 0.05, wire, M.fence, 0, Y + ry, 0, false));
+        for (const px of [-segLen / 2, segLen / 2]) grp.add(box(0.1, h + 0.3, 0.1, M.metal, px, Y + (h + 0.3) / 2, 0, false));
+      } else {
+        for (let t = -segLen / 2 + 0.12; t <= segLen / 2 - 0.12 + 1e-6; t += 0.25) grp.add(box(wire, h, wire, M.fence, 0, Y + h / 2, t, false));
+        for (const ry of [0.2, h / 2, h - 0.15]) grp.add(box(wire, 0.05, segLen, M.fence, 0, Y + ry, 0, false));
+        for (const pz of [-segLen / 2, segLen / 2]) grp.add(box(0.1, h + 0.3, 0.1, M.metal, 0, Y + (h + 0.3) / 2, pz, false));
+      }
       fencePieces.push({ group: grp, x: bx + x + (alongX ? off : 0), z: bz + z + (alongX ? 0 : off),
         hx: alongX ? segLen / 2 : 0.12, hz: alongX ? 0.12 : segLen / 2, alongX, segLen, mesh: null, broken: false });
     }
@@ -1022,7 +1030,7 @@ export function buildSportMesh(kind, bx, bz, rng) {
         CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
       });
     }
-    for (const s of [-1, 1]) { fence(PW, 2.6, 0, s * PD / 2, 'x'); fence(PD, 2.6, s * PW / 2, 0, 'z'); }
+    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'futsal') {
     const w = CW, d = CD;
     B(w, 0.03, d, M.court, 0, 0.015, 0);
@@ -1035,7 +1043,7 @@ export function buildSportMesh(kind, bx, bz, rng) {
         B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
       });
     }
-    for (const s of [-1, 1]) { fence(PW, 3.0, 0, s * PD / 2, 'x'); fence(PD, 3.0, s * PW / 2, 0, 'z'); }
+    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'skatepark') {
     const w = CW, d = CD;
     B(w, 0.03, d, M.court, 0, 0.015, 0);                 // the concrete deck, 80% of the enclosure
@@ -1052,15 +1060,15 @@ export function buildSportMesh(kind, bx, bz, rng) {
         const rail = cyl(0.05, 0.05, 3.4, 6, M.metal, rx, Y + 0.8, rz); rail.rotation.z = PI / 2; g.add(rail);
       });
     }
-    for (const s of [-1, 1]) { fence(PW, 2.6, 0, s * PD / 2, 'x'); fence(PD, 2.6, s * PW / 2, 0, 'z'); }
+    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'baseball') {
     B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the grass field, inside a strip of tarmac
     CYL(12, 12, 0.04, 24, M.dirt, 0, 0.02, 0);                 // infield dirt
     CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                  // pitcher's mound
     for (const [bxp, bzp] of [[9, 0], [0, -9], [-9, 0]]) B(0.7, 0.06, 0.7, M.white, bxp, 0.03, bzp);
     B(0.9, 0.04, 0.9, M.white, 0, 0.02, 9.2);                   // home plate
-    fence(28, 2.4, 0, 13.5, 'x');                               // backstop
-    for (const s of [-1, 1]) { fence(PW, 2.4, 0, s * PD / 2, 'x'); fence(PD, 2.4, s * PW / 2, 0, 'z'); }
+    fence(28, 3.6, 0, 13.5, 'x');                               // backstop
+    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'playground') {
     B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the sand, 80% of the enclosure; the grass round it is the pad
     // A children's play centre in the style of the reference pictures. Every piece of equipment is a breakable
@@ -1109,8 +1117,14 @@ export function buildSportMesh(kind, bx, bz, rng) {
     B(6.4, 0.06, 4.4, M.wood, 10, 0.03, 8, false);
     B(6.0, 0.08, 4.0, M.sand, 10, 0.04, 8, false);
     for (const [gx, gz] of [[14.5, 11.5], [-14.5, 11.5], [-14.5, -11.5]]) B(3, 0.05, 3, M.green, gx, 0.02, gz, false);
-    fence(34, 1.4, 0, 14, 'x'); fence(34, 1.4, 0, -14, 'x');
-    fence(28, 1.4, 17, 0, 'z'); fence(28, 1.4, -17, 0, 'z');
+    fence(34, 2.4, 0, 14, 'x'); fence(34, 2.4, 0, -14, 'x');
+    fence(28, 2.4, 17, 0, 'z'); fence(28, 2.4, -17, 0, 'z');
+  }
+  // four floodlight masts, one in each corner of the enclosure, with a lamp head on each
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const lx = sx * (PW / 2 - 0.9), lz = sz * (PD / 2 - 0.9);
+    CYL(0.09, 0.12, 7.0, 8, M.metal, lx, 3.5, lz, false);
+    B(1.2, 0.3, 0.6, mat(0xfff3c4), lx, 7.1, lz, false);
   }
   return { group: root, solids, pad: [PW, PD], fencePieces, breakable };
 }
