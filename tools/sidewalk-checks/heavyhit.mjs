@@ -79,10 +79,14 @@ const hurtCar = (c, amt) => {
   if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; c.lastPlayerHit = game.time; }
 };
 const civPanic = () => {};
+// scenery hits: js/damage.js scales them by ENV_DMG (js/config.js) before they reach the normal hurt functions
+const ENV_DMG = 0.3;
+const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
+const hurtCarEnv = (c, amt) => hurtCar(c, amt * ENV_DMG);
 // the interchange's maths, shared with the world module (the stitched sources strip their imports)
 const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
-const nearChunks = __world.nearChunks, addParkedCarToChunk = __world.addParkedCarToChunk;
+const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, addParkedCarToChunk = __world.addParkedCarToChunk;
 const CHUNK = __world.CHUNK;
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
