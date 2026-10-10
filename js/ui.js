@@ -58,17 +58,32 @@ export function drawRadar() {
   rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.moveTo(R, R - 11); rctx.lineTo(R - 7, R + 8); rctx.lineTo(R + 7, R + 8); rctx.closePath(); rctx.fill();
 }
 let hudCache = {};
+// The speed dial: a 270-degree arc from the bottom-left to the bottom-right. Full scale is 240 km/h, which is above
+// the top speed of a boosted car (48 m/s plus nitro is about 233 km/h).
+const GAUGE_MAX = 240;
+{ // ticks: eleven across the arc, drawn once
+  const g = $('gaugeTicks'), NS = 'http://www.w3.org/2000/svg';
+  for (let i = 0; i <= 10; i++) {
+    const a = (135 + i * 27) * PI / 180, l = document.createElementNS(NS, 'line');
+    l.setAttribute('x1', (100 + 60 * Math.cos(a)).toFixed(2)); l.setAttribute('y1', (100 + 60 * Math.sin(a)).toFixed(2));
+    l.setAttribute('x2', (100 + 70 * Math.cos(a)).toFixed(2)); l.setAttribute('y2', (100 + 70 * Math.sin(a)).toFixed(2));
+    l.setAttribute('class', 'dialTick'); g.appendChild(l);
+  }
+}
 export function resetHudCache() { hudCache = {}; }
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 export function updateHUD() {
   game.score = calcScore();
   setText('score', game.score.toLocaleString()); setText('timeDist', fmtTime(game.time) + ' · ' + (game.dist / 1000).toFixed(2) + ' km');
-  setText('speed', Math.round(player.speed * 3.6)); setText('cash', game.cash); setText('takedowns', game.takedowns);
+  const kmh = Math.round(player.speed * 3.6);
+  setText('speed', kmh); setText('cash', game.cash); setText('takedowns', game.takedowns);
+  const arc = clamp(kmh / GAUGE_MAX, 0, 1) * 100;
+  if (hudCache.arc !== arc) { hudCache.arc = arc; $('gaugeFill').setAttribute('stroke-dasharray', arc.toFixed(1) + ' 100'); }
   const hrs = (env.phase * 24 + 6) % 24, hh = Math.floor(hrs), mm = Math.floor((hrs - hh) * 60);
   setText('clock', (env.day > 0.5 ? '☀ ' : '🌙 ') + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'));
   const hp = clamp(game.hp, 0, 100); $('hpFill').style.width = hp + '%';
   $('hpFill').style.background = hp > 55 ? 'linear-gradient(#7dff7a,#27c93f)' : hp > 28 ? 'linear-gradient(#ffe14a,#ffb21a)' : 'linear-gradient(#ff7a7a,#e02020)';
-  const nf = $('nitroFill'); nf.style.width = clamp(game.nitro, 0, 100) + '%'; nf.classList.toggle('on', game.nitroOn); nf.classList.toggle('lock', game.nitroLock);
+  const nf = $('nitroFill'); nf.style.height = clamp(game.nitro, 0, 100) + '%'; nf.classList.toggle('on', game.nitroOn); nf.classList.toggle('lock', game.nitroLock);
   $('boostFx').style.opacity = String(clamp(player.boost, 0, 1) * 0.9);
   $('flatWarn').style.opacity = player.flatT > 0 ? '1' : '0';
   const pw = $('pinWrap'); pw.classList.toggle('on', game.pin > 0.05); $('pinFill').style.width = clamp(game.pin / DIFF.pin, 0, 1) * 100 + '%';

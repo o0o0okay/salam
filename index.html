@@ -22,13 +22,10 @@
     <div class="lbl">SCORE</div>
     <div class="big display" id="score">0</div>
     <div class="lbl" style="margin-top:4px" id="timeDist">0:00 · 0.00 km</div>
-    <canvas id="radar" width="260" height="260"></canvas>
   </div>
   <div class="panel" id="tc">
     <div class="lbl" style="text-align:left">VEHICLE HEALTH</div>
     <div class="bar"><div id="hpFill"></div></div>
-    <div class="lbl" style="text-align:left;margin-top:6px">NITRO <span style="opacity:.7">[SHIFT]</span></div>
-    <div class="bar" style="height:11px"><div id="nitroFill" style="width:60%"></div></div>
     <div id="pinWrap"><div class="lbl display" style="color:#7fb0ff">⚠ BEING BUSTED ⚠</div><div class="bar"><div id="pinFill"></div></div></div>
     <div id="flatWarn" class="display">⚠ FLAT TIRES ⚠</div>
     <div id="alertLine" class="lbl display" style="margin-top:4px;font-size:12px;letter-spacing:.08em"></div>
@@ -37,10 +34,31 @@
     <div class="lbl" id="clock">☀ 08:00</div>
     <div id="heat" class="display">WANTED ★☆☆☆☆</div>
     <div class="lbl" id="wantedDetail">LEVEL 1 · PATROL SEDANS</div>
-    <div class="lbl" style="margin-top:6px">SPEED</div>
-    <div class="big display"><span id="speed">0</span><span style="font-size:14px"> km/h</span></div>
     <div class="mid display" style="color:#7dff7a;margin-top:6px">$<span id="cash">0</span></div>
     <div class="mid display" style="margin-top:2px">🚓 <span id="takedowns">0</span></div>
+  </div>
+  <div class="panel" id="mapBox">
+    <canvas id="radar" width="260" height="260"></canvas>
+  </div>
+  <div class="panel" id="gauge">
+    <div class="nitroCol">
+      <div class="lbl">NITRO</div>
+      <div class="nitroTube"><div id="nitroFill"></div></div>
+      <div class="lbl nitroKey">SHIFT</div>
+    </div>
+    <div class="dial">
+      <svg viewBox="0 0 200 200" class="dialSvg" aria-hidden="true">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="#2a8bff"/><stop offset="0.6" stop-color="#7fe9ff"/><stop offset="1" stop-color="#ffe14a"/>
+          </linearGradient>
+        </defs>
+        <path class="dialTrack" d="M 43.43 156.57 A 80 80 0 1 1 156.57 156.57"/>
+        <path id="gaugeFill" class="dialFill" pathLength="100" d="M 43.43 156.57 A 80 80 0 1 1 156.57 156.57"/>
+        <g id="gaugeTicks"></g>
+      </svg>
+      <div class="dialText"><span id="speed">0</span><small>km/h</small></div>
+    </div>
   </div>
   <div id="toasts"></div>
 </div>

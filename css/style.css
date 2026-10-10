@@ -15,15 +15,32 @@ canvas { display:block; }
 .bar { height:16px; border-radius:9px; background:rgba(0,0,0,.45); border:2px solid rgba(255,255,255,.85); overflow:hidden; box-shadow:0 3px 0 rgba(0,0,0,.25); }
 .bar > div { height:100%; width:100%; transition:width .12s linear; }
 #hpFill { background:linear-gradient(#7dff7a,#27c93f); }
-#nitroFill { background:linear-gradient(90deg,#2a8bff,#7fe9ff); }
-#nitroFill.on { background:linear-gradient(90deg,#ff7a1a,#ffe14a); }
-#nitroFill.lock { background:linear-gradient(90deg,#666,#999); }
+/* nitro: a vertical tube to the left of the dial, filled from the bottom (height set from ui.js) */
+#nitroFill { position:absolute; left:0; right:0; bottom:0; height:0%; transition:height .12s linear; background:linear-gradient(#2a8bff,#7fe9ff); }
+#nitroFill.on { background:linear-gradient(#ff7a1a,#ffe14a); }
+#nitroFill.lock { background:linear-gradient(#666,#999); }
 #pinWrap { margin-top:8px; opacity:0; transition:opacity .15s; }
 #pinWrap.on { opacity:1; }
 #pinFill { width:0%; background:linear-gradient(90deg,#ff3b3b,#3b7bff); }
 #flatWarn { margin-top:6px; color:#ff9a4a; opacity:0; transition:opacity .15s; font-size:13px; letter-spacing:.1em; }
 #heat { margin-top:6px; font-size:18px; letter-spacing:.1em; color:#ffd23b; }
-#radar { width:130px; height:130px; margin-top:10px; border-radius:50%; border:3px solid rgba(255,255,255,.85); box-shadow:0 4px 0 rgba(0,0,0,.3); background:#222; display:block; }
+#radar { width:190px; height:190px; border-radius:50%; border:3px solid rgba(255,255,255,.85); box-shadow:0 4px 0 rgba(0,0,0,.3); background:#222; display:block; }
+/* bottom corners: the map (left) and the speed dial with nitro (right), as in the reference layout */
+#mapBox { bottom:16px; left:16px; }
+#gauge { bottom:12px; right:14px; display:flex; align-items:flex-end; gap:12px; }
+.nitroCol { display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:26px; }
+.nitroTube { position:relative; width:16px; height:120px; border-radius:8px; background:rgba(0,0,0,.45); border:2px solid rgba(255,255,255,.85); overflow:hidden; }
+.nitroKey { opacity:.7; font-size:10px; }
+.dial { position:relative; width:200px; height:200px; }
+.dialSvg { width:100%; height:100%; display:block; overflow:visible; }
+.dialTrack { fill:none; stroke:rgba(0,0,0,.45); stroke-width:14; stroke-linecap:round; }
+.dialFill { fill:none; stroke:url(#gaugeGrad); stroke-width:14; stroke-linecap:round; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
+.dialTick { stroke:rgba(255,255,255,.85); stroke-width:2.5; }
+.dialText { position:absolute; left:0; right:0; top:46%; transform:translateY(-50%); text-align:center; line-height:1; }
+.dialText #speed { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:46px; }
+.dialText small { display:block; font-size:12px; letter-spacing:.15em; opacity:.85; margin-top:4px; }
+/* touch screens: the on-screen buttons sit in the bottom 150 px, so the two panels move up above them */
+@media (pointer:coarse) { #mapBox, #gauge { bottom:150px; } }
 #toasts { position:absolute; top:26%; left:50%; transform:translateX(-50%); text-align:center; }
 .toast { font-family:'Bungee', Impact, sans-serif; font-size:clamp(18px,4vw,30px); color:#ffe14a; text-shadow:0 3px 0 #b3401c, 0 0 14px rgba(0,0,0,.4);
   animation:toastPop 1.5s ease-out forwards; white-space:nowrap; }
@@ -73,7 +90,8 @@ canvas { display:block; }
 .tbtn.down { background:rgba(255,210,59,.6); transform:scale(.94); }
 #pauseScreen { background:rgba(0,0,0,.4); }
 #muteHint { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); color:#fff; opacity:.6; font-size:11px; z-index:5; pointer-events:none; text-shadow:0 1px 0 #000; }
-@media (max-width:640px) { .big{font-size:26px} .mid{font-size:17px} #radar{width:96px;height:96px} }
+@media (max-width:640px) { .big{font-size:26px} .mid{font-size:17px} #radar{width:120px;height:120px}
+  .dial{width:150px;height:150px} .dialText #speed{font-size:34px} .nitroTube{height:90px} }
 
 /* debug overlay, only created with ?debug (see js/perf.js) */
 #perf { position: fixed; left: 8px; bottom: 8px; z-index: 99; margin: 0; padding: 6px 8px; border-radius: 4px; background: rgba(0,0,0,.62); color: #9ff09f; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; white-space: pre; pointer-events: none; }
