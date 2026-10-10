@@ -534,7 +534,7 @@ function buildFlyoverDelineator() {
  * tools/sidewalk-checks/flyover-signs.mjs checks without a browser.
  */
 function buildFlyoverNameboard() {
-  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8f959b);
+  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1d6b3f), steel = mat(0x8f959b);   // green highway plate
   // 0.78 m deep on purpose: the abutment face leans back as it rises, so with the plate's face clear of the
   // concrete at its bottom edge the back of the board is buried in the concrete at its top (see `faceAt`).
   // Two-sided: the at-grade side (z = -0.78..-0.18) and the deck side (z = +0.18..+0.78) both carry a blue
@@ -573,28 +573,73 @@ function buildFlyoverBillboard() {
   }
   return g;
 }
-// `legV` is the parapet's own centre line (how far the leg and the beam's root stand from the road's centre
-// line) and `dir` is the way, in this local frame, that the centre line lies: the beam and the sign panel reach
-// from the leg in by `dir`, so one block builds the half over its own side of the road and the two halves meet
-// over the middle.
-// Local heights are measured from the coping's top (0) upwards, and the panel hangs under the beam with a
-// hand's width of clearance, so the sign passes under the beam instead of through it.
-function buildFlyoverGantry(legV, dir) {
-  const g = new THREE.Group(), cream = mat(0xf2e9d8), blue = mat(0x1b4f9c), steel = mat(0x8a9096);
-  // The base plate is 0.44 m across on purpose: centred on the leg (the parapet's own centre line) it stops
-  // just short of the parapet's inner face, so nothing of the gantry leans into the lane's clear width.
-  // Sign panel is two-sided: both the approach-facing side and the opposite side carry a blue field and
-  // lettering, so the gantry reads from traffic in both directions.
-  g.add(box(0.44, 0.14, 0.44, steel, 0, 0.07, 0, false));               // base plate, on the coping
-  g.add(box(0.3, 4.32, 0.3, steel, 0, 2.30, 0, false));                 // leg, up to the beam's underside
-  g.add(box(legV, 0.32, 0.34, steel, dir * legV / 2, 4.62, 0, false));  // half the beam, out to the centre line
-  g.add(box(6.0, 2.0, 0.14, cream, dir * 4.6, 3.42, 0, false));         // sign panel, backing (centred)
-  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, 0.18, false));       // ... its field (front)
-  g.add(box(5.7, 1.7, 0.26, blue, dir * 4.6, 3.42, -0.18, false));      // ... its field (back)
-  const txt1 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5); txt1.position.set(dir * 4.6, 3.45, 0.33); g.add(txt1);
-  // back side: mirrored lettering so it reads from the opposite approach
-  const txt2 = textBlocks('OVERPASS', cream, 0.88, 0.1, 0.5, true);
-  txt2.position.set(dir * 4.6, 3.45, -0.33); g.add(txt2);
+// Highway sign gantry, drawn the way a US interstate gantry is: a galvanised column on the parapet, a lattice
+// (truss) cantilever reaching in over the carriageway, and a green panel with white lettering hung under the
+// truss, a white border round it, a straight-ahead arrow on the outer end and a route shield on the inner end.
+// Each of the four quarters of a bridge reads a different sign (`variant`), so the approaches are not
+// identical. `legV` is the parapet's own centre line (how far the leg and the beam's root stand from the road's
+// centre line) and `dir` is the way, in this local frame, that the centre line lies: the truss and the panel
+// reach from the leg in by `dir`, so one block builds the half over its own side of the road and the two halves
+// meet over the middle, leaving a gap of about 1 m on the centre line.
+// Local heights are measured from the coping's top (0) upwards. The panel's bottom edge is at 2.42 m and its top
+// at 4.42 m, and it hangs 0.04 m under the lower chord (4.46 m), so nothing pokes through the truss.
+const FLY_SIGN_TEXT = [
+  { top: 'TO', main: 'DOWNTOWN', shield: '5' },
+  { top: 'TO', main: 'CENTRAL', shield: '25' },
+  { top: 'EXIT 12', main: 'AIRPORT', shield: null },
+  { top: 'NORTH', main: 'HARBOUR', shield: '405' },
+];
+function buildFlyoverGantry(legV, dir, variant = 0) {
+  const g = new THREE.Group();
+  const green = mat(0x1d6b3f), white = mat(0xf7f7f2), blue = mat(0x1b4f9c), steel = mat(0x8a9096), dark = mat(0x4c525a);
+  const T = FLY_SIGN_TEXT[((variant % FLY_SIGN_TEXT.length) + FLY_SIGN_TEXT.length) % FLY_SIGN_TEXT.length];
+  // column: four corner posts on a base plate, tied together every metre or so
+  g.add(box(0.44, 0.14, 0.44, steel, 0, 0.07, 0, false));                  // base plate, on the coping
+  for (const x of [-0.15, 0.15]) for (const z of [-0.15, 0.15]) g.add(box(0.1, 4.32, 0.1, steel, x, 2.30, z, false));
+  for (const y of [0.9, 1.9, 2.9, 3.9]) {
+    for (const z of [-0.15, 0.15]) g.add(box(0.3, 0.07, 0.07, steel, 0, y, z, false));
+    for (const x of [-0.15, 0.15]) g.add(box(0.07, 0.07, 0.3, steel, x, y, 0, false));
+  }
+  // truss cantilever: two chords per side with a zig-zag of web members, from the leg in to the centre line
+  const lowY = 4.54, upY = 5.14, n = 8, seg = legV / n;
+  for (const z of [-0.2, 0.2]) {
+    g.add(box(legV, 0.16, 0.12, steel, dir * legV / 2, lowY, z, false));   // lower chord (underside 4.46)
+    g.add(box(legV, 0.14, 0.12, steel, dir * legV / 2, upY, z, false));    // upper chord
+    for (let i = 0; i <= n; i++) g.add(box(0.08, upY - lowY, 0.08, steel, dir * i * seg, (lowY + upY) / 2, z, false));
+    for (let i = 0; i < n; i++) {
+      const x0 = dir * i * seg, x1 = dir * (i + 1) * seg, dy = (upY - lowY) * (i % 2 ? -1 : 1);
+      const len = Math.hypot(x1 - x0, dy);
+      const web = box(len, 0.1, 0.1, steel, (x0 + x1) / 2, (lowY + upY) / 2, z, false);
+      web.rotation.z = Math.atan2(dy, x1 - x0);
+      g.add(web);
+    }
+  }
+  // the panel: white border, green field on both faces, hung from the lower chord by two brackets
+  const C = 3.85, X = o => dir * (C - o);     // panel centre at C from the leg; +o runs outward, to the parapet
+  g.add(box(6.9, 2.0, 0.14, white, X(0), 3.42, 0, false));                 // border (centred)
+  g.add(box(6.6, 1.8, 0.26, green, X(0), 3.42, 0.18, false));              // field, street side
+  g.add(box(6.6, 1.8, 0.26, green, X(0), 3.42, -0.18, false));             // field, back side
+  for (const o of [-2.0, 2.0]) g.add(box(0.12, 0.12, 0.3, dark, X(o), 4.5, 0, false));
+  // lettering: a small top line and a large main line, lettered on both faces (the back is mirrored)
+  const tops = textBlocks(T.top, white, 0.36, 0.08, 0.22); tops.position.set(X(0), 3.88, 0.33); g.add(tops);
+  const main = textBlocks(T.main, white, 0.62, 0.08, 0.2); main.position.set(X(0), 3.2, 0.33); g.add(main);
+  const tops2 = textBlocks(T.top, white, 0.36, 0.08, 0.22, true); tops2.position.set(X(0), 3.88, -0.33); g.add(tops2);
+  const main2 = textBlocks(T.main, white, 0.62, 0.08, 0.2, true); main2.position.set(X(0), 3.2, -0.33); g.add(main2);
+  // straight-ahead arrow on the outer end: a shaft with a chevron head (the same on both faces)
+  for (const z of [0.34, -0.34]) {
+    g.add(box(0.16, 0.56, 0.06, white, X(2.6), 3.14, z, false));
+    const armL = box(0.12, 0.42, 0.06, white, X(2.6) - 0.11, 3.82, z, false); armL.rotation.z = 0.6; g.add(armL);
+    const armR = box(0.12, 0.42, 0.06, white, X(2.6) + 0.11, 3.82, z, false); armR.rotation.z = -0.6; g.add(armR);
+  }
+  // route shield on the inner end (when the sign has one): a white-edged blue shield with its number
+  if (T.shield) {
+    for (const side of [1, -1]) {
+      const zz = side * 0.34, zf = side * 0.37, zt = side * 0.41;
+      g.add(box(1.0, 1.0, 0.06, white, X(-2.6), 3.42, zz, false));
+      g.add(box(0.84, 0.84, 0.06, blue, X(-2.6), 3.42, zf, false));
+      const num = textBlocks(T.shield, white, 0.44, 0.06, 0.08, side < 0); num.position.set(X(-2.6), 3.42, zt); g.add(num);
+    }
+  }
   return g;
 }
 
@@ -936,7 +981,8 @@ function generateChunk(cx, cz, defer = false) {
     {
       const legV = W - FLY.parapet / 2, dir = -1 / Q.sv, base = FLY.deckH + PH + 0.12;
       const p = at(Q.su * 9.0, base, Q.sv * legV);
-      const gantry = buildFlyoverGantry(legV, dir);
+      const variant = (Q.su > 0 ? 1 : 0) + (Q.sv > 0 ? 2 : 0);   // each quarter reads its own sign
+      const gantry = buildFlyoverGantry(legV, dir, variant);
       gantry.position.set(p[0], p[1], p[2]);
       gantry.rotation.y = alongX ? (Q.su > 0 ? PI / 2 : -PI / 2) : (Q.su > 0 ? 0 : PI);
       add(gantry);
@@ -944,7 +990,7 @@ function generateChunk(cx, cz, defer = false) {
         axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: p[0], z: p[2], y: p[1], yaw: gantry.rotation.y,
         u: Q.su * 9.0, base, legV, deck: FLY.deckH,
         beamUnder: p[1] + 4.46, signBottom: p[1] + 2.42, signTop: p[1] + 4.42,
-        spans: [Q.sv * (W - FLY.parapet), Q.sv * (legV - 7.6)], mount: 'coping',
+        spans: [Q.sv * (legV - 0.4), Q.sv * 0.5], mount: 'coping',   // the panel's outer and inner ends, from the centre line
       });
     }
   }
