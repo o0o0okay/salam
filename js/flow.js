@@ -6,6 +6,7 @@ import { PLAYER_PARAMS } from './config.js';
 import { createCar, removeCar } from './vehicle.js';
 import { chunks, disposeChunk, updateChunks, warmTextCache } from './world.js';
 import { clearParticles, explosion } from './particles.js';
+import { ASSET } from './assets.js';
 import { sfx } from './audio.js';
 import { resetHudCache } from './ui.js';
 import { camState } from './camera.js';
@@ -39,10 +40,16 @@ export function startGame() {
   sfx.init(); resetWorld();
   game.state = 'playing'; $('startScreen').classList.add('hide'); $('overScreen').classList.add('hide'); $('hud').classList.add('on');
 }
+function burnOut(c) {
+  c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
+  if (c.beam) c.beam.visible = false;
+}
 export function endGame(reason) {
   if (game.state !== 'playing') return;
   game.state = 'over'; game.reason = reason; game.overT = 0; game.overShown = false; game.slow = 0.3;
-  if (reason === 'WASTED') { explosion(player.x, player.z, player.y); player.mesh.visible = false; player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
+  // A destroyed car stays where it died as a burnt wreck (on a bridge, on the deck), the way every other wreck does.
+  // It is cleared when the next run starts (removeCar in resetGame).
+  if (reason === 'WASTED') { explosion(player.x, player.z, player.y); burnOut(player); player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
   game.score = calcScore();
   game.newBest = game.score > game.best;
   if (game.newBest) { game.best = game.score; try { localStorage.setItem('escape_road_best', String(game.best)); } catch (e) {} }
