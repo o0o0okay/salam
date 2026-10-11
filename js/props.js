@@ -7,6 +7,17 @@ import * as THREE from 'three';
 export const PROP_DEFS = {
   streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, soft: true, make() { const g = new THREE.Group(), m = mat(0x7d838c);
     g.add(cyl(0.14, 0.2, 7, 8, m, 0, 3.5, 0, false)); g.add(box(1.8, 0.14, 0.14, m, 0.8, 7, 0, false)); g.add(box(0.7, 0.16, 0.4, ASSET.lampMat, 1.55, 6.88, 0, false)); return g; } },
+  // a wooden utility pole: a tapered pole, two crossarms across the line with insulators, braces and a transformer.
+  // The wires are not part of the prop; they are laid between poles by js/world.js (utilityLine).
+  utilitypole: { r: 0.3, drag: 0.9, color: 0x5a3d26, soft: true, make() { const g = new THREE.Group(), w = mat(0x4a3322), arm = mat(0x6b4a2f), ins = mat(0x1d1d1d), tr = mat(0x5d636b);
+    g.add(cyl(0.13, 0.2, 8.4, 8, w, 0, 4.2, 0, false));
+    for (const y of [8.0, 7.2]) {
+      g.add(box(2.6, 0.16, 0.16, arm, 0, y, 0, false));
+      for (const x of [-1.1, 1.1]) g.add(cyl(0.08, 0.08, 0.3, 6, ins, x, y + 0.2, 0, false));
+    }
+    for (const x of [-0.6, 0.6]) { const br = box(0.08, 1.2, 0.08, w, x, 7.4, 0, false); br.rotation.z = x > 0 ? -0.6 : 0.6; g.add(br); }
+    g.add(box(0.8, 1.0, 0.7, tr, 0.9, 5.2, 0, false));
+    return g; } },
   cone: { r: 0.65, drag: 0.97, color: 0xff7a1a, soft: true, make() { const g = new THREE.Group();
     g.add(cyl(0.12, 0.42, 0.95, 8, mat(0xff7a1a), 0, 0.55, 0, false)); g.add(cyl(0.2, 0.28, 0.2, 8, mat(0xffffff), 0, 0.6, 0, false)); g.add(box(0.95, 0.08, 0.95, mat(0x2a2a2a), 0, 0.04, 0, false)); return g; } },
   barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, soft: true, make() { const g = new THREE.Group();

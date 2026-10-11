@@ -818,6 +818,8 @@ function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
 // inner streets are closed (grass), so the curves run across the grass and not along the grid.
 const NB_ROAD = 3.5, NB_DISC = 6, NB_IN = 22;
 const nbCache = new Map();
+// Some neighbourhoods carry a line of wooden utility poles along their pavements: about half, from their own hash.
+export function utilityNbhd(RX, RZ) { return (hash2(RX * 31 + 7, RZ * 17 - 5) & 3) < 2; }
 export function nbhdPlan(RX, RZ) {
   const key = RX + ',' + RZ;
   if (!nbCache.has(key)) nbCache.set(key, nbhdOf(RX, RZ) ? buildNbhd(RX, RZ) : null);
@@ -2197,13 +2199,51 @@ function generateChunk(cx, cz, defer = false) {
     for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
     if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
   }
+  // Utility poles (utilityNbhd): in a neighbourhood that has them, a pole stands on each pavement 20 m either side of the
+  // block's middle, on both sides of both streets (the paving band is 27.4 to 31.5 m from the centre). Wires run between
+  // poles 40 m apart: inside the block, and across the boundary on to the next block's first pole, so a row of blocks
+  // reads as one line. The wires are cosmetic (no solids); a neighbourhood's edge ends its lines.
+  const utility = !!nbPlan && utilityNbhd(nbRX, nbRZ);
+  if (utility) {
+    const ix = cx - nbRX * NB_BLOCKS, iz = cz - nbRZ * NB_BLOCKS;
+    const wireMat = mat(0x1b1b1b);
+    const utilityLine = (p0, p1, along) => {               // p0, p1: [x, z] of two poles; four wires sag between them
+      const SAG = 0.45, Y0 = 0.33;
+      for (const yy of [8.0, 7.2]) for (const lat of [-1.1, 1.1]) {
+        const pts = [];
+        for (let k = 0; k <= 6; k++) {
+          const t = k / 6;
+          pts.push([p0[0] + (p1[0] - p0[0]) * t + (along === 'x' ? 0 : lat), Y0 + yy - 4 * SAG * t * (1 - t), p0[1] + (p1[1] - p0[1]) * t + (along === 'x' ? lat : 0)]);
+        }
+        for (let k = 1; k < pts.length; k++) {
+          const [x0, y0, z0] = pts[k - 1], [x1, y1, z1] = pts[k];
+          const L = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+          const seg = along === 'z' ? box(0.05, 0.05, L, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false)
+                                    : box(L, 0.05, 0.05, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false);
+          if (along === 'z') seg.rotation.x = -Math.atan2(y1 - y0, z1 - z0); else seg.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+          add(seg);
+        }
+      }
+    };
+    for (const s of [-1, 1]) for (const o of [-20, 20]) {
+      prop('utilitypole', bx + s * 29.5, bz + o, 0, 0.15);          // on the x-side pavements: line runs along z
+      prop('utilitypole', bx + o, bz + s * 29.5, PI / 2, 0.15);     // on the z-side pavements: line runs along x
+    }
+    for (const s of [-1, 1]) {
+      const zx = bx + s * 29.5, xz = bz + s * 29.5;
+      utilityLine([zx, bz - 20], [zx, bz + 20], 'z');
+      if (iz + 1 < NB_BLOCKS) utilityLine([zx, bz + 20], [zx, bz + 60], 'z');   // on to the next block's first pole
+      utilityLine([bx - 20, xz], [bx + 20, xz], 'x');
+      if (ix + 1 < NB_BLOCKS) utilityLine([bx + 20, xz], [bx + 60, xz], 'x');
+    }
+  }
   // Streetlights
   for (const s of [-1, 1]) for (const o of [-16, 16]) {
     const kx = kerbIn(s < 0 ? 0 : 1), kz = kerbIn(s < 0 ? 2 : 3);      // the kerb on the side the prop is on
     // ... and none of them where a flyover has opened the corner: a light left there would stand in the mouth
     // the cut made rather than on the pavement the cut leaves.
     const lampA = [bx + s * (CHUNK / 2 - kx - 1.35), bz + o], lampB = [bx + o, bz + s * (CHUNK / 2 - kz - 1.35)];
-    if (rng() < 0.8) {
+    if (rng() < 0.8 && !utility) {
       if (cutClear(lampA[0], lampA[1], 1.2) && !closed[s < 0 ? 0 : 1]) prop('streetlight', lampA[0], lampA[1], 0);
       if (cutClear(lampB[0], lampB[1], 1.2) && !closed[s < 0 ? 2 : 3]) prop('streetlight', lampB[0], lampB[1], 0);
     }
