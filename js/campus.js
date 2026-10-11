@@ -316,6 +316,30 @@ export function buildHospitalMesh(bx, bz, rng) {
 // fascia sign (box-pixel lettering, same font the hospital signs use). The appliance apron in front of the
 // bay doors is where the fleet lives: three to five appliances, always including at least one large engine
 // and one small squad, on station from the first frame.
+// A roof loudspeaker, as on the reference pole: a steel pole with a bracket at the top and two flared horns, one
+// each side, turned out in a shallow V. Plain geometry in the builder's block-local frame; (x, y, z) is the roof
+// surface under the foot, h the height of the pole. No solids.
+function roofHorns(x, y, z, h) {
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  const steel = mat(0xb9bec4), horn = mat(0xc9c6b8), dark = mat(0x3a3f46);
+  m.add(cyl(0.07, 0.07, h, 8, steel, 0, h / 2, 0, false));
+  m.add(box(1.5, 0.1, 0.12, steel, 0, h, 0, false));                      // bracket
+  m.add(cyl(0.09, 0.09, 0.22, 8, dark, 0, h, 0, false));                   // swivel
+  for (const sx of [-1, 1]) {
+    const hd = new THREE.Group();
+    hd.position.set(sx * 0.62, h + 0.05, 0);
+    hd.rotation.y = -sx * 0.35;                                             // the V: each horn turned out
+    const bell = cyl(0.36, 0.1, 0.85, 12, horn, 0, 0, 0, false);            // flared bell, wide end outward
+    bell.rotation.z = sx > 0 ? -Math.PI / 2 : Math.PI / 2;
+    bell.position.set(sx * 0.42, 0, 0);
+    hd.add(bell);
+    hd.add(cyl(0.07, 0.07, 0.3, 8, dark, sx * -0.1, 0, 0, false));          // driver behind the bell
+    m.add(hd);
+  }
+  return m;
+}
+
 export function buildFireStationMesh(bx, bz, rng) {
   const g = new THREE.Group(), solids = [], doors = [], bays = [];
   const M = {
@@ -347,6 +371,7 @@ export function buildFireStationMesh(bx, bz, rng) {
   B(H.w + 0.9, 0.6, H.d + 0.9, M.roof, H.x, Y + H.h + 0.3, H.z, false);        // roof cap
   B(H.w + 0.5, 0.35, 0.5, M.white, H.x, Y + H.h + 0.7, H.z + H.d / 2 - 0.1, false);
   g.add(roofMast(H.x - 7, Y + H.h + 0.6, H.z - 2.5, 9));                          // telecom mast on the hall roof
+  g.add(roofHorns(H.x + 6, Y + H.h + 0.6, H.z - 2.5, 3.0));                         // loudspeaker pole on the hall roof
   solid(H.x, H.z, H.w / 2, H.d / 2);
   const frontZ = H.z + H.d / 2;                                                // the face with the bay doors
 
