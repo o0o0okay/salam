@@ -144,103 +144,7 @@ function buildBusStopMesh(v) {
   g.add(box(0.5, 0.28, 0.08, mat(0x101418, { emissive: 0x113355, emissiveIntensity: 0.3 }), 0.6, postH - 0.5, D / 2 + 0.07, false));
   return g;
 }
-function generateChunk(cx, cz, defer = false) {
-  const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
-  const r = (a = 0, b = 1) => a + (b - a) * rng();
-  const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
-  const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
-  const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
-  const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
-  const add = o => bake(ch, o);
-  // The footprint of every suburban house in this block (grid or estate). A house's yard needs a way in from the street,
-  // so the hedge and fence lines in front of it get a gap (see yardGap).
-  const yards = [];
-  const yardGap = (x, z, alongZ) => yards.some(y => alongZ
-    ? Math.abs(z - y.z) < 2 + y.hd && Math.abs(x - y.x) < 14 + y.hw
-    : Math.abs(x - y.x) < 2 + y.hw && Math.abs(z - y.z) < 14 + y.hd);
-  // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
-  // for a car at grade under the bridge and gone for a car standing on the deck above them.
-  const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
-  // Sidewalk ring occupies these distances from the block centre (kerb stone up to the inner kerb).
-  const WALK_LO = CHUNK / 2 - PAVE_OUT, WALK_HI = CHUNK / 2 - PAVE_IN;
-  const onWalk = (x, z) => {
-    const dx = Math.abs(x - bx), dz = Math.abs(z - bz);
-    const inBand = a => a >= WALK_LO && a <= WALK_HI;
-    return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
-  };
-  const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
-    const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
-    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
-  };
-  const tree = (x, z, y = 0.2) => {
-    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
-    const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
-    solid(x, z, 0.65, 0.65, 'tree');
-    const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
-    t.solid.tree = t; ch.trees.push(t);
-  };
-  // Parked cars are registered as solids and linked to a destructible record (s.parked).
-  // Light taps behave like a static obstacle; a hard enough hit wrecks one (see collisions.js breakParkedCar).
-  const PARKED_KINDS = ['sedan', 'hatchback', 'suv', 'oldclassic'];
-  const PARKED_COLORS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
-  const parkedCar = (x, z, hx, hz, rotY, kind, color, y = 0.1) => {
-    const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
-    const m = buildCar(kind, color, false);
-    m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
-    solid(x, z, hx, hz, 'parkedcar');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    sEntry.base = { hx, hz };                                     // so a car that leaves can hand its bay back
-    const rec = { mesh: m, x, z, kind, mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
-    sEntry.parked = rec;
-    return rec;
-  };
-  // Bus stop shelter on the sidewalk — a real solid (destructible), and a navigation target for AI buses (see civilians.js).
-  const busStop = (side, alongLocal) => {
-    const axisIsZ = side < 2;
-    const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
-    const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
-    const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
-    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
-    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
-    // The flyover's at-grade lane runs through there: test the whole shelter, not just its centre, since its ends
-    // are 2.5 m from it and the shelter is a solid.
-    for (let ax = -hx; ax <= hx + 1e-9; ax += 0.4) for (let az = -hz; az <= hz + 1e-9; az += 0.4) if (onAtGradeLane(x + ax, z + az, 0.3)) return;
-    const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
-    const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
-    const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
-    solid(x, z, hx, hz, 'busstop');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    const rec = { mesh: g, x, z, axis: axisIsZ ? 'z' : 'x', road: roadCoord, along: axisIsZ ? z : x, broken: false, solid: sEntry };
-    sEntry.busstop = rec; ch.busStops.push(rec);
-  };
-  // Construction scaffolding against a building — a real destructible solid, randomized size/style per instance.
-  const scaffold = (x, z, rotY, o) => {
-    const g = own(ch, mergeStandalone(buildScaffoldMesh(o))); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
-    const swap = Math.abs(Math.cos(rotY)) < 0.5;
-    const hx = swap ? o.d / 2 + 0.3 : o.w / 2 + 0.3, hz = swap ? o.w / 2 + 0.3 : o.d / 2 + 0.3;
-    solid(x, z, hx, hz, 'scaffold');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    sEntry.scaffold = { mesh: g, x, z, broken: false, solid: sEntry };
-  };
-  const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
-  // The block's own ground cover: the lot asphalt, the grass of a suburb or a park, a forecourt's concrete. Every
-  // one of them stops at the building line, and on a side that carries an interchange's at-grade lane that line
-  // stands `FLY.frontage` further out: without this the pad would lie over the pavement behind the lane (and, on
-  // the wider lots, poke into the lane itself) — which is exactly the strip the lane's widening is not allowed to
-  // eat. A pad that does not reach the line is left exactly where it was, so only the lane sides change.
-  const padBox = (w, d, m, ox = 0, oz = 0, y = 0.2, h = 0.1) => {
-    const lo = si => (si < 2 ? x0 : z0) + PAD_IN + (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
-    const hi = si => (si < 2 ? x0 : z0) + CHUNK - PAD_IN - (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
-    const a = Math.max(bx + ox - w / 2, lo(0)), b = Math.min(bx + ox + w / 2, hi(1));
-    const c = Math.max(bz + oz - d / 2, lo(2)), e = Math.min(bz + oz + d / 2, hi(3));
-    if (b - a < 0.2 || e - c < 0.2) return;
-    ch.pads.push({ x: (a + b) / 2, z: (c + e) / 2, w: b - a, d: e - c });      // for the suite: where a block's ground stops
-    add(box(b - a, h, e - c, m, (a + b) / 2, y, (c + e) / 2, false));
-  };
-  const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
-  const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
+function closedStreets({ prop, add, tree, x0, z0, cx, cz }) {
   // ---- closed streets (three-way junctions, see segClosed in flyover.js) ----
   // A street closed for this block: its half of the carriageway (the side of the block's own kerb) is grass, and a
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
@@ -288,6 +192,10 @@ function generateChunk(cx, cz, defer = false) {
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
+  return { closed, filled, site };
+}
+
+function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz }) {
   // ---- construction site on a barred closed street ----
   // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
   // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
@@ -405,6 +313,10 @@ function generateChunk(cx, cz, defer = false) {
     const featKind = ['plazaFountain', 'plazaStatue', 'plazaTree'][p.feature];
     prop(featKind, x0, z0, 0, 0.34);
   }
+  return { p };
+}
+
+function interchanges({ ch, p, add, ramp, group, r, cx, cz }) {
   // ---- Grade-separated interchanges ----
   // The city's two main roads carry flyovers every few junctions (js/flyover.js decides where): the road climbs
   // an embankment, crosses the junction it meets on a deck 7.2 m above the ground, and comes back down on the
@@ -621,6 +533,9 @@ function generateChunk(cx, cz, defer = false) {
   // centre would put its wall on the pavement behind the lane. The campus centre is the midpoint of the effective
   // building bounds — which shifts it toward the opposite side of the lane, keeping the whole campus (including
   // its widest wings) inside the building line on both sides. It is zero on every block that has no lane.
+}
+
+function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
   const effLoX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
   const effHiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
   const effLoZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
@@ -683,6 +598,287 @@ function generateChunk(cx, cz, defer = false) {
   const sportRoll = hash2(cx + 31, cz - 17);
   if (!laneBlock && !nearSpawn && (type === 'park' || (type === 'suburb' && !estateNow)) && (sportRoll & 0xFF) < 40)
     type = SPORT_KINDS[(sportRoll >>> 8) % SPORT_KINDS.length];
+  return { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow };
+}
+
+function furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz }) {
+  // ---- Street furniture on the walkway: mailboxes, parking meters and shop A-boards ----
+  if (type === 'downtown' || type === 'commercial') {
+    const n = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < n; i++) {
+      const swi = Math.floor(rng() * 4), s = SIDEWALK_SIDES[swi];
+      if (closed[swi]) continue;
+      const along = (s.along === 'z' ? cz : cx) * CHUNK + 16 + rng() * (CHUNK - 32);
+      const d = kerbIn(swi) + (rng() < 0.55 ? 1.15 : 2.1);      // just behind the kerb of its own side
+      const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : along;
+      const z = s.along === 'z' ? along : bz + s.fixed * (CHUNK / 2 - d);
+      if (occupied(x, z, 1.1) || !cutClear(x, z, 1.0)) continue;
+      const kind = rng() < 0.36 ? 'mailbox' : rng() < 0.62 ? 'meter' : 'sandwich';
+      prop(kind, x, z, Math.atan2(s.along === 'z' ? s.fixed : 0, s.along === 'z' ? 0 : s.fixed), 0);
+    }
+  }
+}
+
+function dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop }) {
+  // ---- Back-alley dumpsters: a downtown or commercial block has a bin or two in the gaps behind its buildings. A spot
+  // is taken only if the building clearance test says it is free and it stands off the paving and the lanes.
+  if (type === 'downtown' || type === 'commercial') {
+    for (let k = 0; k < 2; k++) {
+      if (rng() < (k ? 0.7 : 0.4)) continue;
+      for (let t = 0; t < 14; t++) {
+        const x = bx + r(-24, 24), z = bz + r(-24, 24);
+        if (occupied(x, z, 2.6) || !cutClear(x, z, 1.8)) continue;
+        prop('dumpster', x, z, rng() * PI, 0.2);
+        break;
+      }
+    }
+  }
+}
+
+function hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz }) {
+  // ---- Suburban front hedges, set back in the yards along the walk ----
+  if (type === 'suburb') {
+    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
+      const s = SIDEWALK_SIDES[si];
+      if (rng() > 0.6) continue;
+      const d = PAVE_OUT + (atGradeSide(cx, cz, si) ? FLY.frontage : 0) + 0.35;   // in the yard strip, behind the walk
+      const edge0 = (s.along === 'z' ? cz : cx) * CHUNK;
+      // The hedge line starts where the pavement itself resumes at each end, so a hedge never stands in the
+      // mouth a cut corner opened either.
+      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
+      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
+      for (let a = edge0 + keep[0] + 6; a < edge0 + CHUNK - keep[1] - 6; a += 3.4) {
+        if (rng() < 0.28) continue;                              // gaps read as driveways and gateways
+        if (Math.abs(a - (edge0 + CHUNK / 2)) < 4) continue;      // and a driveway gap in the middle of every side, so the yards can be reached
+        const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : a;
+        const z = s.along === 'z' ? a : bz + s.fixed * (CHUNK / 2 - d);
+        if (yardGap(x, z, s.along === 'z')) continue;             // a house's own entrance from the street
+        if (occupied(x, z, 1.5)) continue;
+        prop('hedge', x, z, s.along === 'z' ? PI / 2 : 0, 0.25);
+      }
+    }
+  }
+}
+
+function streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz }) {
+  // ---- Street trees ----
+  // Verge blocks grow them in the grass strip; the paved styles plant them in kerb-edged soil beds.
+  // A side that carries an interchange's at-grade lane gets no tree line at all: the lane took the outer strip of
+  // that pavement, and a soil bed (which is what the pit is) would stand in the middle of the lane.
+  if (type !== 'industrial') {
+    const inVerge = sw.st.verge > 0;
+    const offset = CHUNK / 2 - (inVerge ? PAVE_IN + 0.5 + sw.st.verge / 2 : PIT_IN);
+    const step = inVerge ? 12.5 : 15.5;
+    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
+      const s = SIDEWALK_SIDES[si];
+      if (atGradeSide(cx, cz, si)) continue;
+      const edge = (s.along === 'z' ? cz : cx) * CHUNK;
+      // Clear of both junctions, and clear again of the corner cuts a flyover opens at either end: the trees move
+      // back with the pavement, so no tree pit is left standing in a mouth that is road now.
+      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
+      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
+      const first = edge + keep[0] + 6, last = edge + CHUNK - keep[1] - 6;
+      for (let a = first + r(-2, 2); a < last; a += step) {
+        const x = s.along === 'z' ? bx + s.fixed * offset : a;
+        const z = s.along === 'z' ? a : bz + s.fixed * offset;
+        if (occupied(x, z, 1.6)) continue;   // never inside a building, the pond or a parked car
+        // tree() refuses to plant one in the interchange's at-grade lane; the pit has to go with it, or a kerb-edged
+        // soil bed would be left lying in the lane with no tree in it
+        if (onAtGradeLane(x, z, 1.6)) continue;
+        if (!inVerge) treePit(sw, s, offset, a);   // pits are only needed where the ground is paved
+        tree(x, z, inVerge ? WALK_Y + 0.03 : WALK_Y + 0.02);
+      }
+    }
+  }
+}
+
+function sidewalkSurfaces({ sw, swPainted, ch }) {
+  // ---- Sidewalk surfaces: kerb stone, paving, border course, inner kerb, planting beds ----
+  bakeRing(sw.curb, swPainted ? ASSET.curbPaintMat : ASSET.curbTopMat, CURB_TILE, true, ch);
+  bakeRing(sw.walk, ASSET[sw.st.mat], sw.st.tile, true, ch);
+  bakeRing(sw.grass, ASSET.grassMat, 3, false, ch);
+  bakeRing(sw.border, ASSET.borderMat, BORDER_TILE, false, ch);
+  bakeRing(sw.kerb, ASSET.curbMat, 2, true, ch);
+  bakeRing(sw.bed, ASSET.soilMat, 2, false, ch);
+  bakeRing(sw.bedEdge, ASSET.curbMat, 2, true, ch);
+  buildTreeInstances(ch);
+}
+
+function crossings({ x0, z0, kerbIn, add, cx, cz }) {
+  // ---- The crossings a flyover's lane needs ----
+  // The road texture marks every junction the same way: a row of stripes across each arm, standing 53 texels out
+  // from the junction's edge, and a yellow centre line whose dashes start 70 texels out. Both were measured for a
+  // street whose kerb stands `PAVE_IN` from its centre line, and that is exactly as far as the texture's stripes
+  // march — 48 texels, 7.5 m. Beside a flyover the street gains its at-grade lane (the kerb steps out by
+  // `FLY.atGrade`) and the pavement corners are cut on the diagonal, so at those junctions the paint has to be
+  // carried on, and where the wide carriageway has swallowed it, taken back off again, all of it in the texture's
+  // own sizes, so a driver meets here the same crossing he meets anywhere else in the city:
+  //   * a row is laid off the kerb across the street it crosses, and stands a step further out where that corner
+  //     is cut. It reaches out along the street it crosses to that street's own kerb — the block's own kerb, not
+  //     the kerb facing it across the junction, which at the mouth of a lane has not stepped out — in the
+  //     texture's own stripe, size and step, so the row reads as one crossing and not a stub of stripes adrift in
+  //     the middle of the carriageway;
+  //   * the row the texture painted for the un-widened street — the one that now stands inside the lane — is
+  //     covered first with a coat of the road's own asphalt, out to the row that moved with the kerb;
+  //   * the narrow road's yellow centre line, swallowed by the lane the same way, is covered with it, out to the
+  //     crossing, so the line stops at the junction's edge as it does at every other junction in the city. The
+  //     coat runs on to the end of any dash it lands in, so the first dash left showing is a whole one.
+  const paint = mat(0xe9e8df), tar = ROAD_COAT;
+  const TX = CHUNK / 512;                                     // the road tile is 512 texels across one block
+  const STRIPE = 6 * TX, STEP = 10 * TX, DEEP = 8 * TX;       // a stripe: 6 texels along the row, 8 across it, every 10
+  const FIRST = 2 * TX + STRIPE / 2, TEX_END = 48 * TX;       // the centre of the texture's first stripe, and of its last
+  const TEX_LINE = 53 * TX + DEEP / 2;                        // the line the texture stands its rows on
+  const GAP = TEX_LINE - PAVE_IN;                             // how far a row clears the kerb it belongs to
+  const DASH0 = 70 * TX, DASH_W = 2.5 * TX, DASH_LEN = 22 * TX, DASH_PITCH = 40 * TX;   // the line: first dash, its width, its length, its pitch
+  const DASH1 = DASH0 + DASH_LEN;                             // ... and where that first dash ends
+  const DASH_LAST = 452 * TX;                                 // the texture's dashes end 452 texels from the tile's far edge
+  const COVER_OUT = 8.8, COVER_LAP = 0.4;                     // a cover spans the texture's own row: its stripes on either side
+  const ROW_LEN = COVER_OUT + COVER_LAP;                      // ... and laps the junction line so the two blocks' covers meet
+  for (const [jx, jz, sx, sz] of [[x0, z0, 1, 1], [x0, z0 + CHUNK, 1, -1], [x0 + CHUNK, z0, -1, 1], [x0 + CHUNK, z0 + CHUNK, -1, -1]]) {
+    const kx = kerbIn(sx > 0 ? 0 : 1), kz = kerbIn(sz > 0 ? 2 : 3);      // the two kerbs that meet at this corner
+    const cut = besideFlyover(jx / CHUNK, jz / CHUNK) ? FLY.chamfer : 0; // the pavement's tip is road at a junction beside a flyover
+    // The row stands off the edge of the carriageway it runs along, and that edge is the wider of the two kerbs
+    // that face each other there: the block across the other street has the other half of this junction's mouth,
+    // and at a junction a lane opens into, one of the two has stepped out while the other has not. A row set off
+    // one side's kerb alone would stand inside the lane on the other side of the junction.
+    const kxWide = Math.max(kx, PAVE_IN + (atGradeSide(cx, cz + (sz > 0 ? -1 : 1), sx > 0 ? 0 : 1) ? FLY.atGrade : 0));
+    const kzWide = Math.max(kz, PAVE_IN + (atGradeSide(cx + (sx > 0 ? -1 : 1), cz, sz > 0 ? 2 : 3) ? FLY.atGrade : 0));
+    const line = [kzWide + cut + GAP, kxWide + cut + GAP];               // 0: over the avenue, 1: over the cross street
+    for (const across of [0, 1]) {
+      const k = across ? kz : kx;
+      const moved = line[across] > TEX_LINE + 0.05;                      // the texture did not paint its row out here
+      if (moved) add(across                                                 // so its row comes off the asphalt first
+        ? box(1.6, 0.02, ROW_LEN, tar, jx + sx * TEX_LINE, 0.02, jz + sz * ((COVER_OUT - COVER_LAP) / 2), false)
+        : box(ROW_LEN, 0.02, 1.6, tar, jx + sx * ((COVER_OUT - COVER_LAP) / 2), 0.02, jz + sz * TEX_LINE, false));
+      // The stripes stand on the texture's own centres — half a stripe in from its first one, every step of ten
+      // texels — so the row carries the texture's own stripes on in the same size and step, and stops a kerb's
+      // reach short of the kerb, exactly as the texture's rows do at a plain junction.
+      for (let u = FIRST; u + STRIPE / 2 <= k - 0.4; u += STEP) {
+        if (!moved && u + STRIPE / 2 <= TEX_END + 0.02) continue;        // the texture's own stripes already run there
+        add(across
+          ? box(DEEP, 0.03, STRIPE, paint, jx + sx * line[across], 0.03, jz + sz * u, false)
+          : box(STRIPE, 0.03, DEEP, paint, jx + sx * u, 0.03, jz + sz * line[across], false));
+      }
+    }
+    // The wide street's carriageway has swallowed the other street's centre line the same way: the dashes inside
+    // it come off, out to the crossing that moved out with the kerb, and the line keeps its dashes beyond that.
+    // The coat is laid square over the junction's centre line — the width of a dash either way — so each block's
+    // coat takes the half of the line on its own side and not a hairline of it is left lying across the street.
+    for (const o of [0, 1]) {
+      let far = line[o] + DEEP / 2 + 0.2;                          // out past the crossing that moved with the kerb
+      if (far <= DASH0) continue;                                  // the kerb never reached the dashes: nothing to lift
+      const phase = (o ? sx : sz) > 0 ? DASH0 : CHUNK - DASH_LAST; // the dashes this block paints, measured outward
+      const into = (far - phase) % DASH_PITCH;
+      if (into >= 0 && into < DASH_LEN) far += DASH_LEN - into;    // never stop the coat inside a dash: the stub would show
+      const to = Math.max(far, DASH1);                             // the first dash comes off whole, not half of it
+      add(o
+        ? box(to - (DASH0 - 1.6), 0.02, DASH_W + 0.2, tar, jx + sx * ((DASH0 - 1.6 + to) / 2), 0.02, jz + sz * (DASH_W + 0.2) / 2, false)
+        : box(DASH_W + 0.2, 0.02, to - (DASH0 - 1.6), tar, jx + sx * (DASH_W + 0.2) / 2, 0.02, jz + sz * ((DASH0 - 1.6 + to) / 2), false));
+    }
+  }
+}
+
+function generateChunk(cx, cz, defer = false) {
+  const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
+  const r = (a = 0, b = 1) => a + (b - a) * rng();
+  const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
+  const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
+  const group = new THREE.Group();
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
+  const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
+  const add = o => bake(ch, o);
+  // The footprint of every suburban house in this block (grid or estate). A house's yard needs a way in from the street,
+  // so the hedge and fence lines in front of it get a gap (see yardGap).
+  const yards = [];
+  const yardGap = (x, z, alongZ) => yards.some(y => alongZ
+    ? Math.abs(z - y.z) < 2 + y.hd && Math.abs(x - y.x) < 14 + y.hw
+    : Math.abs(x - y.x) < 2 + y.hw && Math.abs(z - y.z) < 14 + y.hd);
+  // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
+  // for a car at grade under the bridge and gone for a car standing on the deck above them.
+  const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
+  // Sidewalk ring occupies these distances from the block centre (kerb stone up to the inner kerb).
+  const WALK_LO = CHUNK / 2 - PAVE_OUT, WALK_HI = CHUNK / 2 - PAVE_IN;
+  const onWalk = (x, z) => {
+    const dx = Math.abs(x - bx), dz = Math.abs(z - bz);
+    const inBand = a => a >= WALK_LO && a <= WALK_HI;
+    return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
+  };
+  const prop = (kind, x, z, rotY = 0, y = 0.15) => {
+    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
+    const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
+    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
+  };
+  const tree = (x, z, y = 0.2) => {
+    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
+    const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
+    solid(x, z, 0.65, 0.65, 'tree');
+    const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
+    t.solid.tree = t; ch.trees.push(t);
+  };
+  // Parked cars are registered as solids and linked to a destructible record (s.parked).
+  // Light taps behave like a static obstacle; a hard enough hit wrecks one (see collisions.js breakParkedCar).
+  const PARKED_KINDS = ['sedan', 'hatchback', 'suv', 'oldclassic'];
+  const PARKED_COLORS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
+  const parkedCar = (x, z, hx, hz, rotY, kind, color, y = 0.1) => {
+    const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
+    const m = buildCar(kind, color, false);
+    m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
+    solid(x, z, hx, hz, 'parkedcar');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.base = { hx, hz };                                     // so a car that leaves can hand its bay back
+    const rec = { mesh: m, x, z, kind, mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
+    sEntry.parked = rec;
+    return rec;
+  };
+  // Bus stop shelter on the sidewalk — a real solid (destructible), and a navigation target for AI buses (see civilians.js).
+  const busStop = (side, alongLocal) => {
+    const axisIsZ = side < 2;
+    const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
+    const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
+    const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
+    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
+    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
+    // The flyover's at-grade lane runs through there: test the whole shelter, not just its centre, since its ends
+    // are 2.5 m from it and the shelter is a solid.
+    for (let ax = -hx; ax <= hx + 1e-9; ax += 0.4) for (let az = -hz; az <= hz + 1e-9; az += 0.4) if (onAtGradeLane(x + ax, z + az, 0.3)) return;
+    const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
+    const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
+    const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
+    solid(x, z, hx, hz, 'busstop');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    const rec = { mesh: g, x, z, axis: axisIsZ ? 'z' : 'x', road: roadCoord, along: axisIsZ ? z : x, broken: false, solid: sEntry };
+    sEntry.busstop = rec; ch.busStops.push(rec);
+  };
+  // Construction scaffolding against a building — a real destructible solid, randomized size/style per instance.
+  const scaffold = (x, z, rotY, o) => {
+    const g = own(ch, mergeStandalone(buildScaffoldMesh(o))); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
+    const swap = Math.abs(Math.cos(rotY)) < 0.5;
+    const hx = swap ? o.d / 2 + 0.3 : o.w / 2 + 0.3, hz = swap ? o.w / 2 + 0.3 : o.d / 2 + 0.3;
+    solid(x, z, hx, hz, 'scaffold');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.scaffold = { mesh: g, x, z, broken: false, solid: sEntry };
+  };
+  const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
+  // The block's own ground cover: the lot asphalt, the grass of a suburb or a park, a forecourt's concrete. Every
+  // one of them stops at the building line, and on a side that carries an interchange's at-grade lane that line
+  // stands `FLY.frontage` further out: without this the pad would lie over the pavement behind the lane (and, on
+  // the wider lots, poke into the lane itself) — which is exactly the strip the lane's widening is not allowed to
+  // eat. A pad that does not reach the line is left exactly where it was, so only the lane sides change.
+  const padBox = (w, d, m, ox = 0, oz = 0, y = 0.2, h = 0.1) => {
+    const lo = si => (si < 2 ? x0 : z0) + PAD_IN + (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const hi = si => (si < 2 ? x0 : z0) + CHUNK - PAD_IN - (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const a = Math.max(bx + ox - w / 2, lo(0)), b = Math.min(bx + ox + w / 2, hi(1));
+    const c = Math.max(bz + oz - d / 2, lo(2)), e = Math.min(bz + oz + d / 2, hi(3));
+    if (b - a < 0.2 || e - c < 0.2) return;
+    ch.pads.push({ x: (a + b) / 2, z: (c + e) / 2, w: b - a, d: e - c });      // for the suite: where a block's ground stops
+    add(box(b - a, h, e - c, m, (a + b) / 2, y, (c + e) / 2, false));
+  };
+  const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
+  const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
+  let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
+  let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
+  interchanges({ ch, p, add, ramp, group, r, cx, cz });
+  let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
   const sw = sidewalkPieces(cx, cz, swStyle, filled);
@@ -1617,165 +1813,13 @@ function generateChunk(cx, cz, defer = false) {
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
     || ch.keepouts.some(k => Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad)
     || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad);
-  // ---- Street furniture on the walkway: mailboxes, parking meters and shop A-boards ----
-  if (type === 'downtown' || type === 'commercial') {
-    const n = 2 + Math.floor(rng() * 3);
-    for (let i = 0; i < n; i++) {
-      const swi = Math.floor(rng() * 4), s = SIDEWALK_SIDES[swi];
-      if (closed[swi]) continue;
-      const along = (s.along === 'z' ? cz : cx) * CHUNK + 16 + rng() * (CHUNK - 32);
-      const d = kerbIn(swi) + (rng() < 0.55 ? 1.15 : 2.1);      // just behind the kerb of its own side
-      const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : along;
-      const z = s.along === 'z' ? along : bz + s.fixed * (CHUNK / 2 - d);
-      if (occupied(x, z, 1.1) || !cutClear(x, z, 1.0)) continue;
-      const kind = rng() < 0.36 ? 'mailbox' : rng() < 0.62 ? 'meter' : 'sandwich';
-      prop(kind, x, z, Math.atan2(s.along === 'z' ? s.fixed : 0, s.along === 'z' ? 0 : s.fixed), 0);
-    }
-  }
-  // ---- Back-alley dumpsters: a downtown or commercial block has a bin or two in the gaps behind its buildings. A spot
-  // is taken only if the building clearance test says it is free and it stands off the paving and the lanes.
-  if (type === 'downtown' || type === 'commercial') {
-    for (let k = 0; k < 2; k++) {
-      if (rng() < (k ? 0.7 : 0.4)) continue;
-      for (let t = 0; t < 14; t++) {
-        const x = bx + r(-24, 24), z = bz + r(-24, 24);
-        if (occupied(x, z, 2.6) || !cutClear(x, z, 1.8)) continue;
-        prop('dumpster', x, z, rng() * PI, 0.2);
-        break;
-      }
-    }
-  }
-  // ---- Suburban front hedges, set back in the yards along the walk ----
-  if (type === 'suburb') {
-    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
-      const s = SIDEWALK_SIDES[si];
-      if (rng() > 0.6) continue;
-      const d = PAVE_OUT + (atGradeSide(cx, cz, si) ? FLY.frontage : 0) + 0.35;   // in the yard strip, behind the walk
-      const edge0 = (s.along === 'z' ? cz : cx) * CHUNK;
-      // The hedge line starts where the pavement itself resumes at each end, so a hedge never stands in the
-      // mouth a cut corner opened either.
-      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
-      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
-      for (let a = edge0 + keep[0] + 6; a < edge0 + CHUNK - keep[1] - 6; a += 3.4) {
-        if (rng() < 0.28) continue;                              // gaps read as driveways and gateways
-        if (Math.abs(a - (edge0 + CHUNK / 2)) < 4) continue;      // and a driveway gap in the middle of every side, so the yards can be reached
-        const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : a;
-        const z = s.along === 'z' ? a : bz + s.fixed * (CHUNK / 2 - d);
-        if (yardGap(x, z, s.along === 'z')) continue;             // a house's own entrance from the street
-        if (occupied(x, z, 1.5)) continue;
-        prop('hedge', x, z, s.along === 'z' ? PI / 2 : 0, 0.25);
-      }
-    }
-  }
-  // ---- Street trees ----
-  // Verge blocks grow them in the grass strip; the paved styles plant them in kerb-edged soil beds.
-  // A side that carries an interchange's at-grade lane gets no tree line at all: the lane took the outer strip of
-  // that pavement, and a soil bed (which is what the pit is) would stand in the middle of the lane.
-  if (type !== 'industrial') {
-    const inVerge = sw.st.verge > 0;
-    const offset = CHUNK / 2 - (inVerge ? PAVE_IN + 0.5 + sw.st.verge / 2 : PIT_IN);
-    const step = inVerge ? 12.5 : 15.5;
-    for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
-      const s = SIDEWALK_SIDES[si];
-      if (atGradeSide(cx, cz, si)) continue;
-      const edge = (s.along === 'z' ? cz : cx) * CHUNK;
-      // Clear of both junctions, and clear again of the corner cuts a flyover opens at either end: the trees move
-      // back with the pavement, so no tree pit is left standing in a mouth that is road now.
-      const ends = s.along === 'z' ? [[cx, cz - 1], [cx, cz + 1]] : [[cx - 1, cz], [cx + 1, cz]];
-      const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
-      const first = edge + keep[0] + 6, last = edge + CHUNK - keep[1] - 6;
-      for (let a = first + r(-2, 2); a < last; a += step) {
-        const x = s.along === 'z' ? bx + s.fixed * offset : a;
-        const z = s.along === 'z' ? a : bz + s.fixed * offset;
-        if (occupied(x, z, 1.6)) continue;   // never inside a building, the pond or a parked car
-        // tree() refuses to plant one in the interchange's at-grade lane; the pit has to go with it, or a kerb-edged
-        // soil bed would be left lying in the lane with no tree in it
-        if (onAtGradeLane(x, z, 1.6)) continue;
-        if (!inVerge) treePit(sw, s, offset, a);   // pits are only needed where the ground is paved
-        tree(x, z, inVerge ? WALK_Y + 0.03 : WALK_Y + 0.02);
-      }
-    }
-  }
-  // ---- Sidewalk surfaces: kerb stone, paving, border course, inner kerb, planting beds ----
-  bakeRing(sw.curb, swPainted ? ASSET.curbPaintMat : ASSET.curbTopMat, CURB_TILE, true, ch);
-  bakeRing(sw.walk, ASSET[sw.st.mat], sw.st.tile, true, ch);
-  bakeRing(sw.grass, ASSET.grassMat, 3, false, ch);
-  bakeRing(sw.border, ASSET.borderMat, BORDER_TILE, false, ch);
-  bakeRing(sw.kerb, ASSET.curbMat, 2, true, ch);
-  bakeRing(sw.bed, ASSET.soilMat, 2, false, ch);
-  bakeRing(sw.bedEdge, ASSET.curbMat, 2, true, ch);
-  buildTreeInstances(ch);
-  // ---- The crossings a flyover's lane needs ----
-  // The road texture marks every junction the same way: a row of stripes across each arm, standing 53 texels out
-  // from the junction's edge, and a yellow centre line whose dashes start 70 texels out. Both were measured for a
-  // street whose kerb stands `PAVE_IN` from its centre line, and that is exactly as far as the texture's stripes
-  // march — 48 texels, 7.5 m. Beside a flyover the street gains its at-grade lane (the kerb steps out by
-  // `FLY.atGrade`) and the pavement corners are cut on the diagonal, so at those junctions the paint has to be
-  // carried on, and where the wide carriageway has swallowed it, taken back off again, all of it in the texture's
-  // own sizes, so a driver meets here the same crossing he meets anywhere else in the city:
-  //   * a row is laid off the kerb across the street it crosses, and stands a step further out where that corner
-  //     is cut. It reaches out along the street it crosses to that street's own kerb — the block's own kerb, not
-  //     the kerb facing it across the junction, which at the mouth of a lane has not stepped out — in the
-  //     texture's own stripe, size and step, so the row reads as one crossing and not a stub of stripes adrift in
-  //     the middle of the carriageway;
-  //   * the row the texture painted for the un-widened street — the one that now stands inside the lane — is
-  //     covered first with a coat of the road's own asphalt, out to the row that moved with the kerb;
-  //   * the narrow road's yellow centre line, swallowed by the lane the same way, is covered with it, out to the
-  //     crossing, so the line stops at the junction's edge as it does at every other junction in the city. The
-  //     coat runs on to the end of any dash it lands in, so the first dash left showing is a whole one.
-  const paint = mat(0xe9e8df), tar = ROAD_COAT;
-  const TX = CHUNK / 512;                                     // the road tile is 512 texels across one block
-  const STRIPE = 6 * TX, STEP = 10 * TX, DEEP = 8 * TX;       // a stripe: 6 texels along the row, 8 across it, every 10
-  const FIRST = 2 * TX + STRIPE / 2, TEX_END = 48 * TX;       // the centre of the texture's first stripe, and of its last
-  const TEX_LINE = 53 * TX + DEEP / 2;                        // the line the texture stands its rows on
-  const GAP = TEX_LINE - PAVE_IN;                             // how far a row clears the kerb it belongs to
-  const DASH0 = 70 * TX, DASH_W = 2.5 * TX, DASH_LEN = 22 * TX, DASH_PITCH = 40 * TX;   // the line: first dash, its width, its length, its pitch
-  const DASH1 = DASH0 + DASH_LEN;                             // ... and where that first dash ends
-  const DASH_LAST = 452 * TX;                                 // the texture's dashes end 452 texels from the tile's far edge
-  const COVER_OUT = 8.8, COVER_LAP = 0.4;                     // a cover spans the texture's own row: its stripes on either side
-  const ROW_LEN = COVER_OUT + COVER_LAP;                      // ... and laps the junction line so the two blocks' covers meet
-  for (const [jx, jz, sx, sz] of [[x0, z0, 1, 1], [x0, z0 + CHUNK, 1, -1], [x0 + CHUNK, z0, -1, 1], [x0 + CHUNK, z0 + CHUNK, -1, -1]]) {
-    const kx = kerbIn(sx > 0 ? 0 : 1), kz = kerbIn(sz > 0 ? 2 : 3);      // the two kerbs that meet at this corner
-    const cut = besideFlyover(jx / CHUNK, jz / CHUNK) ? FLY.chamfer : 0; // the pavement's tip is road at a junction beside a flyover
-    // The row stands off the edge of the carriageway it runs along, and that edge is the wider of the two kerbs
-    // that face each other there: the block across the other street has the other half of this junction's mouth,
-    // and at a junction a lane opens into, one of the two has stepped out while the other has not. A row set off
-    // one side's kerb alone would stand inside the lane on the other side of the junction.
-    const kxWide = Math.max(kx, PAVE_IN + (atGradeSide(cx, cz + (sz > 0 ? -1 : 1), sx > 0 ? 0 : 1) ? FLY.atGrade : 0));
-    const kzWide = Math.max(kz, PAVE_IN + (atGradeSide(cx + (sx > 0 ? -1 : 1), cz, sz > 0 ? 2 : 3) ? FLY.atGrade : 0));
-    const line = [kzWide + cut + GAP, kxWide + cut + GAP];               // 0: over the avenue, 1: over the cross street
-    for (const across of [0, 1]) {
-      const k = across ? kz : kx;
-      const moved = line[across] > TEX_LINE + 0.05;                      // the texture did not paint its row out here
-      if (moved) add(across                                                 // so its row comes off the asphalt first
-        ? box(1.6, 0.02, ROW_LEN, tar, jx + sx * TEX_LINE, 0.02, jz + sz * ((COVER_OUT - COVER_LAP) / 2), false)
-        : box(ROW_LEN, 0.02, 1.6, tar, jx + sx * ((COVER_OUT - COVER_LAP) / 2), 0.02, jz + sz * TEX_LINE, false));
-      // The stripes stand on the texture's own centres — half a stripe in from its first one, every step of ten
-      // texels — so the row carries the texture's own stripes on in the same size and step, and stops a kerb's
-      // reach short of the kerb, exactly as the texture's rows do at a plain junction.
-      for (let u = FIRST; u + STRIPE / 2 <= k - 0.4; u += STEP) {
-        if (!moved && u + STRIPE / 2 <= TEX_END + 0.02) continue;        // the texture's own stripes already run there
-        add(across
-          ? box(DEEP, 0.03, STRIPE, paint, jx + sx * line[across], 0.03, jz + sz * u, false)
-          : box(STRIPE, 0.03, DEEP, paint, jx + sx * u, 0.03, jz + sz * line[across], false));
-      }
-    }
-    // The wide street's carriageway has swallowed the other street's centre line the same way: the dashes inside
-    // it come off, out to the crossing that moved out with the kerb, and the line keeps its dashes beyond that.
-    // The coat is laid square over the junction's centre line — the width of a dash either way — so each block's
-    // coat takes the half of the line on its own side and not a hairline of it is left lying across the street.
-    for (const o of [0, 1]) {
-      let far = line[o] + DEEP / 2 + 0.2;                          // out past the crossing that moved with the kerb
-      if (far <= DASH0) continue;                                  // the kerb never reached the dashes: nothing to lift
-      const phase = (o ? sx : sz) > 0 ? DASH0 : CHUNK - DASH_LAST; // the dashes this block paints, measured outward
-      const into = (far - phase) % DASH_PITCH;
-      if (into >= 0 && into < DASH_LEN) far += DASH_LEN - into;    // never stop the coat inside a dash: the stub would show
-      const to = Math.max(far, DASH1);                             // the first dash comes off whole, not half of it
-      add(o
-        ? box(to - (DASH0 - 1.6), 0.02, DASH_W + 0.2, tar, jx + sx * ((DASH0 - 1.6 + to) / 2), 0.02, jz + sz * (DASH_W + 0.2) / 2, false)
-        : box(DASH_W + 0.2, 0.02, to - (DASH0 - 1.6), tar, jx + sx * (DASH_W + 0.2) / 2, 0.02, jz + sz * ((DASH0 - 1.6 + to) / 2), false));
-    }
-  }  if (defer) {
+  furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz });
+  dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop });
+  hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz });
+  streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
+  sidewalkSurfaces({ sw, swPainted, ch });
+  crossings({ x0, z0, kerbIn, add, cx, cz });
+  if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
     ch.mergeQ = ch.bakeList; ch.bakeList = null; ch.materialBag = new Map(); ch.merged = false;
