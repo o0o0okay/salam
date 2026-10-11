@@ -876,6 +876,7 @@ function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng,
         sx + fhx > q.x - q.hx - 0.6 && sx - fhx < q.x + q.hx + 0.6 && sz + fhz > q.z - q.hz - 0.6 && sz - fhz < q.z + q.hz + 0.6);
       if (clash) continue;
       scaffold(sx, sz, rotS, o);
+      const scaffoldSolid = ch.solids[ch.solids.length - 1];   // the scaffold's own solid: its cones are tied to it
       const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
       const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
       // The cones stand just outside the scaffold's outer face (its footprint is sd/2 + 0.3 deep), not inside its solid:
@@ -884,7 +885,9 @@ function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng,
       for (let k = 0; k < coneCount; k++) {
         const off = -sw / 2 + k * step;
         const cx2 = rotS === 0 ? sx + off : sx + cdx * coneOut, cz2 = rotS === 0 ? sz + cdz * coneOut : sz + off;
+        const n0 = ch.props.length;
         prop('cone', cx2, cz2, rng() * PI, 0);
+        if (ch.props.length > n0) ch.props[n0].tie = scaffoldSolid;
       }
     }
   }
@@ -1729,16 +1732,36 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
   }
 }
 
-// A cone whose centre lies inside a solid of its own block is buried: a car can never reach it, so it can never be
-// knocked over, and it only clips into the wall or scaffold. Such cones are removed. Nothing is drawn from the RNG here.
-function dropBuriedCones(ch) {
-  const solids = ch.solids.filter(s => s.hx > 0 && s.hz > 0);
-  ch.props = ch.props.filter(p => {
-    if (p.kind !== 'cone') return true;
-    if (!solids.some(s => Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz)) return true;
-    ch.group.remove(p.mesh);
-    return false;
-  });
+// Roadworks that a car could never reach, removed once the block is in place. Nothing here draws from the RNG.
+//  - a scaffold whose footprint overlaps a solid of another building (one placed after it in the block loop) is
+//    taken down, and so are the cones tied to it;
+//  - a cone whose centre lies inside a solid is buried: no car can reach it, so it can never be knocked over.
+// The check covers this chunk and every neighbour already registered in `chunks`. Each pair of chunks is checked
+// once both exist, so the result does not depend on the order the chunks were built in.
+function pruneBlockedRoadworks(ch) {
+  const group = [ch];
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const n = (i || j) && chunks.get(ck(ch.cx + i, ch.cz + j));
+    if (n) group.push(n);
+  }
+  const blockers = [];                                  // static solids a scaffold may not overlap
+  for (const c of group) for (const s of c.solids) if (s.hx > 0 && s.hz > 0 && !s.parked && !s.scaffold) blockers.push(s);
+  for (const c of group) {
+    for (const s of c.solids) {
+      if (!s.scaffold || !(s.hx > 0)) continue;
+      const hit = blockers.some(b => Math.abs(s.x - b.x) < s.hx + b.hx && Math.abs(s.z - b.z) < s.hz + b.hz);
+      if (!hit) continue;
+      s.scaffold.broken = true; s.hx = -999; s.hz = -999; c.group.remove(s.scaffold.mesh);
+    }
+    c.props = c.props.filter(p => {
+      if (p.kind !== 'cone') return true;
+      const tied = p.tie && !(p.tie.hx > 0);
+      const buried = group.some(g => g.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz));
+      if (!tied && !buried) return true;
+      c.group.remove(p.mesh);
+      return false;
+    });
+  }
 }
 
 function generateChunk(cx, cz, defer = false) {
@@ -1899,7 +1922,7 @@ function generateChunk(cx, cz, defer = false) {
   streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
   sidewalkSurfaces({ sw, swPainted, ch });
   crossings({ x0, z0, kerbIn, add, cx, cz });
-  dropBuriedCones(ch);
+  pruneBlockedRoadworks(ch);
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames

@@ -1152,14 +1152,21 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     console.log(`roadworks: ${sites.length} closed lanes in styles ${[...styles].sort().join('/')}, ${slabs} tarmac slabs (longest ${longest.toFixed(1)} m, lightest ${lightest.toFixed(0)}/255 luminance), every one signed and cone-marked`);
   }
-  // ---- 2d-8) roadworks cones: a cone inside a solid of its own block is buried, so no car can knock it over ----
+  // ---- 2d-8) roadworks: nothing a car could never reach. A cone inside a solid is buried (never knocked over), and a
+  // scaffold may not overlap another block's solid. Checked across every registered chunk, so neighbours count.
   {
-    const buried = ch => ch.props.filter(pr => pr.kind === 'cone' && ch.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(pr.x - s.x) < s.hx && Math.abs(pr.z - s.z) < s.hz));
-    const sample = [...chunks.values(), generateChunk(5, -1, false), generateChunk(-1, 0, false)];
-    let n = 0, total = 0;
-    for (const ch of sample) { n += buried(ch).length; total += ch.props.filter(pr => pr.kind === 'cone').length; }
-    if (n) bad(`${n} roadworks cone(s) stand inside a solid of their own block (buried, never reachable)`);
-    else console.log(`roadworks cones: none of ${total} cones in the sample blocks sit inside a solid`);
+    const all = [...chunks.values(), generateChunk(5, -1, false)];      // (5,-1): a scaffold clipping a later building
+    let buriedCones = 0, cones = 0, clashes = 0;
+    for (const ch of all) for (const pr of ch.props) if (pr.kind === 'cone') {
+      cones++;
+      if (all.some(o => o.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(pr.x - s.x) < s.hx && Math.abs(pr.z - s.z) < s.hz))) buriedCones++;
+    }
+    for (const ch of all) for (const sc of ch.solids) if (sc.scaffold && sc.hx > 0) {
+      if (all.some(o => o.solids.some(t => t !== sc && t.hx > 0 && t.hz > 0 && !t.scaffold && !t.parked && Math.abs(sc.x - t.x) < sc.hx + t.hx && Math.abs(sc.z - t.z) < sc.hz + t.hz))) clashes++;
+    }
+    if (buriedCones) bad(`${buriedCones} roadworks cone(s) stand inside a solid (buried, never reachable)`);
+    if (clashes) bad(`${clashes} scaffold(s) overlap another solid`);
+    if (!buriedCones && !clashes) console.log(`roadworks reach: ${cones} cones in the sample, none buried; no scaffold overlaps another solid`);
   }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
