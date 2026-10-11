@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { modulePath } from './harness.mjs';
 
 const W = await import(modulePath);
-const CH = 80, PAD = W.PAD_IN;
+const CH = 80, PAD = W.PAD_IN, NB = 3;      // NB: blocks a neighbourhood spans a side (NB_BLOCKS in flyover.js)
 const RANGE = Number(process.env.ESTATE_RANGE || 14);
 const ROAD = 3.5, DISC = 6, CLEAR = 1.5;
 let estates = 0, housesTotal = 0, minRoadGap = Infinity, spurs = 0, roadsTotal = 0;
@@ -36,8 +36,8 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
   assert(!(cx === 0 && cz === 0) && !(cx === 1 && cz === 0), `${where}: an estate on a spawn block`);
   const nb = E.nb;
   // a neighbourhood's roads stay in its own region; a block estate's roads stay on its own pad
-  const reg = nb ? { x0: nb[0] * 2 * CH, z0: nb[1] * 2 * CH } : null;
-  const roadBox = nb ? { lo_x: reg.x0 + 22, hi_x: reg.x0 + 2 * CH - 22, lo_z: reg.z0 + 22, hi_z: reg.z0 + 2 * CH - 22 } : B;
+  const reg = nb ? { x0: nb[0] * NB * CH, z0: nb[1] * NB * CH } : null;
+  const roadBox = nb ? { lo_x: reg.x0 + 22, hi_x: reg.x0 + NB * CH - 22, lo_z: reg.z0 + 22, hi_z: reg.z0 + NB * CH - 22 } : B;
   // a house must lie in the pad of the block its centre is in (a neighbourhood) or on the block's own pad
   const padOf = h => nb
     ? { lo_x: Math.floor(h.x / CH) * CH + PAD, hi_x: Math.floor(h.x / CH) * CH + CH - PAD, lo_z: Math.floor(h.z / CH) * CH + PAD, hi_z: Math.floor(h.z / CH) * CH + CH - PAD }
@@ -68,7 +68,7 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
     const dc = rd.disc;
     // a cul-de-sac may reach 16 m in from the region's edge (its 6 m disc, around a road end 22 m in); the boundary
     // street is 8 m wide on the lattice line, so the disc still clears it
-    const discBox = nb ? { lo_x: reg.x0 + 16, hi_x: reg.x0 + 2 * CH - 16, lo_z: reg.z0 + 16, hi_z: reg.z0 + 2 * CH - 16 } : B;
+    const discBox = nb ? { lo_x: reg.x0 + 16, hi_x: reg.x0 + NB * CH - 16, lo_z: reg.z0 + 16, hi_z: reg.z0 + NB * CH - 16 } : B;
     assert(dc.x - DISC >= discBox.lo_x && dc.x + DISC <= discBox.hi_x && dc.z - DISC >= discBox.lo_z && dc.z + DISC <= discBox.hi_z, `${where}: a cul-de-sac leaves ${nb ? 'its region' : 'the pad'}`);
   }
   // a spur must branch off the main road: its first point is on the main road
@@ -117,13 +117,13 @@ assert(share >= 0.18 && share <= 0.32, `estates are ${(share * 100).toFixed(1)}%
 // a block estate (outside a neighbourhood) averages at least 4 houses
 const perBlock = blockHouses / Math.max(1, blockEstates);
 assert(perBlock >= 4, `block estates average ${perBlock.toFixed(1)} houses (want at least 4)`);
-// a neighbourhood: each whole region (all four of its blocks in range) has about ten houses, at least eight on average
-const whole = [...regions.entries()].filter(([, R]) => R.blocks === 4);
+// a neighbourhood: each whole region (all of its blocks in range) has about ten houses, at least eight on average
+const whole = [...regions.entries()].filter(([, R]) => R.blocks === NB * NB);
 assert(whole.length >= 1, 'no whole neighbourhood in range: widen ESTATE_RANGE');
 const nbPer = whole.reduce((a, [, R]) => a + R.houses, 0) / whole.length;
 for (const [k, R] of whole) assert(R.houses >= 4, `neighbourhood ${k} has ${R.houses} houses`);
-// INTERIM floor: the approved target is about ten houses per neighbourhood; with each house inside one block's pad the
-// 2x2 planner reaches about 5.4 (see the session report). Raise this to 8 when the density is settled.
+// INTERIM floor: the approved target is about ten houses per neighbourhood. The 3x3 planner reaches about 7.5 (each
+// house must sit inside one block's pad). Raise this floor when the density is settled.
 assert(nbPer >= 5, `neighbourhoods average ${nbPer.toFixed(1)} houses (want at least 5 now, target about 10)`);
 console.log(`PASS: ${estates} estates in ${total} blocks (${(share * 100).toFixed(1)}%): ${blockEstates} block estates (${perBlock.toFixed(1)} houses each) and ${nbBlocks} blocks in ${regions.size} neighbourhoods ` +
   `(${whole.length} whole, ${nbPer.toFixed(1)} houses each); ${roadsTotal} roads (${spurs} spurs), ${housesTotal} houses; ` +

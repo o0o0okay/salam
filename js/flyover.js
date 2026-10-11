@@ -411,16 +411,19 @@ const closedCache = new Map();
 const segHashOf = (axis, jx, jz) => hash2(jx * 2 + (axis === 'x' ? 0 : 1), jz * 3 + (axis === 'x' ? 17 : 91)) >>> 0;
 function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez - 1], ['z', ex, ez]]; }
 // ---- Neighbourhoods ----
-// A neighbourhood is a 2x2 block region (chunks 2RX..2RX+1 by 2RZ..2RZ+1) whose streets are curved, not the grid.
-// Its outer streets stay open; its four inner streets are closed (grass) and the curved roads (nbhdPlan in world.js)
-// run across the grass. Its lattice is the 3x3 junctions 2RX..2RX+2 by 2RZ..2RZ+2: the four mid-edge junctions are
-// three-way (their inner arm is the closed inner street), the centre junction is inside (no traffic, no lights, no
-// island), and the corners stay four-way. No hash-closed street or roundabout touches a lattice junction.
+// A neighbourhood is an NB x NB block region (NB = NB_BLOCKS, chunks NB*RX..NB*RX+NB-1 by NB*RZ..) whose streets are
+// curved, not the grid. Its outer streets stay open; its inner streets are closed (grass) and the curved roads
+// (nbhdPlan in world.js) run across the grass. Its lattice is the (NB+1) x (NB+1) junctions from NB*RX to NB*RX+NB.
+// The junctions on the edge of the lattice (not corners) are three-way: their one inner arm is closed. The inner
+// junctions are inside the neighbourhood: no traffic, no lights, no island, and all their arms are closed. The
+// corners stay four-way. No hash-closed street or roundabout touches a lattice junction.
 // A region qualifies by hash (about one in six), never near spawn or a flyover, and never next to another region.
+export const NB_BLOCKS = 3;
 function nbhdBase(RX, RZ) {
   if (RX === 0 || RX === -1 || RZ === 0 || RZ === -1) return false;
   if ((hash2(RX * 13 + 5, RZ * 7 + 11) & 0xFF) >= 42) return false;
-  for (let jx = 2 * RX; jx <= 2 * RX + 2; jx++) for (let jz = 2 * RZ; jz <= 2 * RZ + 2; jz++) {
+  const x0 = NB_BLOCKS * RX, z0 = NB_BLOCKS * RZ;
+  for (let jx = x0; jx <= x0 + NB_BLOCKS; jx++) for (let jz = z0; jz <= z0 + NB_BLOCKS; jz++) {
     if (Math.abs(jx) <= CLOSE_CLEAR && Math.abs(jz) <= CLOSE_CLEAR) return false;
     if (jx === 0 || jz === 0) return false;
     if (besideFlyover(jx, jz)) return false;
@@ -443,25 +446,28 @@ export function nbhdJunction(jx, jz) {
   const key = jx + ',' + jz;
   if (nbhdJCache.has(key)) return nbhdJCache.get(key);
   let res = null;
-  for (const RX of [Math.floor(jx / 2), Math.floor(jx / 2) - 1]) for (const RZ of [Math.floor(jz / 2), Math.floor(jz / 2) - 1]) {
+  for (const RX of [Math.floor(jx / NB_BLOCKS), Math.floor(jx / NB_BLOCKS) - 1]) for (const RZ of [Math.floor(jz / NB_BLOCKS), Math.floor(jz / NB_BLOCKS) - 1]) {
     if (res) break;
-    if (jx >= 2 * RX && jx <= 2 * RX + 2 && jz >= 2 * RZ && jz <= 2 * RZ + 2 && nbhdOf(RX, RZ)) res = [RX, RZ];
+    if (jx >= NB_BLOCKS * RX && jx <= NB_BLOCKS * RX + NB_BLOCKS && jz >= NB_BLOCKS * RZ && jz <= NB_BLOCKS * RZ + NB_BLOCKS && nbhdOf(RX, RZ)) res = [RX, RZ];
   }
   nbhdJCache.set(key, res);
   return res;
 }
-// The centre junction of a neighbourhood: inside, with no traffic.
+// An inner junction of a neighbourhood: inside it, with no traffic.
 export function nbhdInterior(jx, jz) {
   const n = nbhdJunction(jx, jz);
-  return !!n && jx === 2 * n[0] + 1 && jz === 2 * n[1] + 1;
+  if (!n) return false;
+  const ix = jx - NB_BLOCKS * n[0], iz = jz - NB_BLOCKS * n[1];
+  return ix >= 1 && ix <= NB_BLOCKS - 1 && iz >= 1 && iz <= NB_BLOCKS - 1;
 }
-// The four streets inside a neighbourhood (closed for good; they are grass under the curved roads).
+// The inner streets of a neighbourhood (closed for good; they are grass under the curved roads). An x-street runs
+// from (jx, jz) to (jx + 1, jz); it is inner when its line is an inner row and it lies in the lattice.
 function nbhdInternalSeg(axis, jx, jz) {
   const n = nbhdJunction(jx, jz) || nbhdJunction(axis === 'x' ? jx + 1 : jx, axis === 'x' ? jz : jz + 1);
   if (!n) return false;
-  const [RX, RZ] = n;
-  if (axis === 'x') return jz === 2 * RZ + 1 && (jx === 2 * RX || jx === 2 * RX + 1);
-  return jx === 2 * RX + 1 && (jz === 2 * RZ || jz === 2 * RZ + 1);
+  const ox = NB_BLOCKS * n[0], oz = NB_BLOCKS * n[1];
+  if (axis === 'x') return jz > oz && jz < oz + NB_BLOCKS && jx >= ox && jx < ox + NB_BLOCKS;
+  return jx > ox && jx < ox + NB_BLOCKS && jz >= oz && jz < oz + NB_BLOCKS;
 }
 function segCandidate(axis, jx, jz) {
   const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];

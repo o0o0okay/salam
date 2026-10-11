@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, nbhdOf, nbhdInterior } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, nbhdOf, nbhdInterior, NB_BLOCKS } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -813,9 +813,9 @@ function nbRectGap(cx, cz, tx, tz, w, d, px, pz) {
 function buildNbhd(RX, RZ) {
   const r = mulberry32(hash2(RX * 977 + 3, RZ * 613 + 19) ^ 0x6e62);
   const rr = (a, b) => a + (b - a) * r();
-  const X0 = RX * 2 * CHUNK, Z0 = RZ * 2 * CHUNK, X1 = X0 + 2 * CHUNK, Z1 = Z0 + 2 * CHUNK;
+  const X0 = RX * NB_BLOCKS * CHUNK, Z0 = RZ * NB_BLOCKS * CHUNK, X1 = X0 + NB_BLOCKS * CHUNK, Z1 = Z0 + NB_BLOCKS * CHUNK;
   const inside = pts => pts.every(([x, z]) => x >= X0 + NB_IN && x <= X1 - NB_IN && z >= Z0 + NB_IN && z <= Z1 - NB_IN);
-  // a road in world coordinates: a main road bends twice (an S-curve and a sweep); a spur bends once
+  // a road in world coordinates: a main road bends three times (a long S-curve and sweeps); a spur bends once
   const makeRoad = (x0, z0, a0, main, s) => {
     const pts = []; let x = x0, z = z0, a = a0;
     const line = L => { const n = Math.max(1, Math.round(L / 0.5)), st = L / n; for (let i = 0; i < n; i++) { pts.push([x, z]); x += Math.cos(a) * st; z += Math.sin(a) * st; } };
@@ -823,7 +823,7 @@ function buildNbhd(RX, RZ) {
       const n = Math.max(2, Math.round(Math.abs(ang) * R / 0.5)), st = Math.abs(ang) * R / n, da = ang / n;
       for (let i = 0; i < n; i++) { pts.push([x, z]); a += da; x += Math.cos(a) * st; z += Math.sin(a) * st; }
     };
-    if (main) { line(rr(20, 28)); arc(rr(9, 11), s * rr(2.2, 3.0)); line(rr(10, 18)); arc(rr(8, 10), -s * rr(0.7, 1.3)); line(rr(6, 12)); }
+    if (main) { line(rr(16, 24)); arc(rr(9, 11), s * rr(2.0, 2.8)); line(rr(12, 20)); arc(rr(8, 10), -s * rr(1.4, 2.2)); line(rr(12, 20)); arc(rr(9, 11), s * rr(1.0, 2.0)); line(rr(8, 14)); }
     else { line(rr(9, 13)); arc(rr(6, 8), s * rr(0.9, 1.5)); line(rr(4, 7)); }
     pts.push([x, z]);
     return pts;
@@ -841,8 +841,9 @@ function buildNbhd(RX, RZ) {
   for (let attempt = 0; attempt < 300; attempt++) {
     const s = r() < 0.5 ? 1 : -1;
     // the main road starts in the middle of one of the four block pads (the centre of the region is a junction corner)
-    const pad4 = [X0 + 40, X0 + 120], pz4 = [Z0 + 40, Z0 + 120];
-    const pts1 = makeRoad(pad4[Math.floor(r() * 2)] + rr(-10, 10), pz4[Math.floor(r() * 2)] + rr(-10, 10), r() * Math.PI * 2, true, s);
+    const pad4 = [], pz4 = [];
+    for (let b = 0; b < NB_BLOCKS; b++) { pad4.push(X0 + b * CHUNK + 40); pz4.push(Z0 + b * CHUNK + 40); }
+    const pts1 = makeRoad(pad4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), pz4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), r() * Math.PI * 2, true, s);
     if (!inside(pts1)) continue;
     const roads = [toRoad(pts1)];
     for (let tries = 0, made = 0; tries < 60 && made < 6; tries++) {
@@ -1306,7 +1307,8 @@ function generateChunk(cx, cz, defer = false) {
   // suburban block in ten. The roll comes from the block's own hash, so it is the same every time the block is built.
   // Suburb blocks become estates (see planEstate) unless they are beside a flyover lane or at spawn.
   // A neighbourhood (see nbhdOf in flyover.js): its four blocks are suburb and share one curved plan (nbhdPlan)
-  const nbPlan = nbhdOf(Math.floor(cx / 2), Math.floor(cz / 2)) ? nbhdPlan(Math.floor(cx / 2), Math.floor(cz / 2)) : null;
+  const nbRX = Math.floor(cx / NB_BLOCKS), nbRZ = Math.floor(cz / NB_BLOCKS);
+  const nbPlan = nbhdOf(nbRX, nbRZ) ? nbhdPlan(nbRX, nbRZ) : null;
   if (nbPlan) type = 'suburb';
   const estateNow = type === 'suburb' && !laneBlock && !nearSpawn;
   const storeRoll = hash2(cx, cz);
@@ -1507,7 +1509,7 @@ function generateChunk(cx, cz, defer = false) {
       }
       for (const t of plan.trees) tree(t.x, t.z);
       ch.estate = {
-        side: nbPlan ? -1 : plan.side, nb: nbPlan ? [Math.floor(cx / 2), Math.floor(cz / 2)] : null, roadY: Y,
+        side: nbPlan ? -1 : plan.side, nb: nbPlan ? [nbRX, nbRZ] : null, roadY: Y,
         entrance: [plan.roads[0].ribbon[0].x, plan.roads[0].ribbon[0].z],
         roads: plan.roads.map(rd => ({ ribbon: rd.ribbon.map(p => [p.x, p.z]), disc: rd.disc })),
         houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
