@@ -126,6 +126,9 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   const got = ch.props.filter(p => p.kind === 'hoarding').length;
   assert.equal(got, want * 3, `block ${cx},${cz}: ${got} hoarding props for ${want} open mouths (want ${want * 3})`);
   barriers += got;
+  // and a fixed fence stands behind each: a 0.3 m thick solid, 2.6 m inside the hoarding, so a broken hoarding does not open the street
+  const fences = ch.solids.filter(q => q.kind === 'building' && (q.hx === 0.15 || q.hz === 0.15)).length;
+  assert.equal(fences, want, `block ${cx},${cz}: ${fences} fixed fences behind ${want} open mouths`);
   // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
   // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
   const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
