@@ -63,7 +63,7 @@ let hudCache = {};
 // band over 210-240 km/h. The needle is the group #needle, turned about the hub. The nitro is the outer arc, from
 // about 10 to 2 o'clock, filled by the nitro level (game.nitro).
 const GAUGE_MAX = 240;
-const SPEED_A0 = 135, NITRO_A0 = 210, NITRO_A1 = 330, NITRO_R = 90;   // degrees, clockwise from 3 o'clock
+const SPEED_A0 = 135, NITRO_A0 = 200, NITRO_A1 = 340, NITRO_R = 91;   // degrees, clockwise from 3 o'clock
 const dialPt = (r, a) => [100 + r * Math.cos(a * PI / 180), 100 + r * Math.sin(a * PI / 180)];
 const arcD = (r, a0, a1) => {
   const [x0, y0] = dialPt(r, a0), [x1, y1] = dialPt(r, a1);
@@ -86,10 +86,10 @@ const arcD = (r, a0, a1) => {
     el('line', { x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2) }, major ? 'dialTick' : 'dialTickMinor');
   }
   for (let i = 0; i <= 8; i++) {                                                              // the numbers 0-8, one per 30 km/h
-    const [x, y] = dialPt(54, SPEED_A0 + i * 30);
+    const [x, y] = dialPt(56, SPEED_A0 + i * 30);
     el('text', { x: x.toFixed(2), y: y.toFixed(2) }, 'dialNum').textContent = String(i);
   }
-  const [lx, ly] = dialPt(NITRO_R, 312), lb = el('text', { x: lx.toFixed(2), y: ly.toFixed(2), transform: `rotate(-40 ${lx.toFixed(2)} ${ly.toFixed(2)})` }, 'nitroLbl');
+  const [lx, ly] = dialPt(NITRO_R, 300), lb = el('text', { x: lx.toFixed(2), y: ly.toFixed(2), transform: `rotate(30 ${lx.toFixed(2)} ${ly.toFixed(2)})` }, 'nitroLbl');   // reads along the arc
   lb.textContent = 'N2O';
 }
 // the gear is derived from the speed (the car has no gearbox): 1 to 5, stepping up at 40, 80, 130 and 200 km/h

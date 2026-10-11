@@ -31,13 +31,13 @@ canvas { display:block; }
 #gauge { bottom:12px; right:14px; }
 .dial { position:relative; width:200px; height:200px; }
 .dialSvg { width:100%; height:100%; display:block; overflow:visible; }
-.dialTrack { fill:none; stroke:rgba(0,0,0,.5); stroke-width:7; }
-.nitroFill { fill:none; stroke:url(#nitroGrad); stroke-width:7; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
+.dialTrack { fill:none; stroke:rgba(0,0,0,.5); stroke-width:9; }
+.nitroFill { fill:none; stroke:url(#nitroGrad); stroke-width:9; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
 .nitroFill.on { stroke:url(#nitroOn); }
 .nitroFill.lock { stroke:#8a9099; }
 .dialRed { fill:none; stroke:#ff3b3b; stroke-width:5; }
-.dialNum { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:12px; fill:#fff; text-anchor:middle; dominant-baseline:central; }
-.nitroLbl { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:9px; fill:#fff; text-anchor:middle; dominant-baseline:central; }
+.dialNum { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:15px; fill:#fff; text-anchor:middle; dominant-baseline:central; text-shadow:0 1px 0 #000; }
+.nitroLbl { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:12px; fill:#fff; text-anchor:middle; dominant-baseline:central; }
 .needleBody { stroke:#fff; stroke-width:2.5; stroke-linecap:round; }
 .needleTail { stroke:#c9d1da; stroke-width:3; stroke-linecap:round; }
 .hub { fill:#1d2127; stroke:#e8edf2; stroke-width:2.5; }
@@ -45,10 +45,10 @@ canvas { display:block; }
 .dialTick { stroke:rgba(255,255,255,.9); stroke-width:2.5; }
 .dialTickMinor { stroke:rgba(255,255,255,.55); stroke-width:1.5; }
 .dialText { position:absolute; left:44%; right:0; top:62%; text-align:center; line-height:1; }   /* right of centre, clear of the 0 and 1 numbers, as in the reference */
-.gearRow { position:absolute; left:calc(50% + 14px); top:50%; margin-top:2px; display:flex; align-items:center; gap:5px; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:15px; line-height:1; }
+.gearRow { position:absolute; left:calc(50% + 16px); top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:5px; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:15px; line-height:1; }
 .gearTri { width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:10px solid #39e05a; filter:drop-shadow(0 0 3px rgba(57,224,90,.8)); }
-.dialText #speed { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:40px; }
-.dialText small { display:block; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:11px; letter-spacing:.12em; font-style:italic; opacity:.9; margin-top:4px; }
+.dialText #speed { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:44px; text-shadow:0 3px 0 #000; }
+.dialText small { display:block; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:13px; letter-spacing:.12em; font-style:italic; opacity:.95; margin-top:2px; }
 /* touch screens: the on-screen buttons sit in the bottom 150 px, so the two panels move up above them */
 @media (pointer:coarse) { #mapBox, #gauge { bottom:150px; } }
 #toasts { position:absolute; top:26%; left:50%; transform:translateX(-50%); text-align:center; }
