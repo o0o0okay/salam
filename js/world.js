@@ -1296,17 +1296,15 @@ function generateChunk(cx, cz, defer = false) {
       if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(r(0, sides.length))], r);
     }
     if (plan) {
-      const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.29;      // the road sits on the pad, under the walkway's own height
-      const pos = [], idx = [], nrm = [];
-      plan.ribbon.forEach((p, i) => {
-        const ox = -p.tz * ESTATE_ROAD, oz = p.tx * ESTATE_ROAD;
-        pos.push(p.x + ox, Y, p.z + oz, p.x - ox, Y, p.z - oz);
-        nrm.push(0, 1, 0, 0, 1, 0);                                       // the road is flat: every vertex faces up
-        if (i > 0) { const a = 2 * (i - 1), b = 2 * i; idx.push(a, b, a + 1, a + 1, b, b + 1); }
-      });
-      const rg = new THREE.BufferGeometry();
-      rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3)); rg.setIndex(idx);
-      add(new THREE.Mesh(rg, asph)); ch.geos.push(rg);
+      const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.33;      // the road sits 3 cm above the pad (its top is 0.30)
+      // the road: flat box segments about 1 m long, each turned to the path's tangent (a curve of 1 m chords on a 6 m
+      // radius reads as smooth, and boxes bake like every other block piece)
+      for (let i = 0; i + 2 < plan.ribbon.length; i += 2) {
+        const p = plan.ribbon[i], q = plan.ribbon[i + 2];
+        const len = Math.hypot(q.x - p.x, q.z - p.z);
+        const sg = box(len + 0.1, 0.04, ESTATE_ROAD * 2, asph, (p.x + q.x) / 2, Y + 0.02, (p.z + q.z) / 2, false);
+        sg.rotation.y = Math.atan2(-p.tz, p.tx); add(sg);
+      }
       plan.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
         if (i % 8 === 0 && i > 2 && i < plan.ribbon.length - 4) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
       });
@@ -1325,7 +1323,7 @@ function generateChunk(cx, cz, defer = false) {
       }
       for (const t of plan.trees) tree(t.x, t.z);
       ch.estate = {
-        side: plan.side, entrance: [plan.ribbon[0].x, plan.ribbon[0].z], ribbon: plan.ribbon.map(p => [p.x, p.z]),
+        side: plan.side, roadY: Y, entrance: [plan.ribbon[0].x, plan.ribbon[0].z], ribbon: plan.ribbon.map(p => [p.x, p.z]),
         disc: plan.disc, houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
         bounds: { lo_x, hi_x, lo_z, hi_z },
       };

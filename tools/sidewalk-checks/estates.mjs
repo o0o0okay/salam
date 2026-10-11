@@ -3,6 +3,7 @@
    * an estate's road enters the block from one edge of its pad and stays on the pad, clear of the far edge;
    * every house sits on the pad, faces its road, and keeps 1.5 m clear of the road's edge and of the cul-de-sac;
    * no two houses overlap, and every house is a solid the cars collide with;
+   * the road is drawn above the pad's grass top, so it is not hidden;
    * the layout is deterministic: building the block again gives the same estate;
    * estates are not on the spawn blocks, and they are a sizeable share of the suburb blocks.
    Run:  node tools/sidewalk-checks/estates.mjs      (exits non-zero on a failure) */
@@ -38,6 +39,10 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
   }
   const dc = E.disc;
   assert(dc.x - DISC >= B.lo_x && dc.x + DISC <= B.hi_x && dc.z - DISC >= B.lo_z && dc.z + DISC <= B.hi_z, `${where}: the cul-de-sac leaves the pad`);
+
+  // the road must be drawn above the pad: the suburb pad is a grass box with its top at 0.30 (padBox y 0.2, h 0.1),
+  // and a road below that top is hidden under the grass (this is how the first version was invisible)
+  assert(E.roadY > 0.30 + 0.01, `${where}: the road (y ${E.roadY}) is under the pad's grass top (0.30)`);
 
   // houses: on the pad, facing the road, clear of the road and of each other, and solid
   const solidsHere = ch.solids.filter(s => s.kind === 'building');
