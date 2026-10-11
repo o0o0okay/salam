@@ -215,7 +215,7 @@ function makeHulk(pc) {
   const shell = createCar(pc.kind, pc.x, pc.z, pc.mesh.rotation.y, HULK_PARAMS, pc.color);
   scene.remove(shell.mesh);
   Object.assign(pc, shell, {
-    mesh: pc.mesh, inner: pc.mesh.userData.inner, lights: pc.mesh.userData.lights || {}, beam: null,
+    mesh: pc.mesh, inner: pc.mesh.userData.inner || pc.mesh, lights: pc.mesh.userData.lights || {}, beam: null,
     x: pc.x, z: pc.z, mass: pc.mass, lastPlayerHit: pc.lastPlayerHit,
   });
   pc.isCiv = false; pc.isPolice = false; pc.isPlayer = false; pc.isTanker = false; pc.tier = 0;
