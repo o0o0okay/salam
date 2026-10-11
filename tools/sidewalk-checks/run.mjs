@@ -338,6 +338,14 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       const bx0 = ch.cx * CHUNK, bz0 = ch.cz * CHUNK;
       const yard = ch.schoolYard;
       if (!yard) { bad(`chunk ${ch.cx},${ch.cz}: a school has no yard at all`); continue; }
+      // the play equipment is breakable: swing, slide, climbing frame, see-saw, sandbox, two spring riders and two
+      // hoops, each its own solid and mesh, wired back to its solid, and none of them broken on a fresh block
+      const plays = ch.solids.filter(o => o.playPiece);
+      if (plays.length !== 9) bad(`chunk ${ch.cx},${ch.cz}: ${plays.length} breakable play pieces in the school (want 9)`);
+      for (const o of plays) {
+        const pc = o.playPiece;
+        if (pc.solid !== o || !pc.mesh || pc.broken) bad(`chunk ${ch.cx},${ch.cz}: a play piece (${pc.kind}) is not wired to a standing solid and mesh`);
+      }
       // the fence must close the yard, with only the two gates open
       const fence = ch.schoolFence || [];
       const fenceLen = fence.reduce((n, f) => n + 2 * Math.max(f.hx, f.hz), 0);
@@ -397,7 +405,10 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     const S = buildSchoolMesh(0, 0, Math.random);
     const parts = o => { let n = 0; const walk = x => { n++; for (const c of x.children || []) walk(c); }; walk(o); return n; };
-    if (parts(S.group) < 130) bad(`the school model is too thin (${parts(S.group)} parts)`);
+    // The play equipment is breakable now, so it is held in its own groups (S.playPieces), not in the baked model:
+    // the model is the building plus those pieces.
+    const playParts = (S.playPieces || []).reduce((n, p) => n + parts(p.group), 0);
+    if (parts(S.group) + playParts < 130) bad(`the school model is too thin (${parts(S.group) + playParts} parts)`);
     if (S.fence.length !== 7) bad(`the school model draws ${S.fence.length} fence runs, want 7 (two gates in the front line)`);
     if ((S.fenceRuns || []).length !== 7) bad(`the school model hands back ${(S.fenceRuns || []).length} fence runs, want 7`);
     let tearOff = 0, longest = 0;

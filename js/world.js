@@ -1411,6 +1411,18 @@ function schoolBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, g
     pc.solid = sEntry;
     ch.fencePanels.push(pc);
   }
+  // The play equipment (swings, slide, climbing frame, see-saw, sandbox, spring riders, hoops) is breakable: each piece
+  // is its own mesh and solid, and a hard hit knocks it off its base (breakPlayPiece in js/collisions.js).
+  for (const pc of S.playPieces) {
+    const pm = own(ch, mergeStandalone(pc.group));
+    pm.position.set(bxo, 0, bzo);
+    group.add(pm);
+    pc.mesh = pm;
+    solid(pc.x, pc.z, pc.hx, pc.hz, pc.kind);
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.playPiece = pc;
+    pc.solid = sEntry;
+  }
   for (const sv of S.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
   for (const pt of S.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
   ch.schoolYard = S.yard;

@@ -438,7 +438,8 @@ export function buildFireStationMesh(bx, bz, rng) {
 // yellow school buses stand nose-out along the kerb. The fence is real geometry (posts, rails, a light mesh
 // panel and a concrete plinth) and real collision, with a gate at the walkway and a service gate for the yard.
 export function buildSchoolMesh(bx, bz, rng) {
-  const g = new THREE.Group(), solids = [], bays = [], paint = [], fence = [], playground = [];
+  let g = new THREE.Group();                                // where geometry goes; a play piece swaps in its own group
+  const solids = [], bays = [], paint = [], fence = [], playground = [], playPieces = [];
   const M = {
     brick: mat(0xd8c9a8), brickDark: mat(0xc2b18d), trim: mat(0xf0ece1), band: mat(0xe6e2d6),
     glass: mat(0x3f7fb5), glassDark: mat(0x2b5f8c), frame: mat(0xf7f9fa), roof: mat(0x9aa0a6),
@@ -454,6 +455,16 @@ export function buildSchoolMesh(bx, bz, rng) {
   const Y = 0.25;                                          // yard and lot surface height
   const solid = (x, z, hx, hz) => solids.push({ x: bx + x, z: bz + z, hx, hz, kind: 'building' });
   const mark = (x, z, name) => playground.push({ name, x: bx + x, z: bz + z });
+  // A breakable piece of play equipment: its geometry goes into its own group, not the building, and the world
+  // registers it as a solid that a hard hit knocks off its base (breakPlayPiece in js/collisions.js).
+  // x, z are block-local; brk is the speed (divided by sqrt(mass)) at which a hit takes it down.
+  const piece = (spec, fn) => {
+    const outer = g; g = new THREE.Group();
+    fn();
+    playPieces.push({ group: g, x: bx + spec.x, z: bz + spec.z, hx: spec.hx, hz: spec.hz, kind: spec.kind, brk: spec.brk,
+      color: spec.color, mesh: null, broken: false });
+    g = outer;
+  };
 
   // ================= the school building: classroom wing, gym and entrance =================
   const A = { x: -10, z: -24, w: 34, d: 8, h: 8.4 };                       // two-storey classroom wing
@@ -560,6 +571,7 @@ export function buildSchoolMesh(bx, bz, rng) {
   }
   // swing set: two braced A-frames with a top bar and two hanging seats
   const SW = { x: play.x - 6, z: play.z - 3 };
+  piece({ x: SW.x, z: SW.z, hx: 3.2, hz: 0.6, kind: 'playground', brk: 8, color: 0x9aa3ab }, () => {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.12, 2.8, 0.12, M.pole, SW.x + sx * 3.1, Y + 1.4, SW.z + sz * 0.5, false);
   for (const sx of [-1, 1]) B(0.1, 0.1, 1.15, M.pole, SW.x + sx * 3.1, Y + 2.72, SW.z, false);
   C(0.08, 0.08, 6.4, 8, M.pole, SW.x, Y + 2.76, SW.z).rotation.z = PI / 2;
@@ -568,8 +580,10 @@ export function buildSchoolMesh(bx, bz, rng) {
     B(0.62, 0.06, 0.26, M.playRed, SW.x + sx * 0.8, Y + 0.78, SW.z, false);
   }
   mark(SW.x, SW.z, 'swing set');
+  });
   // slide: ladder, platform, blue chute
   const SL = { x: play.x + 3, z: play.z - 4 };
+  piece({ x: SL.x, z: SL.z, hx: 1.2, hz: 1.9, kind: 'playground', brk: 8, color: 0xe8c33a }, () => {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.12, 2.3, 0.12, M.playBlue, SL.x + sx * 0.7, Y + 1.15, SL.z + sz * 0.7, false);
   B(1.7, 0.12, 1.7, M.playYellow, SL.x, Y + 2.3, SL.z, false);
   for (const sx of [-1, 1]) B(0.08, 1.0, 0.08, M.pole, SL.x + sx * 0.7, Y + 2.8, SL.z - 0.7, false);
@@ -579,8 +593,10 @@ export function buildSchoolMesh(bx, bz, rng) {
   R(1.0, 0.1, 3.2, M.playRed, SL.x, Y + 1.15, SL.z + 0.75, -0.52, 0);                                       // the chute
   for (const sx of [-1, 1]) R(0.09, 0.34, 3.2, M.playRed, SL.x + sx * 0.5, Y + 1.36, SL.z + 0.75, -0.52, 0);
   mark(SL.x, SL.z, 'slide');
+  });
   // climbing frame with a roof, a scramble net and a fireman's pole
   const CF = { x: play.x + 9, z: play.z - 1 };
+  piece({ x: CF.x, z: CF.z, hx: 1.7, hz: 1.7, kind: 'playground', brk: 8, color: 0x4ca85c }, () => {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 2.5, 0.14, M.green, CF.x + sx * 1.4, Y + 1.25, CF.z + sz * 1.4, false);
   B(3.1, 0.14, 3.1, M.playYellow, CF.x, Y + 2.5, CF.z, false);
   R(1.9, 0.14, 1.9, M.green, CF.x, Y + 3.35, CF.z, 0, PI / 4);                                              // roof, turned 45 degrees
@@ -588,23 +604,30 @@ export function buildSchoolMesh(bx, bz, rng) {
   for (const sx of [-1, 1]) B(0.08, 0.08, 2.4, M.playBlue, CF.x + sx * 1.3, Y + 0.4, CF.z, false);
   C(0.09, 0.09, 2.4, 6, M.playRed, CF.x + 1.75, Y + 1.2, CF.z - 1.2);
   mark(CF.x, CF.z, 'climbing frame');
+  });
   // see-saw, sandbox and two spring riders
   const SS = { x: play.x - 4, z: play.z + 4 };
+  piece({ x: SS.x, z: SS.z, hx: 0.5, hz: 1.9, kind: 'playground', brk: 6, color: 0x3f7fd0 }, () => {
   B(0.3, 0.9, 0.5, M.pole, SS.x, Y + 0.45, SS.z, false);
   R(0.34, 0.1, 3.6, M.playBlue, SS.x, Y + 0.95, SS.z, 0, 0.09);
   for (const sz of [-1, 1]) { B(0.34, 0.08, 0.08, M.playRed, SS.x, Y + 1.28, SS.z + sz * 1.55, false); B(0.06, 0.36, 0.06, M.playRed, SS.x, Y + 1.12, SS.z + sz * 1.55, false); }
   mark(SS.x, SS.z, 'see-saw');
+  });
   const SB = { x: play.x + 4, z: play.z + 5 };
+  piece({ x: SB.x, z: SB.z, hx: 2.3, hz: 2.3, kind: 'playground', brk: 6, color: 0xb08a5c }, () => {
   for (const sx of [-1, 1]) B(4.4, 0.3, 0.3, M.brickDark, SB.x + sx * 2.05, Y + 0.15, SB.z, false);
   for (const sz of [-1, 1]) B(0.3, 0.3, 4.4, M.brickDark, SB.x, Y + 0.15, SB.z + sz * 2.05, false);
   B(3.8, 0.1, 3.8, M.sand, SB.x, Y + 0.12, SB.z, false);
   mark(SB.x, SB.z, 'sandbox');
-  for (const [rx2, rz2, col] of [[play.x - 8, play.z + 6, M.playRed], [play.x - 6, play.z + 8, M.playYellow]]) {
+  });
+  for (const [rx2, rz2, col, hex] of [[play.x - 8, play.z + 6, M.playRed, 0xd05a4a], [play.x - 6, play.z + 8, M.playYellow, 0xe8c33a]]) {
+    piece({ x: rx2, z: rz2, hx: 0.5, hz: 0.4, kind: 'playground', brk: 5, color: hex }, () => {
     C(0.12, 0.12, 0.5, 8, M.steel, rx2, Y + 0.25, rz2);
     B(0.9, 0.34, 0.3, col, rx2, Y + 0.62, rz2, false);
     B(0.34, 0.3, 0.3, col, rx2, Y + 0.88, rz2 - 0.3, false);
     for (const sz of [-1, 1]) B(0.06, 0.28, 0.06, M.pole, rx2 + 0.24, Y + 0.82, rz2 + sz * 0.2, false);
     mark(rx2, rz2, 'spring rider');
+    });
   }
 
   // ================= basketball court (west half of the yard) =================
@@ -617,11 +640,13 @@ export function buildSchoolMesh(bx, bz, rng) {
   paint.push({ w: 0.18, d: CT.d, m: M.line, x: bx + CT.x, z: bz + CT.z });
   C(2.6, 2.6, 0.04, 20, M.line, CT.x, Y + 0.05, CT.z, false);
   for (const [hx2, dir] of [[CT.x - CT.w / 2 - 1.1, 1], [CT.x + CT.w / 2 + 1.1, -1]]) {
+    piece({ x: hx2, z: CT.z + 0.5, hx: 0.3, hz: 0.3, kind: 'playground', brk: 5, color: 0xe8703a }, () => {
     C(0.1, 0.12, 3.6, 8, M.pole, hx2, Y + 1.8, CT.z + 0.5);
     B(1.1, 0.1, 0.1, M.pole, hx2 + dir * 0.6, Y + 3.5, CT.z + 0.5, false);       // arm over the baseline
     B(0.1, 1.15, 1.85, M.trim, hx2 + dir * 1.15, Y + 3.3, CT.z + 0.5, false);    // backboard
     C(0.24, 0.24, 0.05, 10, mat(0xe8703a), hx2 + dir * 1.35, Y + 2.95, CT.z + 0.5);
     mark(hx2, CT.z + 0.5, 'basketball hoop');
+    });
   }
 
   // paths: gate to the entrance, along the yard, and the apron in front of the lobby
@@ -656,7 +681,7 @@ export function buildSchoolMesh(bx, bz, rng) {
   busSign.position.set(23.6, Y + 1.9, 25.5); g.add(busSign);
 
   return {
-    group: g, solids, bays, paint, fence, fenceRuns, playground,
+    group: g, solids, bays, paint, fence, fenceRuns, playground, playPieces,
     yard: { x: bx, z: bz + (YARD_Z - 20) / 2, hx: 28, hz: 10 },                 // the fenced yard, block-local centre
     lot: { x: bx, z: bz + 13.7, hx: 28, hz: 13.7 },
   };
