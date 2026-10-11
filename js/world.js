@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, nbhdOf, nbhdInterior, NB_BLOCKS } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, NB_BLOCKS } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -283,13 +283,15 @@ function stripStops(ix, iz, cx, cz, si) {
   const stop = (!lane && (bridgeAt(ix, iz) || onLaneRoad)) ? roadEdge() : PAVE_IN;
   return { stop, cut: besideFlyover(ix, iz) ? FLY.chamfer : 0 };
 }
-function sidewalkPieces(cx, cz, style) {
+function sidewalkPieces(cx, cz, style, filled = []) {
   const bx = cx * CHUNK + 40, bz = cz * CHUNK + 40, E = CHUNK / 2, PH = CURB_H + 0.04;
   const x0 = bx - E, z0 = bz - E;                       // the block's own corners, for the chamfered ones
   const st = SW_STYLES[style] || SW_STYLES.slab;
   const out = { bx, bz, style, st, curb: [], walk: [], grass: [], border: [], kerb: [], bed: [], bedEdge: [] };
   for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
     const s = SIDEWALK_SIDES[si];
+    // A side on a filled street has no walkway and no kerb: the grass fill there runs out to the next block's pad.
+    if (filled[si]) continue;
     // A side that fronts a flyover gives the outer `FLY.atGrade` metres of its pavement back to the street: that
     // strip is the at-grade lane beside the structure, so the kerb (and the whole sidewalk ring) steps back here.
     // The frontage steps back with it (`FLY.frontage`): the lane takes its width out of the frontage, not out of
@@ -1009,13 +1011,17 @@ function generateChunk(cx, cz, defer = false) {
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
   const closedBarrier = (x, z, hx, hz) => { solid(x, z, hx, hz, 'barrier'); add(box(hx * 2, 0.9, hz * 2, mat(0xd6402f), x, 0.75, z, false)); };
   const closedGrass = (w, d, x, z) => add(box(w, 0.1, d, mat(0x7bc96f), x, 0.25, z, false));   // top at 0.30, as a block's pad
+  // A filled street (segFilled in flyover.js): this block's half of it, out to the block's edge, is grass, so the pads
+  // either side join. It takes the walkway too, which is why the walkway side is skipped (sidewalkPieces).
+  const fillHalf = (k, x, z, w, d) => { if (filled[k]) closedGrass(w, d, x, z); };
+  const filled = [0, 1, 2, 3].map(si => closed[si] && (si === 0 ? segFilled('z', cx, cz) : si === 1 ? segFilled('z', cx + 1, cz) : si === 2 ? segFilled('x', cx, cz) : segFilled('x', cx, cz + 1)));
   // A neighbourhood's centre junction is inside it: the streets that meet there have no barrier at that end, and its
   // corner squares are grass (see nbhdInterior in flyover.js).
   const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz)) closedBarrier(x, z, hx, hz); };
-  if (closed[0]) { closedGrass(8, 64, x0 + 4, z0 + 40); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); }
-  if (closed[1]) { closedGrass(8, 64, x0 + 76, z0 + 40); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); }
-  if (closed[2]) { closedGrass(64, 8, x0 + 40, z0 + 4); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); }
-  if (closed[3]) { closedGrass(64, 8, x0 + 40, z0 + 76); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); }
+  if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
+  if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
+  if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
+  if (closed[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
@@ -1320,7 +1326,7 @@ function generateChunk(cx, cz, defer = false) {
     type = SPORT_KINDS[(sportRoll >>> 8) % SPORT_KINDS.length];
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
-  const sw = sidewalkPieces(cx, cz, swStyle);
+  const sw = sidewalkPieces(cx, cz, swStyle, filled);
   const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
   if (type === 'downtown') {
     // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole

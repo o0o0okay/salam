@@ -94,15 +94,32 @@ for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
   if (F.segClosed('z', jx, jz)) { closedSamples++; assert(F.nearClosedStreet(jx * 80, jz * 80 + 40, 10), `spawn check misses the closed street at ${jx},${jz}`); }
 }
 
+// filled streets: a street is filled or barred, never both; it is filled for every block that shares it; the share of
+// closed streets that are filled is about half
+let filledSegs = 0, closedOnly = 0;
+for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
+  for (const axis of ['x', 'z']) {
+    if (!F.segClosed(axis, jx, jz)) continue;
+    // a neighbourhood's inner street is never filled: it is not counted in the share
+    const other = axis === 'x' ? [jx + 1, jz] : [jx, jz + 1];
+    if (F.nbhdJunction(jx, jz) || F.nbhdJunction(other[0], other[1])) continue;
+    if (F.segFilled(axis, jx, jz)) filledSegs++; else closedOnly++;
+  }
+}
+const filledShare = filledSegs / Math.max(1, filledSegs + closedOnly);
+assert(filledShare >= 0.35 && filledShare <= 0.65, `filled streets are ${(filledShare * 100).toFixed(1)}% of the hash-closed ones (want about half)`);
+
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
 let barriers = 0, blocksChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   // one barrier per mouth; a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
-  const want = (F.segClosed('z', cx, cz) ? mouths(cx, cz) + mouths(cx, cz + 1) : 0)
-    + (F.segClosed('z', cx + 1, cz) ? mouths(cx + 1, cz) + mouths(cx + 1, cz + 1) : 0)
-    + (F.segClosed('x', cx, cz) ? mouths(cx, cz) + mouths(cx + 1, cz) : 0)
-    + (F.segClosed('x', cx, cz + 1) ? mouths(cx, cz + 1) + mouths(cx + 1, cz + 1) : 0);
+  // a filled street (segFilled) has no barrier at either mouth: its blocks join across it
+  const barred = (axis, jx, jz) => F.segClosed(axis, jx, jz) && !F.segFilled(axis, jx, jz);
+  const want = (barred('z', cx, cz) ? mouths(cx, cz) + mouths(cx, cz + 1) : 0)
+    + (barred('z', cx + 1, cz) ? mouths(cx + 1, cz) + mouths(cx + 1, cz + 1) : 0)
+    + (barred('x', cx, cz) ? mouths(cx, cz) + mouths(cx + 1, cz) : 0)
+    + (barred('x', cx, cz + 1) ? mouths(cx, cz + 1) + mouths(cx + 1, cz + 1) : 0);
   const ch = W.generateChunk(cx, cz, true);
   blocksChecked++;
   const got = ch.solids.filter(s => s.kind === 'barrier').length;
@@ -110,5 +127,5 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   barriers += got;
 }
 
-console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
+console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
   `${blocksChecked} blocks built, ${barriers} barriers at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns`);
