@@ -41,7 +41,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
-import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, buildSportMesh, SPORT_KINDS, SPORT_DEFS, sportScale, FUEL_BRANDS, textBlocks } from './campus.js';
+import { buildFactoryMesh, FACTORY_KINDS, textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, buildSportMesh, SPORT_KINDS, SPORT_DEFS, sportScale, FUEL_BRANDS, textBlocks } from './campus.js';
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
@@ -234,6 +234,8 @@ const CURB_H = 0.16, WALK_Y = 0.18;  // kerb height above the road, top of the p
 const BORDER_W = 1.3, KERB_W = 0.35;
 const BED = 0.85, BED_EDGE = 0.15;   // tree-pit soil bed (half size) and the width of its kerb edging
 const PIT_IN = 9.9;                  // distance from the road centre line to the centre of a tree pit
+// Share of ordinary (non-lane, non-campus) blocks that become an industrial plant (buildFactoryMesh).
+export const FACTORY_SHARE = 0.08;
 export const PAD_IN = PAVE_OUT - 0.6;   // where a block's own ground cover (lot, grass, concrete pad) stops:
                                      // the buildings of a block stand on the outer 0.6 m of the paving's border
                                      // course, and beside an at-grade lane the whole line moves out by FLY.frontage
@@ -261,6 +263,7 @@ const SW_STYLES = {
 function pickSidewalkStyle(type, rng) {
   if (type === 'suburb') return 'verge';                                  // grass verge, suburban walk
   if (type === 'industrial') return 'panel';                              // big weathered concrete panels
+  if (type === 'factory') return 'panel';                                 // a works yard is plain concrete
   if (type === 'downtown') return rng() < 0.45 ? 'panel' : 'slab';        // modern vs classic stone
   if (type === 'commercial') return rng() < 0.55 ? 'brick' : 'slab';      // shopping streets lean brick
   if (type === 'hospital') return rng() < 0.6 ? 'panel' : 'slab';         // clean concrete panels by the campus
@@ -1410,6 +1413,7 @@ function generateChunk(cx, cz, defer = false) {
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
     : (cx === -1 && cz === 1) ? 'bank'                         // a bank on the block across from the school
     : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
+    : t < FACTORY_SHARE ? 'factory'                                          // an industrial plant on its own block
     : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
     : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'bank' : t < 0.965 ? 'hospital'
     : t < 0.985 ? 'school' : 'industrial';
@@ -2120,6 +2124,18 @@ function generateChunk(cx, cz, defer = false) {
     }
     for (const sx of [-1, 1]) for (let i = 0; i < 6; i++)
       add(box(4.6, 0.03, 0.14, parkingPaint, sbx + sx * 12.5, lotY + 0.03, sbz - 20 + i * 5 - 2.5, false));
+  } else if (type === 'factory') {
+    // An industrial plant on a block of its own (see buildFactoryMesh in js/campus.js): one of four layouts from the
+    // reference art, picked at random per block. Its solids come back in world coordinates.
+    const lotSurfaceY = 0.25;
+    padBox(52, 46, mat(0x6f747c), bxo - bx, bzo - bz);
+    const kind = FACTORY_KINDS[Math.floor(rng() * FACTORY_KINDS.length)];
+    const P = buildFactoryMesh(bxo, bzo, rng, kind);
+    ch.factory = kind; ch.factorySolids = P.solids;       // the layout, and its solids (for the checks)
+    P.group.position.set(bxo, 0, bzo);
+    bake(ch, P.group);                                    // merged with the rest of the block, in slices
+    for (const sv of P.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+    for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 21, lotSurfaceY + 0.02);
   } else { // industrial
     padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
     const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];

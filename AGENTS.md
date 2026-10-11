@@ -33,7 +33,7 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
   streaming (`updateChunks`) and disposal (`disposeChunk`). Every block is an 80 m square chunk. The top
   of the file documents the chunk record (`ch`), its solids and the geometry lifecycle.
 - `js/campus.js` — the hospital (with the air ambulance and the box-pixel lettering), fire station, school
-  and filling station builders. `js/shops.js` — shop kits and high-street parades.
+  filling station and factory (industrial plant) builders. `js/shops.js` — shop kits and high-street parades.
 - `js/assets.js` — shared materials, textures and geometry (window glass, brick facades, road, paving).
 - `js/flyover.js` — the grade-separated interchange numbers (imported by world.js and the harness).
 - `js/trafficLights.js`, `js/carModels.js`, `js/props.js`, `js/trees.js` — street furniture and vehicles.
