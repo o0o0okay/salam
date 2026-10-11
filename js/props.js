@@ -45,6 +45,13 @@ export const PROP_DEFS = {
   hydrant: { r: 0.55, drag: 0.985, color: 0xe53935, soft: true, make() { const g = new THREE.Group(), m = mat(0xe53935);
     g.add(cyl(0.28, 0.32, 1.0, 8, m, 0, 0.5, 0, false)); g.add(cyl(0.36, 0.36, 0.14, 8, m, 0, 1.05, 0, false)); g.add(box(0.95, 0.24, 0.24, m, 0, 0.7, 0, false));
     g.add(cyl(0.17, 0.17, 0.3, 6, mat(0xffd23b), 0, 1.22, 0, false)); return g; } },
+  // a wheeled green refuse bin with a flat lid and a yellow band, the kind kept in the back alleys of the blocks
+  dumpster: { r: 1.15, drag: 0.9, color: 0x2f6b3c, soft: true, make() { const g = new THREE.Group(), gr = mat(0x2f6b3c), dk = mat(0x1f2a22), st = mat(0xf2c230), wh = mat(0x1a1a1a);
+    g.add(box(2.0, 1.2, 1.3, gr, 0, 0.75, 0, false));
+    g.add(box(2.06, 0.12, 1.36, dk, 0, 1.4, 0, false));
+    g.add(box(2.02, 0.14, 1.32, st, 0, 0.9, 0, false));
+    for (const x of [-0.8, 0.8]) for (const z of [-0.5, 0.5]) { const w = cyl(0.09, 0.09, 0.08, 6, wh, x, 0.09, z, false); w.rotation.z = Math.PI / 2; g.add(w); }
+    return g; } },
   trashcan: { r: 0.5, drag: 0.95, color: 0x4b5660, soft: true, make() { const g = new THREE.Group();
     const body = Math.random() < 0.5 ? 0x4b5660 : 0x3f6b4a;
     g.add(cyl(0.38, 0.32, 1.0, 10, mat(body), 0, 0.5, 0, false));

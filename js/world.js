@@ -2403,6 +2403,19 @@ function generateChunk(cx, cz, defer = false) {
       prop(kind, x, z, Math.atan2(s.along === 'z' ? s.fixed : 0, s.along === 'z' ? 0 : s.fixed), 0);
     }
   }
+  // ---- Back-alley dumpsters: a downtown or commercial block has a bin or two in the gaps behind its buildings. A spot
+  // is taken only if the building clearance test says it is free and it stands off the paving and the lanes.
+  if (type === 'downtown' || type === 'commercial') {
+    for (let k = 0; k < 2; k++) {
+      if (rng() < (k ? 0.7 : 0.4)) continue;
+      for (let t = 0; t < 14; t++) {
+        const x = bx + r(-24, 24), z = bz + r(-24, 24);
+        if (occupied(x, z, 2.6) || !cutClear(x, z, 1.8)) continue;
+        prop('dumpster', x, z, rng() * PI, 0.2);
+        break;
+      }
+    }
+  }
   // ---- Suburban front hedges, set back in the yards along the walk ----
   if (type === 'suburb') {
     for (let si = 0; si < SIDEWALK_SIDES.length; si++) {
