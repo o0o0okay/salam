@@ -110,7 +110,7 @@ const filledShare = filledSegs / Math.max(1, filledSegs + closedOnly);
 assert(filledShare >= 0.35 && filledShare <= 0.65, `filled streets are ${(filledShare * 100).toFixed(1)}% of the hash-closed ones (want about half)`);
 
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
-let barriers = 0, blocksChecked = 0, cranesChecked = 0;
+let barriers = 0, blocksChecked = 0, cranesChecked = 0, pickupsChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   // one barricade per mouth (three props); a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
@@ -126,6 +126,10 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   const got = ch.props.filter(p => p.kind === 'barricade').length;
   assert.equal(got, want * 3, `block ${cx},${cz}: ${got} barricade props for ${want} open mouths (want ${want * 3})`);
   barriers += got;
+  // no pickup (cash, repair, nitro) inside a construction site's frame or crane base, here or on the block next door
+  const inSite = (x, z) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const b of W.siteSpots(cx + i, cz + j)) if (Math.abs(x - b.x) < b.hx + 1.5 && Math.abs(z - b.z) < b.hz + 1.5) return true; return false; };
+  for (const pk of ch.pickups) assert(!inSite(pk.x, pk.z), `block ${cx},${cz}: a ${pk.kind} pickup at ${pk.x.toFixed(1)},${pk.z.toFixed(1)} is inside a construction site`);
+  pickupsChecked += ch.pickups.length;
   // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
   // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
   const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
@@ -143,4 +147,4 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
 }
 
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid`);
+  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid; ${pickupsChecked} pickups, none inside a site`);

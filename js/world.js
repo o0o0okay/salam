@@ -2238,19 +2238,25 @@ function generateChunk(cx, cz, defer = false) {
       }
       }
     }
-    // Pickups (cash lines, repair kits, nitro canisters)
+    // Pickups (cash lines, repair kits, nitro canisters); none inside a construction site (its frame or crane base)
+    const inSite = (x, z, pad) => {
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        for (const b of siteSpots(cx + i, cz + j)) if (Math.abs(x - b.x) < b.hx + pad && Math.abs(z - b.z) < b.hz + pad) return true;
+      }
+      return false;
+    };
     const nLines = rng() < 0.55 ? 1 : 0, extra = rng() < 0.2 ? 1 : 0;
     for (let n = 0; n < nLines + extra; n++) {
       const vert = rng() < 0.5, lane = (rng() < 0.5 ? -1 : 1) * 4, start = r(20, 45);
       const kr = rng();
       if (kr < 0.3) {
         const px = vert ? x0 + lane : x0 + start, pz = vert ? z0 + start : z0 + lane;
-        if (!insideFootprint(px, pz, 1.5)) addPickup(ch, kr < 0.12 ? 'repair' : 'nitro', px, pz);
+        if (!insideFootprint(px, pz, 1.5) && !inSite(px, pz, 1.5)) addPickup(ch, kr < 0.12 ? 'repair' : 'nitro', px, pz);
         continue;
       }
       for (let i = 0; i < 5; i++) {
         const px = vert ? x0 + lane : x0 + start + i * 4, pz = vert ? z0 + start + i * 4 : z0 + lane;
-        if (!insideFootprint(px, pz, 1.5)) addPickup(ch, 'cash', px, pz);            // never inside the embankment
+        if (!insideFootprint(px, pz, 1.5) && !inSite(px, pz, 1.5)) addPickup(ch, 'cash', px, pz);            // never inside the embankment
       }
     }
   }
@@ -2411,6 +2417,25 @@ function generateChunk(cx, cz, defer = false) {
   ch.merged = true;
   scene.add(group);
   return ch;
+}
+// The construction sites of block (cx, cz) as footprints (the frame, and the crane base where there is one): the same
+// streets and rules that generateChunk uses for the grass half of a barred street (see `site` there). A pure function of
+// the street plan, so a pickup on a block's edge can ask about the site next door.
+export function siteSpots(cx, cz) {
+  const x0 = cx * CHUNK, z0 = cz * CHUNK, out = [];
+  const segs = [['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]];
+  const ends = [[[cx, cz], [cx, cz + 1]], [[cx + 1, cz], [cx + 1, cz + 1]], [[cx, cz], [cx + 1, cz]], [[cx, cz + 1], [cx + 1, cz + 1]]];
+  const place = [[x0 + 4, z0 + 30, true], [x0 + 76, z0 + 30, false], [z0 + 4, x0 + 30, true], [z0 + 76, x0 + 30, false]];
+  for (let k = 0; k < 4; k++) {
+    const [a, jx, jz] = segs[k];
+    if (!segClosed(a, jx, jz) || segFilled(a, jx, jz)) continue;
+    if (nbhdJunction(ends[k][0][0], ends[k][0][1]) || nbhdJunction(ends[k][1][0], ends[k][1][1])) continue;
+    const [acr, alc, crane] = place[k];
+    const ma = 22;   // the crane base stands this far past the frame's centre (see siteOn)
+    if (a === 'z') { out.push({ x: acr, z: alc, hx: 3, hz: 14 }); if (crane) out.push({ x: acr, z: alc + ma, hx: 1.3, hz: 1.3 }); }
+    else { out.push({ x: alc, z: acr, hx: 14, hz: 3 }); if (crane) out.push({ x: alc + ma, z: acr, hx: 1.3, hz: 1.3 }); }
+  }
+  return out;
 }
 function addPickup(ch, kind, x, z) {
   let m;
