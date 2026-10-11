@@ -963,6 +963,12 @@ export const SPORT_DEFS = {
   golf:       { pad: [48, 48], ground: 0x2f6b35, court: 0x6fb85a },
 };
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
+// Balls for the courts: one shared sphere and seam ring per size, so a ground with several balls adds no geometry cost.
+const BALL_R = 0.12;
+const BALL_GEO = new THREE.SphereGeometry(BALL_R, 16, 12);
+const SEAM_GEO = new THREE.TorusGeometry(BALL_R * 1.01, 0.006, 4, 24);
+const PATCH_GEO = new THREE.DodecahedronGeometry(0.045);
+const RING_GEO = new THREE.TorusGeometry(0.23, 0.025, 6, 20);
 // How far a ground is grown: 1.5 times, or as far as the block allows. A block's interior is 56 m across (the paving
 // takes the rest), so the longest side is held to SPORT_MAX_SIDE, which keeps a little clear of the pad edge.
 export const SPORT_MAX_SIDE = 55;
@@ -1028,32 +1034,98 @@ export function buildSportMesh(kind, bx, bz, rng) {
   // the pad's own colour (A wide) is left round it. A solves (PW-2A)(PD-2A) = 0.8 PW PD. The fences stand on the pad's edge.
   const A = (2 * (PW + PD) - Math.sqrt(4 * (PW + PD) ** 2 - 3.2 * PW * PD)) / 8, CW = PW - 2 * A, CD = PD - 2 * A;
 
+  // Court markings are thin flat boxes laid end to end along a path, so a circle, an arc or a key is plain geometry.
+  // `path` joins points (closed or open), `mark` is one straight line, `dot` a round spot, `ballAt` a ball on the ground.
+  const MK = 0.12;
+  const mark = (x0, z0, x1, z1, m = M.line) => {
+    const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz);
+    const b = box(L + MK, 0.02, MK, m, (x0 + x1) / 2, Y + 0.04, (z0 + z1) / 2, false);
+    b.rotation.y = -Math.atan2(dz, dx); g.add(b);
+  };
+  const path = (pts, m = M.line, closed = false) => {
+    const n = closed ? pts.length : pts.length - 1;
+    for (let i = 0; i < n; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; mark(a[0], a[1], b[0], b[1], m); }
+  };
+  const arcPts = (cx, cz, r, a0, a1, n = 24) => {
+    const p = [];
+    for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + r * Math.cos(a), cz + r * Math.sin(a)]); }
+    return p;
+  };
+  const dot = (x, z, r, m = M.line) => g.add(cyl(r, r, 0.02, 14, m, x, Y + 0.05, z, false));
+  const ballAt = (x, z, kind) => {
+    const b = new THREE.Group();
+    b.position.set(x, Y + BALL_R, z); b.scale.set(1 / sc, 1, 1 / sc);      // undoes the court's x/z growth, so the ball stays round
+    if (kind === 'basket') {
+      b.add(new THREE.Mesh(BALL_GEO, M.orange));
+      for (const [rx, ry] of [[0, 0], [Math.PI / 2, 0], [0, Math.PI / 2]]) {
+        const s2 = new THREE.Mesh(SEAM_GEO, M.dark); s2.rotation.x = rx; s2.rotation.y = ry; b.add(s2);
+      }
+    } else {                                                             // football: white with black panels
+      b.add(new THREE.Mesh(BALL_GEO, M.white));
+      for (const [px, py, pz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const pt = new THREE.Mesh(PATCH_GEO, M.dark);
+        pt.position.set(px * BALL_R * 0.97, py * BALL_R * 0.97, pz * BALL_R * 0.97); b.add(pt);
+      }
+    }
+    g.add(b);
+  };
+
   if (kind === 'hoops') {
-    const w = CW, d = CD;
+    // A basketball court at the real 28 x 15 m proportions (f = court width / 15), with the key, the free-throw circle,
+    // the three-point line and the centre circle; a backboard, ring and pole at each end; two balls on the court.
+    const w = CW, d = CD, f = d / 15;
     B(w, 0.03, d, M.court, 0, 0.015, 0);
-    for (const s of [-1, 1]) { B(w, 0.02, 0.12, M.line, 0, 0.03, s * d / 2); B(0.12, 0.02, d, M.line, s * w / 2, 0.03, 0); }
-    B(0.12, 0.02, d, M.line, 0, 0.03, 0);
+    path([[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]], M.line, true);
+    mark(0, -d / 2, 0, d / 2);
+    path(arcPts(0, 0, 1.8 * f, 0, 2 * PI, 36), M.line, true);
+    dot(0, 0, 0.12 * f);
     for (const s of [-1, 1]) {
-      const hx = s * (w / 2 + 0.9);                                    // a hoop: pole, backboard and ring
-      piece({ x: hx, z: 0, hx: 0.2, hz: 0.2, kind: 'hoop', brk: 5, color: 0x9aa3ab }, () => {
-        CYL(0.12, 0.12, 3.4, 8, M.metal, hx, 1.7, 0, true);
-        B(0.12, 1.1, 1.7, M.white, s * (w / 2 + 0.45), 3.5, 0);
-        CYL(0.45, 0.45, 0.05, 12, M.orange, s * (w / 2 + 0.05), 3.05, 0);
+      const gx = s * w / 2, c = s > 0 ? PI : 0;                          // c points into the court
+      const kx = gx - s * 5.8 * f;                                         // the free-throw line
+      const bx = s * (w / 2 - 1.575 * f);                                  // the basket: 1.575 m in from the baseline
+      mark(gx, -2.45 * f, kx, -2.45 * f); mark(gx, 2.45 * f, kx, 2.45 * f); mark(kx, -2.45 * f, kx, 2.45 * f);
+      path(arcPts(kx, 0, 1.8 * f, c - PI / 2, c + PI / 2, 24));          // the free-throw circle, on the court side
+      // three-point line: 6.75 m from the basket, straight in from the corners 0.9 m from the sideline
+      const R = 6.75 * f, zc = d / 2 - 0.9 * f, th = Math.asin(Math.min(1, zc / R));
+      const arc = arcPts(bx, 0, R, c - th, c + th, 30);
+      path(arc);
+      for (const q of [arc[0], arc[arc.length - 1]]) mark(gx, Math.sign(q[1]) * zc, q[0], q[1]);
+      // pole behind the baseline, arm to a backboard 0.2 m out from the ring, ring 0.45 m in front of the board
+      const px = s * (w / 2 + 0.6), boardX = s * (w / 2 - 2.19), ringX = bx;
+      piece({ x: px, z: 0, hx: 0.2, hz: 0.2, kind: 'hoop', brk: 5, color: 0x9aa3ab }, () => {
+        CYL(0.12, 0.12, 3.4, 8, M.metal, px, 1.7, 0, true);
+        B(Math.abs(boardX - px), 0.1, 0.1, M.metal, (px + boardX) / 2, 3.05, 0);
+        B(0.06, 1.2, 1.8, M.white, boardX, 3.5, 0);
+        const ring = new THREE.Mesh(RING_GEO, M.orange); ring.position.set(ringX, Y + 3.05, 0); ring.rotation.y = PI / 2; g.add(ring);
       });
     }
+    ballAt(rng() * 8 - 4, -(d / 2) * 0.35 - rng() * 2, 'basket');
+    ballAt(-w / 2 + 2.5 + rng() * 2, d / 2 - 2 - rng() * 2, 'basket');
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'futsal') {
-    const w = CW, d = CD;
+    // A futsal pitch with markings at the real 40 x 20 m proportions (f = court depth / 20): the boundary, the halfway line,
+    // the centre circle and spot, a D-shaped penalty area at each goal, corner flags, and two footballs.
+    const w = CW, d = CD, f = d / 20;
     B(w, 0.03, d, M.court, 0, 0.015, 0);
-    for (const s of [-1, 1]) { B(w, 0.02, 0.14, M.line, 0, 0.03, s * d / 2); B(0.14, 0.02, d, M.line, s * w / 2, 0.03, 0); }
-    B(0.14, 0.02, d, M.line, 0, 0.03, 0);
+    path([[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]], M.line, true);
+    mark(0, -d / 2, 0, d / 2);
+    path(arcPts(0, 0, 3 * f, 0, 2 * PI, 36), M.line, true);
+    dot(0, 0, 0.14 * f);
     for (const s of [-1, 1]) {
+      const gx = s * w / 2, c = s > 0 ? PI : 0;
+      path(arcPts(gx, 0, 6 * f, c - PI / 2, c + PI / 2, 30));              // the penalty D: 6 m out from the goal line
       // a goal: two posts and the bar between them, one breakable piece
-      piece({ x: s * w / 2, z: 0, hx: 0.2, hz: 3.7, kind: 'goal', brk: 5, color: 0xffffff }, () => {
-        for (const zz of [-3.6, 3.6]) CYL(0.06, 0.06, 2.1, 6, M.white, s * w / 2, 1.05, zz);
-        B(0.12, 0.12, 7.2, M.white, s * w / 2, 2.1, 0);
+      piece({ x: gx, z: 0, hx: 0.2, hz: 3.7, kind: 'goal', brk: 5, color: 0xffffff }, () => {
+        for (const zz of [-3.6, 3.6]) CYL(0.06, 0.06, 2.1, 6, M.white, gx, 1.05, zz);
+        B(0.12, 0.12, 7.2, M.white, gx, 2.1, 0);
       });
     }
+    for (const [cx, cz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]]) {
+      CYL(0.03, 0.03, 1.4, 6, M.yellow, cx, 0.7, cz, false);             // corner flag: pole and pennant
+      B(0.04, 0.3, 0.4, M.yellow, cx, 1.3, cz + Math.sign(-cz) * 0.2, false);
+    }
+    ballAt(rng() * 6 - 3, rng() * 4 - 2, 'foot');
+    ballAt(-w / 2 + 6 + rng() * 3, (rng() - 0.5) * (d * 0.6), 'foot');
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'baseball') {
     B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the grass field, inside a strip of tarmac
