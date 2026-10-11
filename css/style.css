@@ -33,8 +33,8 @@ canvas { display:block; }
 .dialSvg { width:100%; height:100%; display:block; overflow:visible; }
 .dialPanel { fill:#0a0b0d; }
 .dialSep { stroke:#3d434b; stroke-width:1; }
-.dialTrack { fill:none; stroke:rgba(8,28,34,.7); stroke-width:7.5; }
-.nitroFill { fill:none; stroke:url(#nitroGrad); stroke-width:7.5; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
+.dialTrack { fill:none; stroke:rgba(8,28,34,.7); stroke-width:9; }
+.nitroFill { fill:none; stroke:url(#nitroGrad); stroke-width:9; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
 .nitroFill.on { stroke:url(#nitroOn); }
 .nitroFill.lock { stroke:#8a9099; }
 .nitroNotch { stroke:#06262e; stroke-width:1.4; }
@@ -42,7 +42,7 @@ canvas { display:block; }
 .dialHub { fill:#0b0d10; }
 .dialRing { fill:none; stroke:#6a7079; stroke-width:2.5; }
 .dialBand { fill:none; stroke:#4a5058; stroke-width:9; }
-.dialRed { fill:none; stroke:#7d1b1b; stroke-width:9; }
+.dialRed { fill:none; stroke:#8e1d1d; stroke-width:9; }
 .dialTick { stroke:#fff; stroke-width:1.6; }
 .dialNum { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:15px; font-style:italic; fill:#fff; text-anchor:middle; dominant-baseline:central; }
 .needleBody { fill:#c9cfd7; stroke:#20242a; stroke-width:.6; }

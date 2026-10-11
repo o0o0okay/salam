@@ -65,7 +65,7 @@ let hudCache = {};
 // The N2O arc (the outer, cyan one) is filled by the nitro level (game.nitro).
 const GAUGE_MAX = 240;
 const SCALE_A0 = 88, SCALE_STEP = 28;
-const NITRO_A0 = 176, NITRO_A1 = 332, NITRO_R = 94.5;
+const NITRO_A0 = 176, NITRO_A1 = 332, NITRO_R = 92.5;
 const dialUnits = kmh => kmh <= 153 ? kmh / 20.4 : Math.min(8, 7.5 + (kmh - 153) / 174);
 const dialPt = (r, a) => [100 + r * Math.cos(a * PI / 180), 100 + r * Math.sin(a * PI / 180)];
 const arcD = (r, a0, a1) => {
@@ -86,7 +86,7 @@ const arcD = (r, a0, a1) => {
   const fill = el('path', { d: arcD(NITRO_R, NITRO_A0, NITRO_A1), pathLength: 100 }, 'nitroFill');
   fill.id = 'nitroFill';                                                                       // filled by updateHUD
   for (let k = 1; k <= 11; k++) {                                                              // notches across the N2O arc, every 14 degrees
-    const a = NITRO_A0 + k * 14, [x1, y1] = dialPt(91, a), [x2, y2] = dialPt(98, a);
+    const a = NITRO_A0 + k * 14, [x1, y1] = dialPt(87.5, a), [x2, y2] = dialPt(96, a);
     el('line', { x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2) }, 'nitroNotch');
   }
   el('path', { d: arcD(79, SCALE_A0, SCALE_A0 + 8 * SCALE_STEP) }, 'dialBand');                // the grey scale band
@@ -101,8 +101,8 @@ const arcD = (r, a0, a1) => {
   const [lx, ly] = dialPt(NITRO_R, 314), lb = el('text', { x: lx.toFixed(2), y: ly.toFixed(2), transform: `rotate(44 ${lx.toFixed(2)} ${ly.toFixed(2)})` }, 'nitroLbl');
   lb.textContent = 'N2O';
 }
-// the gear is derived from the speed (the car has no gearbox): 1 to 5, stepping up at 40, 80, 130 and 200 km/h
-const GEAR_STEPS = [40, 80, 130, 200];
+// the gear is derived from the speed (the car has no gearbox): 1 to 5, stepping up at 40, 80, 160 and 210 km/h (3 at 153)
+const GEAR_STEPS = [40, 80, 160, 210];
 export function resetHudCache() { hudCache = {}; }
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 export function updateHUD() {
