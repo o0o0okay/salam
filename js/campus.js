@@ -133,6 +133,42 @@ export function buildAirAmbulance() {
 // bands, a glazed tower carrying the red-cross emblem, a glass entrance under a HOSPITAL sign board, an
 // emergency bay under an EMERGENCY sign and a rooftop helipad. Returns the unpositioned group plus the
 // collision volumes and the painted parking bays (world coordinates).
+// A telecom mast on a roof, as on the reference towers: a square lattice (four legs, a ring and two diagonal braces
+// per face on every level), two dish antennas and two panel antennas on arms, a whip antenna and a red warning light.
+// Plain geometry, built in the builder's block-local frame: (x, y, z) is the roof surface under the base, h the height.
+// It has no solids: it stands on a roof that no car can reach.
+function roofMast(x, y, z, h) {
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  const steel = mat(0xb3bac0), dark = mat(0x3a3f46), dish = mat(0xdfe3e6), panel = mat(0xf2f4f5), warn = mat(0xd6342c);
+  const W = 1.2, N = Math.max(6, Math.round(h / 1.2)), LV = h / N;
+  const D = Math.hypot(W, LV), th = Math.atan2(W, LV);     // a diagonal brace spans one level and one face width
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) m.add(box(0.1, h, 0.1, steel, sx * W / 2, h / 2, sz * W / 2, false));   // legs
+  for (let k = 0; k < N; k++) {
+    const y0 = k * LV, y1 = y0 + LV, ym = y0 + LV / 2, sg = k % 2 ? 1 : -1;
+    m.add(box(W, 0.07, 0.07, steel, 0, y1, W / 2, false)); m.add(box(W, 0.07, 0.07, steel, 0, y1, -W / 2, false));
+    m.add(box(0.07, 0.07, W, steel, W / 2, y1, 0, false)); m.add(box(0.07, 0.07, W, steel, -W / 2, y1, 0, false));
+    for (const sz of [-1, 1]) { const b = box(0.06, D, 0.06, steel, 0, ym, sz * W / 2, false); b.rotation.z = sg * th; m.add(b); }
+    for (const sx of [-1, 1]) { const b = box(0.06, D, 0.06, steel, sx * W / 2, ym, 0, false); b.rotation.x = sg * th; m.add(b); }
+  }
+  // two dish antennas on arms, one on the +x face and one on the -z face, each on a different level
+  const dishes = [[W / 2 + 0.55, h * 0.42, 0, 'x'], [0, h * 0.7, -W / 2 - 0.55, 'z']];
+  for (const [dx, dy, dz, face] of dishes) {
+    m.add(face === 'x' ? box(1.1, 0.06, 0.06, steel, dx - 0.5, dy, 0, false) : box(0.06, 0.06, 1.1, steel, 0, dy, dz + 0.5, false));
+    const d = cyl(0.5, 0.5, 0.06, 16, dish, dx, dy, dz, false);
+    if (face === 'x') d.rotation.z = Math.PI / 2; else d.rotation.x = Math.PI / 2;
+    m.add(d);
+  }
+  // two panel antennas on the -x and +z faces
+  m.add(box(0.08, 1.0, 0.5, panel, -W / 2 - 0.12, h * 0.3, 0, false));
+  m.add(box(0.5, 1.0, 0.08, panel, 0.3, h * 0.55, W / 2 + 0.12, false));
+  // top plate, whip antenna and warning light
+  m.add(box(1.4, 0.1, 1.4, steel, 0, h + 0.05, 0, false));
+  m.add(cyl(0.025, 0.025, 2.6, 4, dark, 0, h + 1.35, 0, false));
+  m.add(cyl(0.1, 0.1, 0.14, 6, warn, 0, h + 0.17, 0, false));
+  return m;
+}
+
 export function buildHospitalMesh(bx, bz, rng) {
   const g = new THREE.Group(), solids = [], bays = [], paint = [];
   const M = {
@@ -183,6 +219,7 @@ export function buildHospitalMesh(bx, bz, rng) {
   B(2.1, 0.34, 0.34, M.white, T.x, ct + 2.7, T.z + T.d / 2 - 0.18, false);        // white cross on its face
   B(0.34, 2.1, 0.34, M.white, T.x, ct + 2.7, T.z + T.d / 2 - 0.18, false);
   B(1.0, 1.0, 0.6, M.steel, T.x, ct + 0.5, T.z + T.d / 2 - 0.4, false);           // its foot on the parapet
+  g.add(roofMast(T.x - 2.8, ct, T.z - 2.8, 11));                                 // telecom mast on the tower roof
 
   // ---- west wing: emergency department with the helipad on its roof ----
   const W = { x: -20, z: -16.5, w: 11, d: 12, h: 6.6 };
@@ -309,6 +346,7 @@ export function buildFireStationMesh(bx, bz, rng) {
   B(H.w + 0.4, 0.7, H.d + 0.4, M.band, H.x, Y + 3.5, H.z, false);              // upper band
   B(H.w + 0.9, 0.6, H.d + 0.9, M.roof, H.x, Y + H.h + 0.3, H.z, false);        // roof cap
   B(H.w + 0.5, 0.35, 0.5, M.white, H.x, Y + H.h + 0.7, H.z + H.d / 2 - 0.1, false);
+  g.add(roofMast(H.x - 7, Y + H.h + 0.6, H.z - 2.5, 9));                          // telecom mast on the hall roof
   solid(H.x, H.z, H.w / 2, H.d / 2);
   const frontZ = H.z + H.d / 2;                                                // the face with the bay doors
 
@@ -791,6 +829,7 @@ export function buildBankMesh(bx, bz, rng) {
   B(HW, HH, HD, M.stone, hallX, HH / 2, hallZ);
   B(WW, WH, HD, M.wing, wingX, WH / 2, hallZ);
   B(WW + 0.6, 0.5, HD + 0.6, M.roofCap, wingX, WH + 0.25, hallZ, false);
+  g.add(roofMast(wingX + 1.5, Y + WH + 0.5, hallZ + 3, 10));                     // telecom mast on the wing roof
   solids.push({ x: bx + hallX, z: bz + hallZ, hx: HW / 2 + 0.6, hz: HD / 2 + 0.6 });
   solids.push({ x: bx + wingX, z: bz + hallZ, hx: WW / 2 + 0.6, hz: HD / 2 + 0.6 });
 
