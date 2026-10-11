@@ -1087,9 +1087,23 @@ function generateChunk(cx, cz, defer = false) {
   const siteMachines = (axis, acr, alc, seed) => {
     const n = 1 + ((seed >>> 3) & 1), k1 = (seed >>> 4) % 5, k2 = (k1 + 1 + ((seed >>> 7) % 4)) % 5;
     [k1, k2].slice(0, n).forEach((kind, i) => {
-      const { g, L, W } = siteMachine(kind);
       const ac = n === 1 ? 0 : (i === 0 ? -1.9 : 1.9), al = 31;
       const px = axis === 'z' ? acr + ac : alc + al, pz = axis === 'z' ? alc + al : acr + ac;
+      if (kind === 1) {
+        // The cement mixer is the street's own transit-mixer truck (buildCar 'cementtruck'), the same model the traffic
+        // drives, standing in its site bay with the same destructible heavy-vehicle record as the other machines.
+        const m = buildCar('cementtruck', MIXER_ORANGE, false);
+        m.position.set(px, 0, pz); m.rotation.y = axis === 'z' ? 0 : PI / 2; group.add(m);
+        const td = CAR_DIMS.cementtruck;                  // e1 is the half length along the truck, e2 the half width
+        const hx = axis === 'z' ? td.e2 + 0.2 : td.e1 + 0.2, hz = axis === 'z' ? td.e1 + 0.2 : td.e2 + 0.2;
+        solid(px, pz, hx, hz, 'parkedcar');
+        const sEntry = ch.solids[ch.solids.length - 1];
+        const dims = CAR_DIMS.ambulance;
+        const rec = { mesh: m, x: px, z: pz, kind: 'ambulance', mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color: MIXER_ORANGE, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
+        sEntry.base = { hx, hz }; sEntry.parked = rec; sEntry.machine = kind;
+        return;
+      }
+      const { g, L, W } = siteMachine(kind);
       const m = own(ch, mergeStandalone(g)); m.position.set(px, 0, pz); m.rotation.y = axis === 'z' ? 0 : PI / 2; group.add(m);
       const hx = axis === 'z' ? W / 2 : L / 2, hz = axis === 'z' ? L / 2 : W / 2;
       // A machine is a parked heavy vehicle, destructible like the ambulance: it takes rams (hitParkedHeavy), its
@@ -2459,6 +2473,7 @@ function generateChunk(cx, cz, defer = false) {
 // Each builder returns { g, L, W }: a group whose length runs along local z (the front is +z) and its width along x.
 // Built as plain boxes and cylinders, merged per block like the other stand-alone pieces (see mergeStandalone).
 const MACH_Y = 0xf2b705, MACH_D = 0x2b2f35, MACH_GL = 0x3d5566, MACH_BK = 0x1d1f22, MACH_OR = 0xf5a623, MACH_DRUM = 0xf2a33a;
+const MIXER_ORANGE = 0xe8731a;                       // the cement mixer's paint, as in the reference photo
 function siteMachine(kind) {
   const g = new THREE.Group();
   const sm = (w, h, d, c, x, y, z, rx = 0) => { const m = box(w, h, d, mat(c), x, y, z, false); m.rotation.x = rx; g.add(m); };
@@ -2492,24 +2507,6 @@ function siteMachine(kind) {
     sm(1.4, 0.16, 0.3, K, -0.6, 0.95, 6.9);              // bucket lip
     for (const x of [-1.2, -0.9, -0.6, -0.3, 0]) sm(0.14, 0.22, 0.2, K, x, 0.85, 7.1);               // five teeth
     return finishMachine(g, 10.4, 3.2, 2.0);
-  }
-  if (kind === 1) {                       // cement mixer: a cab-over orange truck with a tilted grey-banded drum
-    sm(2.0, 0.45, 8.6, K, 0, 0.9, 0.6);                  // chassis
-    sm(2.4, 1.9, 2.1, O, 0, 2.0, 3.25);                  // cab
-    sm(2.1, 1.0, 0.06, GL, 0, 2.45, 4.31);               // windscreen
-    for (const x of [-1.3, 1.3]) sm(0.12, 0.6, 0.3, K, x, 2.6, 4.2);   // mirrors
-    sm(2.2, 1.1, 1.9, O, 0, 1.4, 5.1);                   // bonnet
-    sm(1.8, 0.9, 0.08, 0x6b7078, 0, 1.5, 6.1);           // grille
-    sm(2.2, 0.35, 0.22, K, 0, 0.7, 6.25);                // bumper
-    for (const x of [-0.7, 0.7]) sm(0.32, 0.22, 0.1, W_, x, 1.5, 6.2);
-    for (const x of [-1.05, 1.05]) sc(0.09, 2.0, 0x9aa0a6, x, 2.9, 2.2);   // exhaust stacks
-    sm(1.4, 0.9, 2.0, K, 0, 1.2, -1.3);                  // drum frame
-    const a = 0.35, th = Math.PI / 2 - a;                // drum axis (0, sin a, cos a): the front rides higher
-    sct(0.9, 1.05, 4.6, MACH_DRUM, 0, 2.6, -1.3, th);
-    for (const t of [-1.2, 1.2]) sct(1.08, 1.08, 0.16, 0x5b6066, 0, 2.6 + t * Math.sin(a), -1.3 + t * Math.cos(a), th);
-    for (const z of [4.1]) for (const x of [-1.2, 1.2]) sc(0.55, 0.42, T, x, 0.55, z, 0, Math.PI / 2);
-    for (const z of [-1.9, -2.9]) for (const x of [-1.25, 1.25]) { sc(0.6, 0.42, T, x, 0.6, z, 0, Math.PI / 2); sc(0.3, 0.44, O, x, 0.6, z, 0, Math.PI / 2); }
-    return finishMachine(g, 10.0, 2.6, 1.3);
   }
   if (kind === 2) {                       // wheel loader: big black tyres with yellow hubs, a cab with glass, a scoop bucket on lift arms
     sm(2.0, 0.8, 1.9, Y, 0, 1.0, 1.4);                   // front frame

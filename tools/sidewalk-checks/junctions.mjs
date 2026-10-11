@@ -135,6 +135,14 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   const machines = ch.solids.filter(q => q.machine !== undefined).length;
   assert(machines >= frames && machines <= 2 * frames, `block ${cx},${cz}: ${machines} machines for ${frames} sites (want one or two each)`);
   machinesChecked += machines;
+  // a machine stands clear of everything else in its block: no solid of the site or the street overlaps its footprint
+  for (const mc of ch.solids.filter(q => q.machine !== undefined)) {
+    for (const o of ch.solids) {
+      if (o === mc || o.hx === undefined || o.hz === undefined) continue;
+      const overlap = Math.abs(o.x - mc.x) < o.hx + mc.hx - 0.05 && Math.abs(o.z - mc.z) < o.hz + mc.hz - 0.05;
+      assert(!overlap, `block ${cx},${cz}: ${mc.machine === 1 ? 'mixer' : 'machine ' + mc.machine} at ${mc.x.toFixed(1)},${mc.z.toFixed(1)} overlaps a ${o.kind} at ${o.x.toFixed(1)},${o.z.toFixed(1)}`);
+    }
+  }
   // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
   // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
   const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
