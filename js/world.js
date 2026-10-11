@@ -1649,14 +1649,23 @@ function generateChunk(cx, cz, defer = false) {
     if (plan) {
       const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.33;      // the road sits 3 cm above the pad (its top is 0.30)
       for (const rd of plan.roads) {
-        // the road: flat box segments about 1 m long, each turned to the path's tangent (a curve of 1 m chords on a 6 m
-        // radius reads as smooth, and boxes bake like every other block piece)
-        for (let i = 0; i + 2 < rd.ribbon.length; i += 2) {
-          const p = rd.ribbon[i], q = rd.ribbon[i + 2];
-          if (!plan.inC((p.x + q.x) / 2, (p.z + q.z) / 2)) continue;     // a piece belongs to the block its midpoint is in
-          const len = Math.hypot(q.x - p.x, q.z - p.z);
-          const sg = box(len + 0.1, 0.04, ESTATE_ROAD * 2, asph, (p.x + q.x) / 2, Y + 0.02, (p.z + q.z) / 2, false);
-          sg.rotation.y = Math.atan2(-p.tz, p.tx); add(sg);
+        // the road as one continuous strip: the two kerb lines run along the path, half the width either side of it along
+        // its normal, and two triangles join each step. (The old flat boxes, each turned to its own chord, left notches
+        // on the outside of every bend, which read as saw-teeth along the road.)
+        {
+          const R = rd.ribbon, pos = [], uv = [], idx = [];
+          for (let i = 0; i < R.length; i++) {
+            const p = R[i], ox = -p.tz * ESTATE_ROAD, oz = p.tx * ESTATE_ROAD;
+            pos.push(p.x + ox, Y + 0.04, p.z + oz, p.x - ox, Y + 0.04, p.z - oz);
+            uv.push(0, i * 0.25, 1, i * 0.25);
+            if (i > 0) { const a = 2 * (i - 1), b = 2 * i; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+          geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+          geo.setIndex(idx); geo.computeVertexNormals();
+          ch.geos.push(geo);                                                    // freed with the block
+          add(new THREE.Mesh(geo, asph));
         }
         rd.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
           if (i % 8 === 0 && i > 2 && i < rd.ribbon.length - 4 && plan.inC(p.x, p.z)) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
@@ -2429,6 +2438,7 @@ function generateChunk(cx, cz, defer = false) {
       const keep = ends.map(([ix, iz]) => { const t = stripStops(ix, iz, cx, cz, si); return t.stop + t.cut; });
       for (let a = edge0 + keep[0] + 6; a < edge0 + CHUNK - keep[1] - 6; a += 3.4) {
         if (rng() < 0.28) continue;                              // gaps read as driveways and gateways
+        if (Math.abs(a - (edge0 + CHUNK / 2)) < 4) continue;      // and a driveway gap in the middle of every side, so the yards can be reached
         const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : a;
         const z = s.along === 'z' ? a : bz + s.fixed * (CHUNK / 2 - d);
         if (occupied(x, z, 1.5)) continue;

@@ -82,7 +82,7 @@ const THREE={Group:Obj3D,Mesh,InstancedMesh,BoxGeometry,Matrix4:M4,
   MeshBasicMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
   MeshLambertMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
   CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,TorusGeometry:BoxGeometry,DodecahedronGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry,
-  BufferGeometry:function(){BoxGeometry.call(this,1,1,1);this.setAttribute=()=>{};this.setIndex=()=>{};},Float32BufferAttribute:function(a,n){this.array=a;this.count=a.length/n;}};
+  BufferGeometry:function(){BoxGeometry.call(this,1,1,1);this.attributes={};this.index=null;this.setAttribute=(n,a)=>{this.attributes[n]=a;return this;};this.setIndex=a=>{this.index=Array.isArray(a)?{array:a,count:a.length}:a;return this;};this.computeVertexNormals=()=>{};},Float32BufferAttribute:function(a,n){this.array=a;this.count=a.length/n;}};
 const scene=new THREE.Group();
 // the merged result has to behave like a BufferGeometry: js/world.js shares merged text geometries between
 // signs and the chunk/prop mergers clone them, exactly as three.js would
