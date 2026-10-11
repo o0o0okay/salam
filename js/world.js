@@ -1079,6 +1079,19 @@ function generateChunk(cx, cz, defer = false) {
   // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
   // pair, a tower crane. Boxes only, and no solids: the barricades at the mouths keep every car out. Neighbourhood
   // streets (their curved roads run across the grass) and filled streets get no site.
+  // one or two machines (a random pick of five kinds, never the same kind twice) on the bare earth past the crane, side
+  // by side across the strip; they are solid, like the frame, and are marked so the checks can count them
+  const siteMachines = (axis, acr, alc, seed) => {
+    const n = 1 + ((seed >>> 3) & 1), k1 = (seed >>> 4) % 5, k2 = (k1 + 1 + ((seed >>> 7) % 4)) % 5;
+    [k1, k2].slice(0, n).forEach((kind, i) => {
+      const { g, L, W } = siteMachine(kind);
+      const ac = n === 1 ? 0 : (i === 0 ? -1.9 : 1.9), al = 34;
+      const px = axis === 'z' ? acr + ac : alc + al, pz = axis === 'z' ? alc + al : acr + ac;
+      const m = own(ch, mergeStandalone(g)); m.position.set(px, 0, pz); m.rotation.y = axis === 'z' ? 0 : PI / 2; group.add(m);
+      solid(px, pz, axis === 'z' ? W / 2 : L / 2, axis === 'z' ? L / 2 : W / 2, 'building');
+      ch.solids[ch.solids.length - 1].machine = kind;
+    });
+  };
   const siteOn = (axis, acr, alc, crane, seed) => {
     const L = 28, D = 6, H = 3.2, nF = 5 + (seed & 1) + ((seed >>> 1) & 1), top = nF * H;
     // (ac, al) are offsets across and along the street from the site's centre (acr, alc)
@@ -1093,6 +1106,7 @@ function generateChunk(cx, cz, defer = false) {
     for (let a = -L / 2 + 0.6; a < L / 2; a += 8) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.12, 1.2, 0.12, 0.3 + top + 0.6, 0x6b6f73);
     // the frame is solid on its footprint: a car cannot drive in under its columns
     solid(axis === 'z' ? acr : alc, axis === 'z' ? alc : acr, axis === 'z' ? D / 2 : L / 2, axis === 'z' ? L / 2 : D / 2, 'building');
+    siteMachines(axis, acr, alc, seed);
     if (!crane) return;
     // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
     const ma = L / 2 + 8, mastTop = 34;
@@ -2417,6 +2431,62 @@ function generateChunk(cx, cz, defer = false) {
   ch.merged = true;
   scene.add(group);
   return ch;
+}
+// ---- construction machines parked on a site's bare earth (one or two per site, five kinds) ----
+// Each builder returns { g, L, W }: a group whose length runs along local z (the front is +z) and its width along x.
+// Built as plain boxes and cylinders, merged per block like the other stand-alone pieces (see mergeStandalone).
+const MACH_Y = 0xf2b705, MACH_D = 0x2b2f35, MACH_GL = 0x3d5566, MACH_BK = 0x1d1f22, MACH_OR = 0xf5a623, MACH_DRUM = 0xf2a33a;
+function siteMachine(kind) {
+  const g = new THREE.Group();
+  const sm = (w, h, d, c, x, y, z, rx = 0) => { const m = box(w, h, d, mat(c), x, y, z, false); m.rotation.x = rx; g.add(m); };
+  const sc = (r, h, c, x, y, z, rx = 0, rz = 0) => { const m = cyl(r, r, h, 10, mat(c), x, y, z, false); m.rotation.x = rx; m.rotation.z = rz; g.add(m); };
+  if (kind === 0) {                       // tracked excavator: tracks, house, a boom and stick with a bucket
+    sm(0.7, 0.9, 6.0, 0x222428, -1.05, 0.45, 0); sm(0.7, 0.9, 6.0, 0x222428, 1.05, 0.45, 0);
+    sm(2.2, 0.5, 3.4, MACH_Y, 0, 1.15, -0.6);
+    sm(2.0, 1.1, 2.2, MACH_Y, 0, 1.95, -1.0);
+    sm(1.9, 0.15, 1.6, MACH_D, 0, 2.97, -1.0);
+    sm(1.8, 0.8, 0.08, MACH_GL, 0, 2.4, 0.15);
+    sm(0.5, 3.4, 0.5, MACH_Y, 0, 3.39, 1.42, 0.8);
+    sm(0.4, 2.9, 0.4, MACH_Y, 0, 3.74, 3.7, 2.2);
+    sm(1.1, 0.7, 0.9, MACH_D, 0, 2.9, 5.0);
+    return { g, L: 6.4, W: 2.6 };
+  }
+  if (kind === 1) {                       // cement mixer: a truck cab and a tilted drum
+    sm(2.2, 0.5, 8.0, MACH_D, 0, 0.95, 0);
+    sm(2.4, 1.8, 2.2, MACH_OR, 0, 1.95, 3.0);
+    sm(2.1, 0.8, 0.06, MACH_GL, 0, 2.2, 4.13);
+    sm(1.2, 0.8, 1.8, MACH_D, 0, 1.5, -1.2);
+    sc(0.95, 4.2, MACH_DRUM, 0, 2.5, -1.2, Math.PI / 2);
+    for (const z of [2.6, -2.8, -3.6]) for (const x of [-1.25, 1.25]) sc(0.5, 0.4, MACH_BK, x, 0.5, z, 0, Math.PI / 2);
+    return { g, L: 8.0, W: 2.6 };
+  }
+  if (kind === 2) {                       // wheel loader: a cab on a short body, lift arms and a front bucket
+    sm(2.1, 0.9, 2.8, MACH_Y, 0, 1.0, -1.1);
+    sm(1.9, 1.3, 1.8, MACH_Y, 0, 2.2, -1.4);
+    sm(1.7, 0.8, 0.06, MACH_GL, 0, 2.4, -0.46);
+    sm(2.0, 0.12, 1.9, MACH_D, 0, 2.9, -1.4);
+    for (const x of [-0.9, 0.9]) sm(0.3, 0.3, 2.4, MACH_D, x, 1.6, 1.7);
+    sm(2.3, 0.9, 0.9, MACH_Y, 0, 1.2, 3.0);
+    sm(2.3, 0.2, 0.2, MACH_D, 0, 1.75, 3.45);
+    for (const z of [1.2, -2.0]) for (const x of [-1.15, 1.15]) sc(0.6, 0.45, MACH_BK, x, 0.6, z, 0, Math.PI / 2);
+    return { g, L: 5.6, W: 2.4 };
+  }
+  if (kind === 3) {                       // truck-mounted crane: a cab, a chassis and a boom raised at an angle
+    sm(2.3, 0.7, 7.6, MACH_D, 0, 0.85, 0);
+    sm(2.3, 1.5, 1.9, MACH_Y, 0, 1.85, 3.1);
+    sm(2.1, 0.8, 0.06, MACH_GL, 0, 2.0, 4.07);
+    sm(2.1, 0.9, 2.8, MACH_Y, 0, 1.9, -1.4);
+    sm(0.6, 8.0, 0.6, 0xe0a010, 0, 4.88, 1.92, 0.9);
+    for (const z of [2.4, -2.6, -3.6]) for (const x of [-1.25, 1.25]) sc(0.6, 0.5, MACH_BK, x, 0.6, z, 0, Math.PI / 2);
+    return { g, L: 8.0, W: 2.5 };
+  }
+  // road roller: a single steel drum under a yellow frame and a cab
+  sc(1.1, 2.3, MACH_BK, 0, 1.1, 1.1, 0, Math.PI / 2);
+  sm(2.2, 0.6, 3.0, MACH_Y, 0, 1.4, 0);
+  sm(2.0, 1.4, 1.7, MACH_Y, 0, 2.6, -0.9);
+  sm(1.8, 0.9, 0.06, MACH_GL, 0, 2.7, -0.04);
+  for (const x of [-1.15, 1.15]) sc(0.6, 0.5, MACH_BK, x, 0.6, -1.5, 0, Math.PI / 2);
+  return { g, L: 4.8, W: 2.6 };
 }
 // The construction sites of block (cx, cz) as footprints (the frame, and the crane base where there is one): the same
 // streets and rules that generateChunk uses for the grass half of a barred street (see `site` there). A pure function of
