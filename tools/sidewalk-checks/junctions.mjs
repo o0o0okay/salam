@@ -23,6 +23,8 @@ for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
   junctions++;
   const arms = [F.segClosed('x', jx, jz), F.segClosed('x', jx - 1, jz), F.segClosed('z', jx, jz), F.segClosed('z', jx, jz - 1)];
   const n = arms.filter(Boolean).length;
+  // a neighbourhood's centre junction is inside it: all four of its streets are closed, and that is the design
+  if (F.nbhdInterior(jx, jz)) { assert.equal(n, 4, `interior junction ${jx},${jz} has ${n} closed arms`); continue; }
   assert(n <= 1, `junction ${jx},${jz} loses ${n} arms`);
   const arm = F.closedArm(jx, jz);
   assert((arm !== null) === (n === 1), `closedArm disagrees with the segments at ${jx},${jz}`);
@@ -95,11 +97,16 @@ for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
 let barriers = 0, blocksChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
-  const want = [F.segClosed('z', cx, cz), F.segClosed('z', cx + 1, cz), F.segClosed('x', cx, cz), F.segClosed('x', cx, cz + 1)].filter(Boolean).length;
+  // one barrier per mouth; a mouth on a neighbourhood's centre junction has none
+  const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
+  const want = (F.segClosed('z', cx, cz) ? mouths(cx, cz) + mouths(cx, cz + 1) : 0)
+    + (F.segClosed('z', cx + 1, cz) ? mouths(cx + 1, cz) + mouths(cx + 1, cz + 1) : 0)
+    + (F.segClosed('x', cx, cz) ? mouths(cx, cz) + mouths(cx + 1, cz) : 0)
+    + (F.segClosed('x', cx, cz + 1) ? mouths(cx, cz + 1) + mouths(cx + 1, cz + 1) : 0);
   const ch = W.generateChunk(cx, cz, true);
   blocksChecked++;
   const got = ch.solids.filter(s => s.kind === 'barrier').length;
-  assert.equal(got, want * 2, `block ${cx},${cz}: ${got} barriers for ${want} closed sides (want ${want * 2})`);
+  assert.equal(got, want, `block ${cx},${cz}: ${got} barriers for ${want} open mouths`);
   barriers += got;
 }
 

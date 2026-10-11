@@ -410,10 +410,64 @@ const CLOSE_CLEAR = 3;           // junctions this close (in each axis) to the o
 const closedCache = new Map();
 const segHashOf = (axis, jx, jz) => hash2(jx * 2 + (axis === 'x' ? 0 : 1), jz * 3 + (axis === 'x' ? 17 : 91)) >>> 0;
 function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez - 1], ['z', ex, ez]]; }
+// ---- Neighbourhoods ----
+// A neighbourhood is a 2x2 block region (chunks 2RX..2RX+1 by 2RZ..2RZ+1) whose streets are curved, not the grid.
+// Its outer streets stay open; its four inner streets are closed (grass) and the curved roads (nbhdPlan in world.js)
+// run across the grass. Its lattice is the 3x3 junctions 2RX..2RX+2 by 2RZ..2RZ+2: the four mid-edge junctions are
+// three-way (their inner arm is the closed inner street), the centre junction is inside (no traffic, no lights, no
+// island), and the corners stay four-way. No hash-closed street or roundabout touches a lattice junction.
+// A region qualifies by hash (about one in six), never near spawn or a flyover, and never next to another region.
+function nbhdBase(RX, RZ) {
+  if (RX === 0 || RX === -1 || RZ === 0 || RZ === -1) return false;
+  if ((hash2(RX * 13 + 5, RZ * 7 + 11) & 0xFF) >= 42) return false;
+  for (let jx = 2 * RX; jx <= 2 * RX + 2; jx++) for (let jz = 2 * RZ; jz <= 2 * RZ + 2; jz++) {
+    if (Math.abs(jx) <= CLOSE_CLEAR && Math.abs(jz) <= CLOSE_CLEAR) return false;
+    if (jx === 0 || jz === 0) return false;
+    if (besideFlyover(jx, jz)) return false;
+    if (flyoverNear(jx * FLY.span, jz * FLY.span, FLY.rampEnd + 10)) return false;
+  }
+  return true;
+}
+const nbhdCache = new Map();
+export function nbhdOf(RX, RZ) {
+  const key = RX + ',' + RZ;
+  if (nbhdCache.has(key)) return nbhdCache.get(key);
+  let v = nbhdBase(RX, RZ);
+  for (let dx = -1; v && dx <= 1; dx++) for (let dz = -1; v && dz <= 1; dz++) if ((dx || dz) && nbhdBase(RX + dx, RZ + dz)) v = false;
+  nbhdCache.set(key, v);
+  return v;
+}
+// The neighbourhood whose lattice holds junction (jx, jz), as [RX, RZ], or null.
+const nbhdJCache = new Map();
+export function nbhdJunction(jx, jz) {
+  const key = jx + ',' + jz;
+  if (nbhdJCache.has(key)) return nbhdJCache.get(key);
+  let res = null;
+  for (const RX of [Math.floor(jx / 2), Math.floor(jx / 2) - 1]) for (const RZ of [Math.floor(jz / 2), Math.floor(jz / 2) - 1]) {
+    if (res) break;
+    if (jx >= 2 * RX && jx <= 2 * RX + 2 && jz >= 2 * RZ && jz <= 2 * RZ + 2 && nbhdOf(RX, RZ)) res = [RX, RZ];
+  }
+  nbhdJCache.set(key, res);
+  return res;
+}
+// The centre junction of a neighbourhood: inside, with no traffic.
+export function nbhdInterior(jx, jz) {
+  const n = nbhdJunction(jx, jz);
+  return !!n && jx === 2 * n[0] + 1 && jz === 2 * n[1] + 1;
+}
+// The four streets inside a neighbourhood (closed for good; they are grass under the curved roads).
+function nbhdInternalSeg(axis, jx, jz) {
+  const n = nbhdJunction(jx, jz) || nbhdJunction(axis === 'x' ? jx + 1 : jx, axis === 'x' ? jz : jz + 1);
+  if (!n) return false;
+  const [RX, RZ] = n;
+  if (axis === 'x') return jz === 2 * RZ + 1 && (jx === 2 * RX || jx === 2 * RX + 1);
+  return jx === 2 * RX + 1 && (jz === 2 * RZ || jz === 2 * RZ + 1);
+}
 function segCandidate(axis, jx, jz) {
   const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
   for (const [x, z] of ends) {
     if (x === 0 || z === 0) return false;                                 // main roads carry the flyovers
+    if (nbhdJunction(x, z)) return false;                                 // a neighbourhood's streets are its own
     if (Math.abs(x) <= CLOSE_CLEAR && Math.abs(z) <= CLOSE_CLEAR) return false;   // the spawn district stays a normal grid
     if (besideFlyover(x, z)) return false;
     if (flyoverNear(x * FLY.span, z * FLY.span, FLY.rampEnd + 4)) return false;
@@ -424,7 +478,8 @@ export function segClosed(axis, jx, jz) {
   const key = axis + jx + ',' + jz;
   let v = closedCache.get(key);
   if (v !== undefined) return v;
-  v = false;
+  v = nbhdInternalSeg(axis, jx, jz);
+  if (v) { closedCache.set(key, v); return v; }
   if (segCandidate(axis, jx, jz)) {
     const h = segHashOf(axis, jx, jz);
     const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
@@ -441,6 +496,7 @@ export function segClosed(axis, jx, jz) {
 }
 // Which arm of junction (jx, jz) is closed: 'e', 'w', 'n', 's', or null for a four-way junction.
 export function closedArm(jx, jz) {
+  if (nbhdInterior(jx, jz)) return null;
   if (segClosed('x', jx, jz)) return 'e';
   if (segClosed('x', jx - 1, jz)) return 'w';
   if (segClosed('z', jx, jz)) return 'n';
@@ -472,6 +528,7 @@ export function nearClosedStreet(x, z, margin) {
 const plazaCache = new Map();
 const plazaPrio = (jx, jz) => hash2(jx * 5 + 1, jz * 5 + 2) >>> 0;
 function plazaEligible(jx, jz) {
+  if (nbhdJunction(jx, jz)) return false;                        // a neighbourhood has no island
   if (jx === 0 || jz === 0) return false;                       // main roads carry flyovers: keep plazas off them
   if (besideFlyover(jx, jz)) return false;                      // the cut corner would swallow the island
   if (flyoverNear(jx * FLY.span, jz * FLY.span, FLY.rampEnd + 4)) return false; // a ramp would sweep through it
