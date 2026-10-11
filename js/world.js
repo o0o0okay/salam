@@ -2132,6 +2132,7 @@ function generateChunk(cx, cz, defer = false) {
     const kind = FACTORY_KINDS[Math.floor(rng() * FACTORY_KINDS.length)];
     const P = buildFactoryMesh(bxo, bzo, rng, kind);
     ch.factory = kind; ch.factorySolids = P.solids;       // the layout, and its solids (for the checks)
+    ch.stacks = P.stacks;                                 // chimney tops: smoke comes out of them (js/chimneySmoke.js)
     P.group.position.set(bxo, 0, bzo);
     bake(ch, P.group);                                    // merged with the rest of the block, in slices
     for (const sv of P.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);

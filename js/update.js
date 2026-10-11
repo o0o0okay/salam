@@ -9,6 +9,7 @@ import { CAR_DIMS } from './carModels.js';
 import { driveCar, syncCarMesh, removeCar } from './vehicle.js';
 import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
+import { updateChunkSmoke } from './chimneySmoke.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
 import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
@@ -234,6 +235,7 @@ export function update(dt) {
   updateTrafficLights(dt);
   spinPickups(game.t);
   updateParticles(dt);
+  updateChunkSmoke(dt, player.x, player.z);   // factory chimneys
   updateCamera(dt);
   /* --- day / night + lights --- */
   updateEnvironment(dt, player.x, player.z, playing);

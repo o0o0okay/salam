@@ -1148,7 +1148,7 @@ export function buildSportMesh(kind, bx, bz, rng) {
 // children are placed around the origin, and solids are returned in world coordinates (bx + x, bz + z).
 export const FACTORY_KINDS = ['brick', 'concrete', 'plant', 'complex'];
 export function buildFactoryMesh(bx, bz, rng, kind) {
-  const g = new THREE.Group(), solids = [];
+  const g = new THREE.Group(), solids = [], stacks = [];
   const Y = 0.25;
   const B = (w, h, d, m, x, y, z, cast = true) => { const b = box(w, h, d, m, x, y, z, cast); g.add(b); return b; };
   const C = (rt, rb, h, seg, m, x, y, z, cast = true) => { const c = cyl(rt, rb, h, seg, m, x, y, z, cast); g.add(c); return c; };
@@ -1167,6 +1167,7 @@ export function buildFactoryMesh(bx, bz, rng, kind) {
     for (let y = every; y < h - 1; y += every * 2) C(r * 1.07, r * 1.07, every, 14, band, x, Y + y + every / 2, z, false);
     if (platY) C(r * 1.9, r * 1.9, 0.25, 12, darkSteel, x, Y + platY, z, false);
     solid(x, z, r + 0.2, r + 0.2);
+    stacks.push({ x: bx + x, z: bz + z, top: Y + h, r });    // where the smoke comes out (js/chimneySmoke.js)
   };
   // Yard: a row of containers along x at depth z (solid like the warehouse containers).
   const yard = (z, n, cx) => {
@@ -1244,5 +1245,5 @@ export function buildFactoryMesh(bx, bz, rng, kind) {
     C(2.4, 2.4, 12, 14, mat(0x8f96a0), 23.6, Y + 6, -17); solid(23.6, -17, 2.6, 2.6);
     yard(12, 5, -2); drums(-22, 9, 4, mat(0x3a6ea5));
   }
-  return { group: g, solids };
+  return { group: g, solids, stacks };
 }

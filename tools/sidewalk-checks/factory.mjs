@@ -27,6 +27,11 @@ for (let cx = -N; cx < N; cx++) for (let cz = -N; cz < N; cz++) {
     assert(s.x - s.hx >= lo[0] - eps && s.x + s.hx <= hi[0] + eps, `factory ${cx},${cz} (${ch.factory}): solid x ${s.x.toFixed(1)}±${s.hx} leaves the block`);
     assert(s.z - s.hz >= lo[1] - eps && s.z + s.hz <= hi[1] + eps, `factory ${cx},${cz} (${ch.factory}): solid z ${s.z.toFixed(1)}±${s.hz} leaves the block`);
   }
+  assert(ch.stacks && ch.stacks.length >= 1, `factory ${cx},${cz} (${ch.factory}) has no chimney to smoke from`);
+  for (const st of ch.stacks) {
+    assert(st.top > 20, `factory ${cx},${cz}: stack top ${st.top.toFixed(1)} m is too low to read as a chimney`);
+    assert(st.x > x0 + PAD_IN && st.x < x0 + CHUNK - PAD_IN && st.z > z0 + PAD_IN && st.z < z0 + CHUNK - PAD_IN, `factory ${cx},${cz}: stack outside the block`);
+  }
   pads++;
 }
 
