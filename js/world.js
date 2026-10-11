@@ -2452,16 +2452,23 @@ function siteMachine(kind) {
     sm(2.4, 0.6, 3.2, Y, 0, 1.45, -0.6);                 // upper house
     sm(2.2, 0.9, 1.4, Y, 0, 2.0, -2.2);                  // engine deck at the back
     sm(2.0, 0.7, 0.08, 0x202326, 0, 2.0, -2.93);         // grille
+    for (const x of [-1.16, 1.16]) for (const z of [-1.2, -2.0, -2.8]) sm(0.05, 0.6, 0.45, 0x3a3d42, x, 1.9, z);   // side louvres
+    sm(2.5, 0.12, 4.0, Y, 0, 1.2, -0.6);                 // deck plate (lighter cover)
     sm(1.6, 1.25, 1.5, Y, 0.45, 2.45, 0.2);              // cab
     sm(1.3, 0.85, 0.06, GL, 0.45, 2.55, 0.97);           // cab front glass
     sm(0.06, 0.8, 1.2, GL, 1.27, 2.55, 0.2);             // side glass
     sm(1.7, 0.12, 1.7, K, 0.45, 3.1, 0.2);               // roof
+    for (const x of [-0.4, 1.3]) sm(0.06, 1.3, 0.06, K, x, 2.45, 1.02);   // cab cage posts
+    for (const y of [1.95, 2.9]) sm(1.9, 0.06, 0.06, K, 0.45, y, 1.02);   // cab cage rails
+    sm(0.06, 1.2, 0.06, K, 1.3, 2.45, -0.5);             // cab rear post
+    for (const z of [-0.2, 0.2, 0.6]) sm(0.05, 0.9, 0.05, 0x3a3d42, 1.25, 2.6, z); // cab side guard bars
     seg3(0.6, Y, [2.1, 0.9], [4.37, 4.43], -0.6);        // boom
     seg3(0.22, 0x2a2d31, [2.5, 0.2], [3.2, 2.2], -0.95); // boom cylinder
     seg3(0.45, Y, [4.37, 4.43], [1.9, 6.0], -0.6);       // stick
-    sm(1.2, 0.9, 1.0, K, -0.6, 1.5, 6.4);                // bucket
-    for (const x of [-1.05, -0.6, -0.15]) sm(0.14, 0.2, 0.2, K, x, 1.0, 6.95);   // teeth
-    return finishMachine(g, 10.2, 3.2, 2.0);
+    sm(1.4, 0.95, 1.1, K, -0.6, 1.45, 6.4);              // bucket, black, with a deep shell
+    sm(1.4, 0.16, 0.3, K, -0.6, 0.95, 6.9);              // bucket lip
+    for (const x of [-1.2, -0.9, -0.6, -0.3, 0]) sm(0.14, 0.22, 0.2, K, x, 0.85, 7.1);               // five teeth
+    return finishMachine(g, 10.4, 3.2, 2.0);
   }
   if (kind === 1) {                       // cement mixer: a cab-over orange truck with a tilted grey-banded drum
     sm(2.0, 0.45, 8.6, K, 0, 0.9, 0.6);                  // chassis
