@@ -1791,6 +1791,7 @@ function pruneBlockedRoadworks(ch) {
   }
   const blockers = [];                                  // static solids a scaffold may not overlap
   for (const c of group) for (const s of c.solids) if (s.hx > 0 && s.hz > 0 && !s.parked && !s.scaffold) blockers.push(s);
+  // Scaffolds first, over the whole group, so the cones below see the final set of solids whatever order the chunks came in.
   for (const c of group) {
     for (const s of c.solids) {
       if (!s.scaffold || !(s.hx > 0)) continue;
@@ -1798,11 +1799,31 @@ function pruneBlockedRoadworks(ch) {
       if (!hit) continue;
       s.scaffold.broken = true; s.hx = -999; s.hz = -999; c.group.remove(s.scaffold.mesh);
     }
+  }
+  // What a car can touch at ground level: every solid that stands there (a wall under a deck counts, a taken-down scaffold does not).
+  const ground = [];
+  for (const c of group) for (const s of c.solids) if (s.hx > 0 && (s.maxY === undefined || s.maxY > 0.3)) ground.push(s);
+  const inside = (s, x, z, m) => {
+    if (!s.box) return Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m;
+    const dx = x - s.x, dz = z - s.z;
+    return Math.abs(dx * s.box.ux + dz * s.box.uz) < s.box.e1 + m && Math.abs(dx * s.box.vx + dz * s.box.vz) < s.box.e2 + m;
+  };
+  // A car body (half width 0.95 m) can stop 1.95 m from a cone's centre in some direction without touching a solid:
+  // then it can knock the cone over. A cone walled in on every side (a gap between two scaffolds, narrower than a car) cannot.
+  const reachable = (x, z) => {
+    const near = ground.filter(s => Math.abs(x - s.x) < 12 && Math.abs(z - s.z) < 12);
+    for (let a = 0; a < 16; a++) {
+      const qx = x + Math.cos(a * PI / 8) * 1.95, qz = z + Math.sin(a * PI / 8) * 1.95;
+      if (!near.some(s => inside(s, qx, qz, 0.95))) return true;
+    }
+    return false;
+  };
+  for (const c of group) {
     c.props = c.props.filter(p => {
       if (p.kind !== 'cone') return true;
       const tied = p.tie && !(p.tie.hx > 0);
       const buried = group.some(g => g.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz));
-      if (!tied && !buried) return true;
+      if (!tied && !buried && reachable(p.x, p.z)) return true;
       c.group.remove(p.mesh);
       return false;
     });
