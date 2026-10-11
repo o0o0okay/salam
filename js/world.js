@@ -1783,6 +1783,51 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
 //  - a cone whose centre lies inside a solid is buried: no car can reach it, so it can never be knocked over.
 // The check covers this chunk and every neighbour already registered in `chunks`. Each pair of chunks is checked
 // once both exist, so the result does not depend on the order the chunks were built in.
+// ---- Reachability: a car can hit only what it can get next to ----
+// The solids that stand at ground level (a wall under a deck counts; a scaffold that was taken down does not).
+function groundSolids(group) {
+  const out = [];
+  for (const c of group) for (const s of c.solids) if (s.hx > 0 && (s.maxY === undefined || s.maxY > 0.3)) out.push(s);
+  return out;
+}
+// Is (x, z) inside solid s, grown by m metres? Rotated solids are tested in their own frame.
+function solidHit(s, x, z, m) {
+  if (!s.box) return Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m;
+  const dx = x - s.x, dz = z - s.z;
+  return Math.abs(dx * s.box.ux + dz * s.box.uz) < s.box.e1 + m && Math.abs(dx * s.box.vx + dz * s.box.vz) < s.box.e2 + m;
+}
+// A grid over solids, 8 m cells: a solid is listed in every cell its box, grown by 1.5 m, reaches, so the solids that
+// could come within 1.5 m of a point are all in the point's own cell. `near(x, z)` returns that cell's list.
+function solidGrid(solids) {
+  const CELL = 8, cells = new Map(), key = (i, j) => (i + 4096) * 8192 + (j + 4096), none = [];
+  for (const s of solids) {
+    const r = Math.hypot(s.box ? s.box.e1 : s.hx, s.box ? s.box.e2 : s.hz) + 1.5;
+    for (let i = Math.floor((s.x - r) / CELL); i <= Math.floor((s.x + r) / CELL); i++)
+      for (let j = Math.floor((s.z - r) / CELL); j <= Math.floor((s.z + r) / CELL); j++) {
+        const k = key(i, j);
+        let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(s);
+      }
+  }
+  return (x, z) => cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) || none;
+}
+// A car body (half width 0.95 m) can stop 1.95 m from (x, z) in one of 16 directions without touching a solid.
+// A point walled in on every side (a gap between two scaffolds, narrower than a car) cannot be reached.
+function carCanReach(x, z, near) {
+  for (let a = 0; a < 16; a++) {
+    const qx = x + Math.cos(a * PI / 8) * 1.95, qz = z + Math.sin(a * PI / 8) * 1.95;
+    if (!near(qx, qz).some(s => solidHit(s, qx, qz, 0.95))) return true;
+  }
+  return false;
+}
+// The carriageway of the grid: every chunk edge carries a street 16 m wide, so a point within 8.4 m of an edge line is
+// in the road or on its kerb. Props are never moved there.
+function onStreetLine(x, z) {
+  const d = v => Math.abs(v - Math.round(v / CHUNK) * CHUNK);
+  return d(x) < 8.4 || d(z) < 8.4;
+}
+// Roadworks cones: a cone that is buried in a solid, or walled in so no car can reach it, is removed (it could
+// never be knocked over). Scaffolds are taken down first, over the whole group, so the cones see the final solids
+// whatever order the chunks came in.
 function pruneBlockedRoadworks(ch) {
   const group = [ch];
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
@@ -1791,7 +1836,6 @@ function pruneBlockedRoadworks(ch) {
   }
   const blockers = [];                                  // static solids a scaffold may not overlap
   for (const c of group) for (const s of c.solids) if (s.hx > 0 && s.hz > 0 && !s.parked && !s.scaffold) blockers.push(s);
-  // Scaffolds first, over the whole group, so the cones below see the final set of solids whatever order the chunks came in.
   for (const c of group) {
     for (const s of c.solids) {
       if (!s.scaffold || !(s.hx > 0)) continue;
@@ -1800,31 +1844,49 @@ function pruneBlockedRoadworks(ch) {
       s.scaffold.broken = true; s.hx = -999; s.hz = -999; c.group.remove(s.scaffold.mesh);
     }
   }
-  // What a car can touch at ground level: every solid that stands there (a wall under a deck counts, a taken-down scaffold does not).
-  const ground = [];
-  for (const c of group) for (const s of c.solids) if (s.hx > 0 && (s.maxY === undefined || s.maxY > 0.3)) ground.push(s);
-  const inside = (s, x, z, m) => {
-    if (!s.box) return Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m;
-    const dx = x - s.x, dz = z - s.z;
-    return Math.abs(dx * s.box.ux + dz * s.box.uz) < s.box.e1 + m && Math.abs(dx * s.box.vx + dz * s.box.vz) < s.box.e2 + m;
-  };
-  // A car body (half width 0.95 m) can stop 1.95 m from a cone's centre in some direction without touching a solid:
-  // then it can knock the cone over. A cone walled in on every side (a gap between two scaffolds, narrower than a car) cannot.
-  const reachable = (x, z) => {
-    const near = ground.filter(s => Math.abs(x - s.x) < 12 && Math.abs(z - s.z) < 12);
-    for (let a = 0; a < 16; a++) {
-      const qx = x + Math.cos(a * PI / 8) * 1.95, qz = z + Math.sin(a * PI / 8) * 1.95;
-      if (!near.some(s => inside(s, qx, qz, 0.95))) return true;
-    }
-    return false;
-  };
+  const near = solidGrid(groundSolids(group));
   for (const c of group) {
     c.props = c.props.filter(p => {
       if (p.kind !== 'cone') return true;
       const tied = p.tie && !(p.tie.hx > 0);
       const buried = group.some(g => g.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz));
-      if (!tied && !buried && reachable(p.x, p.z)) return true;
+      if (!tied && !buried && carCanReach(p.x, p.z, near)) return true;
       c.group.remove(p.mesh);
+      return false;
+    });
+  }
+}
+// Every other street prop (lamps, bins, bags, hydrants, poles, benches, crates, drums...): one that is buried in a
+// solid, or walled in, is moved to the nearest spot within 6 m where a car can reach it (off the carriageway, off the
+// at-grade lane and out of solids). If there is no such spot it is removed. Cones are handled by pruneBlockedRoadworks.
+function freeStreetProps(ch) {
+  const group = [ch];
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const n = (i || j) && chunks.get(ck(ch.cx + i, ch.cz + j));
+    if (n) group.push(n);
+  }
+  const near = solidGrid(groundSolids(group));
+  const spot = (pr) => {
+    for (let rr = 0.5; rr <= 6.01; rr += 0.5) for (let a = 0; a < 24; a++) {
+      const x = pr.x + Math.cos(a * PI / 12) * rr, z = pr.z + Math.sin(a * PI / 12) * rr;
+      if (onStreetLine(x, z) || onAtGradeLane(x, z, pr.r)) continue;
+      if (near(x, z).some(s => solidHit(s, x, z, pr.r + 0.1))) continue;
+      if (carCanReach(x, z, near)) return { x, z };
+    }
+    return null;
+  };
+  // A neighbour's prop can only be newly buried or walled in by this block's solids when it stands within 12 m of this
+  // block; a neighbour's own props are checked when that neighbour is built, so the far ones are left alone.
+  const x0 = ch.cx * CHUNK, z0 = ch.cz * CHUNK;
+  const nearBlock = pr => pr.x > x0 - 12 && pr.x < x0 + CHUNK + 12 && pr.z > z0 - 12 && pr.z < z0 + CHUNK + 12;
+  for (const c of group) {
+    c.props = c.props.filter(pr => {
+      if (pr.kind === 'cone' || !pr.mesh || (c !== ch && !nearBlock(pr))) return true;
+      const stuck = near(pr.x, pr.z).some(s => solidHit(s, pr.x, pr.z, 0)) || !carCanReach(pr.x, pr.z, near);
+      if (!stuck) return true;
+      const to = spot(pr);
+      if (to) { pr.x = to.x; pr.z = to.z; pr.mesh.position.x = to.x; pr.mesh.position.z = to.z; return true; }
+      c.group.remove(pr.mesh);
       return false;
     });
   }
@@ -1999,6 +2061,7 @@ function generateChunk(cx, cz, defer = false) {
   sidewalkSurfaces({ sw, swPainted, ch });
   crossings({ x0, z0, kerbIn, add, cx, cz });
   pruneBlockedRoadworks(ch);
+  freeStreetProps(ch);
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames

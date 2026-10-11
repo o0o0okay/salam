@@ -1168,8 +1168,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (clashes) bad(`${clashes} scaffold(s) overlap another solid`);
     if (!buriedCones && !clashes) console.log(`roadworks reach: ${cones} cones in the sample, none buried; no scaffold overlaps another solid`);
   }
-  // ---- 2d-9) what a car is meant to knock over is reachable: cones, the flyover nose-guard drums, the delineators
-  // and the hedges (the driveway gaps' hedge lines). A prop inside a solid is buried; a prop with no free approach
+  // ---- 2d-9) every street prop is reachable: cones, the flyover nose-guard drums, the delineators, the lamps, bins,
+  // hydrants and hedges (the driveway gap hedge lines). A prop inside a solid is buried; a prop with no free approach
   // (a car body, half width 0.95 m, can stop 1.95 m from its centre in some direction) can never be hit.
   {
     // Blocks outside the sample: two flyover approaches with nose-guard drums, and four blocks whose scaffolds wall
@@ -1181,21 +1181,21 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       ? Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m
       : Math.abs((x - s.x) * s.box.ux + (z - s.z) * s.box.uz) < s.box.e1 + m && Math.abs((x - s.x) * s.box.vx + (z - s.z) * s.box.vz) < s.box.e2 + m;
     const reach = (x, z) => {
-      const near = ground.filter(s => Math.abs(x - s.x) < 12 && Math.abs(z - s.z) < 12);
+      const near = ground.filter(s => Math.abs(x - s.x) < 40 && Math.abs(z - s.z) < 40);   // a long solid reaches the point from its far end
       for (let a = 0; a < 16; a++) if (!near.some(s => inside(s, x + Math.cos(a * Math.PI / 8) * 1.95, z + Math.sin(a * Math.PI / 8) * 1.95, 0.95))) return true;
       return false;
     };
-    const want = new Set(['cone', 'nosedrum', 'delineator', 'hedge']), counts = {};
+    const counts = {};
     let buriedP = 0, trappedP = 0;
-    for (const ch of all) for (const pr of ch.props) if (want.has(pr.kind)) {
+    for (const ch of all) for (const pr of ch.props) {
       counts[pr.kind] = (counts[pr.kind] || 0) + 1;
       if (ground.some(s => inside(s, pr.x, pr.z, 0))) buriedP++;
       else if (!reach(pr.x, pr.z)) trappedP++;
     }
     if (!counts.nosedrum) bad('no flyover nose-guard drums in the sample: the check would be empty');
-    if (buriedP) bad(`${buriedP} prop(s) (cone, drum, delineator, hedge) stand inside a solid`);
-    if (trappedP) bad(`${trappedP} prop(s) (cone, drum, delineator, hedge) have no free approach for a car`);
-    if (!buriedP && !trappedP) console.log(`destructible props reachable: ${JSON.stringify(counts)}; none buried, none walled in`);
+    if (buriedP) bad(`${buriedP} street prop(s) stand inside a solid`);
+    if (trappedP) bad(`${trappedP} street prop(s) have no free approach for a car`);
+    if (!buriedP && !trappedP) console.log(`street props reachable: ${Object.values(counts).reduce((s, v) => s + v, 0)} in the sample (${counts.nosedrum} nose-guard drums, ${counts.hedge} hedges); none buried, none walled in`);
   }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
