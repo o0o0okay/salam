@@ -969,6 +969,9 @@ const BALL_GEO = new THREE.SphereGeometry(BALL_R, 16, 12);
 const SEAM_GEO = new THREE.TorusGeometry(BALL_R * 1.01, 0.006, 4, 24);
 const PATCH_GEO = new THREE.DodecahedronGeometry(0.045);
 const RING_GEO = new THREE.TorusGeometry(0.23, 0.025, 6, 20);
+const GOLF_GEO = new THREE.SphereGeometry(0.03, 10, 8);
+const BASE_GEO = new THREE.SphereGeometry(0.07, 14, 10);
+const BASE_SEAM_GEO = new THREE.TorusGeometry(0.0705, 0.006, 4, 20);
 // How far a ground is grown: 1.5 times, or as far as the block allows. A block's interior is 56 m across (the paving
 // takes the rest), so the longest side is held to SPORT_MAX_SIDE, which keeps a little clear of the pad edge.
 export const SPORT_MAX_SIDE = 55;
@@ -1035,7 +1038,8 @@ export function buildSportMesh(kind, bx, bz, rng) {
   const A = (2 * (PW + PD) - Math.sqrt(4 * (PW + PD) ** 2 - 3.2 * PW * PD)) / 8, CW = PW - 2 * A, CD = PD - 2 * A;
 
   // Court markings are thin flat boxes laid end to end along a path, so a circle, an arc or a key is plain geometry.
-  // `path` joins points (closed or open), `mark` is one straight line, `dot` a round spot, `ballAt` a ball on the ground.
+  // `path` joins points (closed or open), `mark` is one straight line, `flat` a flat rectangle turned by `rot`,
+  // `dot` a round spot, `ballAt` a ball on the ground (basket, foot, base, golf).
   const MK = 0.12;
   const mark = (x0, z0, x1, z1, m = M.line) => {
     const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz);
@@ -1051,21 +1055,28 @@ export function buildSportMesh(kind, bx, bz, rng) {
     for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + r * Math.cos(a), cz + r * Math.sin(a)]); }
     return p;
   };
+  const flat = (w, d, x, z, m, rot = 0) => { const b = box(w, 0.03, d, m, x, Y + 0.04, z, false); b.rotation.y = rot; g.add(b); };
   const dot = (x, z, r, m = M.line) => g.add(cyl(r, r, 0.02, 14, m, x, Y + 0.05, z, false));
   const ballAt = (x, z, kind) => {
+    const r = kind === 'golf' ? 0.03 : kind === 'base' ? 0.07 : BALL_R;
     const b = new THREE.Group();
-    b.position.set(x, Y + BALL_R, z); b.scale.set(1 / sc, 1, 1 / sc);      // undoes the court's x/z growth, so the ball stays round
+    b.position.set(x, Y + r, z); b.scale.set(1 / sc, 1, 1 / sc);         // undoes the ground's x/z growth, so the ball stays round
     if (kind === 'basket') {
       b.add(new THREE.Mesh(BALL_GEO, M.orange));
       for (const [rx, ry] of [[0, 0], [Math.PI / 2, 0], [0, Math.PI / 2]]) {
         const s2 = new THREE.Mesh(SEAM_GEO, M.dark); s2.rotation.x = rx; s2.rotation.y = ry; b.add(s2);
       }
-    } else {                                                             // football: white with black panels
+    } else if (kind === 'foot') {                                         // white with black panels
       b.add(new THREE.Mesh(BALL_GEO, M.white));
       for (const [px, py, pz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
         const pt = new THREE.Mesh(PATCH_GEO, M.dark);
         pt.position.set(px * BALL_R * 0.97, py * BALL_R * 0.97, pz * BALL_R * 0.97); b.add(pt);
       }
+    } else if (kind === 'base') {                                         // a white ball with a red seam
+      b.add(new THREE.Mesh(BASE_GEO, M.white));
+      const seam = new THREE.Mesh(BASE_SEAM_GEO, M.red); seam.rotation.x = 0.4; seam.rotation.z = 0.6; b.add(seam);
+    } else {
+      b.add(new THREE.Mesh(GOLF_GEO, M.white));
     }
     g.add(b);
   };
@@ -1128,12 +1139,33 @@ export function buildSportMesh(kind, bx, bz, rng) {
     ballAt(-w / 2 + 6 + rng() * 3, (rng() - 0.5) * (d * 0.6), 'foot');
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'baseball') {
-    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the grass field, inside a strip of tarmac
-    CYL(12, 12, 0.04, 24, M.dirt, 0, 0.02, 0);                 // infield dirt
-    CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                  // pitcher's mound
-    for (const [bxp, bzp] of [[9, 0], [0, -9], [-9, 0]]) B(0.7, 0.06, 0.7, M.white, bxp, 0.03, bzp);
-    B(0.9, 0.04, 0.9, M.white, 0, 0.02, 9.2);                   // home plate
-    fence(28, 3.6, 0, 13.5, 'x');                               // backstop
+    // A ball diamond on the outfield grass: mown stripes, a dirt infield, white bases, home plate, the batters' boxes,
+    // the foul lines, a pitcher's mound with its rubber, a dugout on each side, a backstop, and balls and bats on the ground.
+    const R = 12.5;                                                      // home plate to each base, along the diagonals
+    const stripe = mat(0x4c9440);
+    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                              // the outfield grass
+    for (let k = -3; k <= 3; k += 2) B(CW, 0.035, CD / 7, stripe, 0, 0.02, k * CD / 7, false);
+    CYL(R + 1.5, R + 1.5, 0.04, 4, M.dirt, 0, 0.02, 0, false);          // the infield dirt, a diamond with its corners on the axes
+    CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                          // pitcher's mound
+    flat(0.6, 0.15, 0, 0, M.white, 0);                                  // pitcher's rubber
+    for (const [bxp, bzp] of [[R, 0], [0, -R], [-R, 0]]) flat(0.7, 0.7, bxp, bzp, M.white, PI / 4);
+    flat(0.9, 0.9, 0, R, M.white, PI / 4);                              // home plate
+    path([[-3.1, R - 1.2], [-0.9, R - 1.2], [-0.9, R + 1.2], [-3.1, R + 1.2]], M.line, true);   // batters' boxes
+    path([[0.9, R - 1.2], [3.1, R - 1.2], [3.1, R + 1.2], [0.9, R + 1.2]], M.line, true);
+    mark(0, R, 30, R - 30); mark(0, R, -30, R - 30);                    // foul lines, through first and third
+    for (const sx of [-1, 1]) {                                          // a dugout on each side, behind the foul lines
+      const dx = sx * 12, dz = -10;
+      B(6.4, 0.15, 2.4, M.metal, dx, 2.6, dz, false);                    // roof
+      B(6.2, 1.6, 0.15, M.dark, dx, 1.05, dz - 1.0, false);             // back wall
+      for (const px of [-3, 3]) B(0.1, 2.5, 0.1, M.metal, dx + px, 1.3, dz + 1.0, false);   // posts
+      B(5.6, 0.25, 0.8, M.wood, dx, 0.4, dz, false);                     // bench
+      solids.push({ x: bx + dx * sc, z: bz + (dz - 1.0) * sc, hx: 3.2 * sc, hz: 0.1 * sc, kind: 'building' });   // back wall, solid
+    }
+    const bat = cyl(0.03, 0.05, 0.9, 6, M.wood, 9, Y + 0.05, -15.5); bat.rotation.z = PI / 2; bat.rotation.y = 0.3; g.add(bat);
+    fence(28, 3.6, 0, 13.5, 'x');                                       // backstop
+    ballAt(-6, 11, 'base');
+    ballAt(0.4, 0.6, 'base');
+    ballAt(-14, 8, 'base');
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'playground') {
     B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the sand, 80% of the enclosure; the grass round it is the pad
@@ -1179,6 +1211,34 @@ export function buildSportMesh(kind, bx, bz, rng) {
         B(0.1, 0.1, 0.9, M.yellow, AR.x + AR.R * Math.cos(th), 0.1 + AR.R * Math.sin(th), AR.z, false);
       }
     });
+    // a spring rocker (a red horse on a coil) and a merry-go-round, each one a breakable piece
+    piece({ x: 6, z: -10, hx: 0.7, hz: 1.0, kind: 'playground', brk: 5, color: 0xd8452f }, () => {
+      B(1.2, 0.1, 1.8, M.dark, 6, 0.05, -10, false);
+      CYL(0.09, 0.09, 0.8, 6, M.metal, 6, 0.45, -10, false);
+      B(0.5, 0.45, 1.5, M.red, 6, 1.1, -10, false);
+      B(0.4, 0.4, 0.4, M.red, 6, 1.45, -11.0, false);
+      B(0.6, 0.06, 0.3, M.dark, 6, 1.4, -10, false);
+      for (const dz of [-0.5, 0.5]) B(0.06, 0.6, 0.06, M.dark, 6, 1.7, -10 + dz, false);
+    });
+    piece({ x: -10, z: -10, hx: 1.8, hz: 1.8, kind: 'playground', brk: 6, color: 0xf2c230 }, () => {
+      CYL(1.8, 1.8, 0.12, 16, M.yellow, -10, 0.55, -10, false);
+      CYL(0.1, 0.1, 1.4, 6, M.metal, -10, 1.2, -10, false);
+      for (let i = 0; i < 4; i++) {
+        const a = i * PI / 2;
+        const bar = box(1.6, 0.06, 0.06, M.metal, -10 + Math.cos(a) * 0.8, Y + 1.25, -10 + Math.sin(a) * 0.8, false);
+        bar.rotation.y = -a; g.add(bar);
+      }
+    });
+    // two benches for the parents, and a bin by the fence
+    for (const bxp of [-3, 3]) {
+      B(2.2, 0.1, 0.6, M.wood, bxp, 0.5, 11.5, false);
+      B(2.2, 0.5, 0.08, M.wood, bxp, 0.85, 11.2, false);
+      for (const lx of [-0.9, 0.9]) B(0.08, 0.5, 0.5, M.dark, bxp + lx, 0.25, 11.5, false);
+    }
+    CYL(0.35, 0.3, 0.9, 8, M.dark, -14, 0.45, 8, false);
+    // a wooden kerb round the sand
+    B(CW, 0.14, 0.3, M.wood, 0, 0.07, CD / 2 - 0.15, false); B(CW, 0.14, 0.3, M.wood, 0, 0.07, -CD / 2 + 0.15, false);
+    B(0.3, 0.14, CD, M.wood, CW / 2 - 0.15, 0.07, 0, false); B(0.3, 0.14, CD, M.wood, -CW / 2 + 0.15, 0.07, 0, false);
     // sandpit with a wooden border, and grass in the corners of the ground (these stay baked into the block)
     B(6.4, 0.06, 4.4, M.wood, 10, 0.03, 8, false);
     B(6.0, 0.08, 4.0, M.sand, 10, 0.04, 8, false);
@@ -1186,19 +1246,41 @@ export function buildSportMesh(kind, bx, bz, rng) {
     fence(34, 2.4, 0, 14, 'x'); fence(34, 2.4, 0, -14, 'x');
     fence(28, 2.4, 17, 0, 'z'); fence(28, 2.4, -17, 0, 'z');
   } else if (kind === 'golf') {
-    // A nine-hole style corner of a course: the fairway is the court, a lighter putting green with the cup and the
-    // flagstick (a breakable piece), two sand bunkers, a small water hazard, and a tee box at the far end.
-    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                                               // the fairway, 80% of the enclosure
-    B(CW * 0.28, 0.04, CD * 0.22, mat(0x9ad46a), CW * 0.14, 0.02, 0, false);            // putting green
-    CYL(0.2, 0.2, 0.05, 10, mat(0x111111), CW * 0.14, 0.02, 0, false);                  // the cup
-    piece({ x: CW * 0.14, z: 0, hx: 0.15, hz: 0.15, kind: 'flag', brk: 4, color: 0xffffff }, () => {
-      CYL(0.05, 0.05, 4.2, 6, M.white, CW * 0.14, 2.1, 0, false);                       // the pole
-      B(1.0, 0.6, 0.04, mat(0xd7342a), CW * 0.14 + 0.5, 3.9, 0, false);                // the flag
+    // A corner of a course: a mown fairway with light stripes, a putting green with a fringe, the cup and a flagstick
+    // (a breakable piece), sand bunkers with their lips, a pond with reeds and rocks, a tee box with markers, trees
+    // along the far edge, and golf balls on the green and the tee.
+    const gr = 5.2, gx = CW * 0.14;
+    const green = mat(0x9ad46a), fringe = mat(0x7fbf55), stripe = mat(0x7ec266), sand = mat(0xe8d49a), lip = mat(0xd3bf84);
+    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                                       // the fairway
+    for (let k = -3; k <= 3; k += 2) B(CW, 0.035, CD / 7, stripe, 0, 0.02, k * CD / 7, false);
+    CYL(gr + 0.8, gr + 0.8, 0.04, 20, fringe, gx, 0.02, 0, false);              // putting green and its fringe
+    CYL(gr, gr, 0.05, 20, green, gx, 0.02, 0, false);
+    CYL(0.2, 0.2, 0.05, 10, mat(0x111111), gx, 0.03, 0, false);                 // the cup
+    piece({ x: gx, z: 0, hx: 0.15, hz: 0.15, kind: 'flag', brk: 4, color: 0xffffff }, () => {
+      CYL(0.05, 0.05, 4.2, 6, M.white, gx, 2.1, 0, false);                     // the pole
+      B(1.0, 0.6, 0.04, mat(0xd7342a), gx + 0.5, 3.9, 0, false);               // the flag
     });
-    B(7, 0.05, 4, mat(0xe8d49a), -CW * 0.2, 0.025, -CD * 0.22, false);                 // bunkers
-    B(5, 0.05, 3.5, mat(0xe8d49a), -CW * 0.1, 0.025, CD * 0.24, false);
-    B(6, 0.05, 5, mat(0x3aa8d8), -CW * 0.22, 0.025, CD * 0.04, false);                 // water hazard
-    B(4, 0.04, 3, mat(0x9ad46a), -CW * 0.36, 0.02, 0, false);                           // tee box
+    for (const [bxs, bzs, rx, rz] of [[-CW * 0.2, -CD * 0.22, 3.5, 2.0], [-CW * 0.1, CD * 0.24, 2.5, 1.8]]) {
+      const l = cyl(1, 1, 0.04, 20, lip, bxs, Y + 0.02, bzs, false); l.scale.set(rx + 0.4, 1, rz + 0.4); g.add(l);
+      const c = cyl(1, 1, 0.06, 20, sand, bxs, Y + 0.03, bzs, false); c.scale.set(rx, 1, rz); g.add(c);
+    }
+    const pond = cyl(1, 1, 0.05, 20, mat(0x3aa8d8), -CW * 0.22, Y + 0.025, CD * 0.04, false);
+    pond.scale.set(3.4, 1, 2.6); g.add(pond);
+    for (const [rx, rz] of [[-2.9, -1.2], [2.2, 1.6], [-0.6, 2.4], [3.1, -0.4]]) {
+      CYL(0.04, 0.04, 0.7, 4, mat(0x6b8f3a), -CW * 0.22 + rx, 0.35, CD * 0.04 + rz, false);
+    }
+    B(0.9, 0.5, 0.7, mat(0x8a8f96), -CW * 0.22 - 1.1, 0.25, CD * 0.04 + 1.0, false);   // rocks
+    B(0.6, 0.4, 0.5, mat(0x8a8f96), -CW * 0.22 + 1.6, 0.2, CD * 0.04 - 1.2, false);
+    B(4, 0.04, 3, green, -CW * 0.36, 0.02, 0, false);                             // tee box
+    CYL(0.1, 0.1, 0.25, 8, M.red, -CW * 0.36 + 1.4, Y + 0.12, -1, false);        // tee markers
+    CYL(0.1, 0.1, 0.25, 8, M.white, -CW * 0.36 + 1.4, Y + 0.12, 1, false);
+    for (const [tx, tz] of [[CW * 0.3, -CD * 0.36], [-CW * 0.42, -CD * 0.36], [CW * 0.38, CD * 0.08]]) {
+      CYL(0.25, 0.3, 1.4, 6, M.wood, tx, 0.7, tz, false);                         // trunk
+      CYL(0, 1.6, 3.0, 8, mat(0x2f7a3a), tx, 2.9, tz, false);                    // crown
+    }
+    ballAt(gx + 1.5, 1.2, 'golf');                                                 // golf balls on the green and the tee
+    ballAt(gx - 2.0, -1.5, 'golf');
+    ballAt(-CW * 0.36 + 0.4, 0.6, 'golf');
     for (const s2 of [-1, 1]) { fence(PW, 3.6, 0, s2 * PD / 2, 'x'); fence(PD, 3.6, s2 * PW / 2, 0, 'z'); }
   }
   // four floodlight masts, one in each corner of the enclosure, with a lamp head on each
