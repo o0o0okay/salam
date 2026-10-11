@@ -7,7 +7,7 @@ import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
-import { isFlyoverNode, plazaAt, surfaceAt } from './flyover.js';
+import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet } from './flyover.js';
 
 const CIV_KINDS = [
   'sedan', 'sedan', 'sedan',
@@ -125,10 +125,15 @@ export function civAI(c, dt) {
     const ixN = c.axis === 'z' ? c.road : node, izN = c.axis === 'z' ? node : c.road;
     // Nobody turns at a plaza junction either: turning means driving through the island, and the user
     // wants civilian traffic to go around it naturally. Only police (in pursuit) and the player do that.
-    if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN) && !plazaAt(ixN / CHUNK, izN / CHUNK)) {
-      c.axis = c.axis === 'z' ? 'x' : 'z';
-      c.dir = Math.random() < 0.5 ? 1 : -1;
-      c.road = node;
+    // A closed street (a T junction) is never driven into: a car whose way on is closed turns onto an open arm, and
+    // a random turn only picks an open arm. The junction index is the node in grid units.
+    const jxN = ixN / CHUNK, jzN = izN / CHUNK;
+    const turnAx = c.axis === 'z' ? 'x' : 'z';
+    const turnOpts = [1, -1].filter(d => armOpen(jxN, jzN, turnAx, d));
+    if (!armOpen(jxN, jzN, c.axis, c.dir) && turnOpts.length) {
+      c.axis = turnAx; c.dir = turnOpts[Math.floor(Math.random() * turnOpts.length)]; c.road = node;
+    } else if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN) && !plazaAt(jxN, jzN) && turnOpts.length) {
+      c.axis = turnAx; c.dir = turnOpts[Math.floor(Math.random() * turnOpts.length)]; c.road = node;
     }
   }
 
@@ -274,6 +279,7 @@ export function spawnCiv() {
     if (axis === 'z') x = road - dir * off; else z = road + dir * off;
     const along = axis === 'z' ? z : x;
     if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) continue;   // keep clear of the wide junctions
+    if (nearClosedStreet(x, z, 10)) continue;                                  // nor on a street closed for a T junction
     if (Math.hypot(x - player.x, z - player.z) < 55) continue;
     const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
     const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };

@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -672,15 +672,16 @@ function buildPlazaIsland(radius) {
 }
 
 /* ---- Estates ----
- * On some suburb blocks the street grid of the block gives way to a residential estate: one curved road that
- * comes in from one edge of the block's pad, bends into a loop or a hairpin and ends in a cul-de-sac, with houses
- * set along both sides of it so they follow its curves. The estate's road is the only road inside the block and
- * it joins the grid at that one edge; no civilian or police traffic is routed onto it.
+ * On some suburb blocks the street grid of the block gives way to a residential estate: a curved main road comes in
+ * from one edge of the block's pad, bends into a loop or a hairpin and ends in a cul-de-sac, and one or two spur roads
+ * branch off it (a three-way junction each), curve and end in cul-de-sacs too. Houses stand along every road, facing
+ * it, and follow its curves. The estate's roads are the only roads inside the block and they join the grid at one
+ * edge; no civilian or police traffic is routed onto them.
  *
- * planEstate() is pure geometry: it returns the centre line (world x/z and tangent), the cul-de-sac, the house
- * footprints and the trees, or null when no layout fits the pad after a few tries (the block then keeps its
+ * planEstate() is pure geometry: it returns the roads (centre line in world x/z with tangents, and the cul-de-sac),
+ * the house footprints and the trees, or null when no layout fits the pad after a few tries (the block then keeps its
  * ordinary house grid). Houses are registered as axis-aligned solids, each the bounding box of its rotated footprint;
- * the planner keeps every house at least 5 m from the road's centre line, so no solid sits on the road.
+ * the planner keeps every house at least 5 m from every road's centre line, so no solid sits on a road.
  */
 const ESTATE_ROAD = 3.5, ESTATE_DISC = 6;
 function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
@@ -690,63 +691,99 @@ function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
   if (Du < 34 || Hv < 16) return null;
   // (u, v): u runs inward from the edge, v runs along it from the middle of the pad
   const toW = (u, v) => side === 0 ? [lo_x + u, mz + v] : side === 1 ? [hi_x - u, mz + v] : side === 2 ? [mx + v, lo_z + u] : [mx + v, hi_z - u];
-  // the first path that fits with 6 houses or more wins; otherwise the one with the most houses (at least 4)
-  let best = null;
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const s = r(0, 1) < 0.5 ? 1 : -1;
+  // a road in the (u, v) frame: `kind` 'main' comes in from the edge; 'spur' starts at (u0, v0) heading a0
+  const road = (kind, u0, v0, a0, s) => {
     const pts = [];
-    let u = 0, v = r(-4, 4), a = 0;
+    let u = u0, v = v0, a = a0;
     const line = L => { const n = Math.max(1, Math.round(L / 0.5)), st = L / n; for (let i = 0; i < n; i++) { pts.push([u, v]); u += Math.cos(a) * st; v += Math.sin(a) * st; } };
     const arc = (R, ang) => { const n = Math.max(2, Math.round(Math.abs(ang) * R / 0.5)), st = Math.abs(ang) * R / n; for (let i = 0; i < n; i++) { pts.push([u, v]); u += Math.cos(a) * st; v += Math.sin(a) * st; a += ang / n; } };
-    const L1 = r(26, 34);
-    line(L1); arc(r(6, 7), s * r(2.6, 3.4)); line(r(4, Math.max(4, L1 - 18))); arc(r(6, 7), -s * r(0.3, 0.7)); line(r(2, 3));
+    if (kind === 'main') {
+      const L1 = r(26, 34);
+      line(L1); arc(r(6, 7), s * r(2.6, 3.4)); line(r(4, Math.max(4, L1 - 18))); arc(r(6, 7), -s * r(0.3, 0.7)); line(r(2, 3));
+    } else {
+      line(r(6, 8)); arc(r(5, 6), s * r(0.8, 1.6)); line(r(3, 5));
+    }
     pts.push([u, v]);
-    // the first 4 m run out from the edge itself; past that the path keeps 4 m off the edge, the cul-de-sac centre 6.5 m (its radius is 6), and both stay clear of the sides
-    if (pts.some(([pu, pv], i) => (i > 8 && pu < (i === pts.length - 1 ? 6.5 : 4)) || pu > Du - 8 || Math.abs(pv) > Hv - 8)) continue;
+    return pts;
+  };
+  // the road stays on the pad: the first 4 m of the main road run out from the edge itself; past that, 4 m off the
+  // edge, the cul-de-sac centre 6.5 m (its radius is 6), and 8 m off the sides
+  const onPad = (pts, from) => !pts.some(([pu, pv], i) => (i >= from && pu < (i === pts.length - 1 ? 6.5 : 4)) || pu > Du - 8 || Math.abs(pv) > Hv - 8);
+  const toRoad = pts => {
     const ribbon = pts.map(([pu, pv], i) => {
       const [x, z] = toW(pu, pv), [ax, az] = toW(...pts[Math.max(0, i - 1)]), [bx2, bz2] = toW(...pts[Math.min(pts.length - 1, i + 1)]);
       const dx = bx2 - ax, dz = bz2 - az, len = Math.hypot(dx, dz) || 1;
       return { x, z, tx: dx / len, tz: dz / len };
     });
-    const last = ribbon[ribbon.length - 1], disc = { x: last.x, z: last.z, r: ESTATE_DISC };
-    // distance from a rectangle (centre c, axes t and n, half sizes w/2 and d/2) to a point
-    const rectDist = (cx, cz, tx, tz, w, d, px, pz) => {
-      const dx = px - cx, dz = pz - cz, du = Math.abs(dx * tx + dz * tz) - w / 2, dn = Math.abs(dx * -tz + dz * tx) - d / 2;
-      return Math.hypot(Math.max(du, 0), Math.max(dn, 0));
+    const last = ribbon[ribbon.length - 1];
+    return { ribbon, disc: { x: last.x, z: last.z, r: ESTATE_DISC } };
+  };
+  // distance from a rectangle (centre c, axes t and n, half sizes w/2 and d/2) to a point
+  const rectDist = (cx, cz, tx, tz, w, d, px, pz) => {
+    const dx = px - cx, dz = pz - cz, du = Math.abs(dx * tx + dz * tz) - w / 2, dn = Math.abs(dx * -tz + dz * tx) - d / 2;
+    return Math.hypot(Math.max(du, 0), Math.max(dn, 0));
+  };
+  let best = null;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const s = r(0, 1) < 0.5 ? 1 : -1;
+    const pts1 = road('main', 0, r(-4, 4), 0, s);
+    if (!onPad(pts1, 9)) continue;
+    const roads = [toRoad(pts1)];
+    // spur roads: each branches off the main road at a point 14-26 m in, turning to one side, if the pad has room
+    const spurs = r(0, 1) < 0.35 ? 1 : 2;
+    for (let k = 0; k < spurs; k++) {
+      // on the first straight (heading +u), 14-22 m in, leaving to the side the hairpin does not bend toward
+      const cands = pts1.map((p, i) => i).filter(i => i > 2 && pts1[i][0] >= 14 && pts1[i][0] <= 22);
+      if (!cands.length) break;
+      const i = cands[Math.floor(r(0, cands.length))];
+      const [pu, pv] = pts1[i];
+      const pts2 = road('spur', pu, pv, -s * Math.PI / 2, -s);
+      if (!onPad(pts2, 0)) continue;
+      // a spur branches off the main road: past its first 10 m it must not run back across it
+      if (!pts2.every((q, j) => j < 20 || pts1.every(p => Math.hypot(q[0] - p[0], q[1] - p[1]) >= 7))) continue;
+      roads.push(toRoad(pts2));
+    }
+    // houses along every road, both sides, clear of every road and every cul-de-sac
+    const samples = roads.flatMap(rd => rd.ribbon.filter((_, i) => i % 2 === 0));
+    const discs = roads.map(rd => rd.disc);
+    const clearOfRoads = (cx2, cz2, tx, tz, w, d) => {
+      for (const p of samples) if (rectDist(cx2, cz2, tx, tz, w, d, p.x, p.z) < ESTATE_ROAD + 1.5) return false;
+      for (const dc of discs) if (rectDist(cx2, cz2, tx, tz, w, d, dc.x, dc.z) < ESTATE_DISC + 1.5) return false;
+      return true;
     };
     const houses = [];
-    let acc = 0, nextAt = r(2, 5);
-    for (let i = 1; i < ribbon.length - 1; i++) {
-      acc += Math.hypot(ribbon[i].x - ribbon[i - 1].x, ribbon[i].z - ribbon[i - 1].z);
-      if (acc < nextAt) continue;
-      nextAt += 9;
-      const p = ribbon[i];
-      for (const k of [-1, 1]) {
-        const w = r(9, 10.5), d = r(7, 8.5), h = r(4.5, 6);
-        const nx = -p.tz, nz = p.tx, dOff = ESTATE_ROAD + 2.6 + d / 2;
-        const cx2 = p.x + k * nx * dOff, cz2 = p.z + k * nz * dOff;
-        const ca = Math.abs(p.tx), sa = Math.abs(p.tz);
-        const hxA = (w * ca + d * sa) / 2, hzA = (w * sa + d * ca) / 2;
-        if (cx2 - hxA < lo_x + 1 || cx2 + hxA > hi_x - 1 || cz2 - hzA < lo_z + 1 || cz2 + hzA > hi_z - 1) continue;
-        let clear = true;
-        for (let j = 0; j < ribbon.length && clear; j += 2) if (rectDist(cx2, cz2, p.tx, p.tz, w, d, ribbon[j].x, ribbon[j].z) < ESTATE_ROAD + 1.5) clear = false;
-        if (clear && rectDist(cx2, cz2, p.tx, p.tz, w, d, disc.x, disc.z) < ESTATE_DISC + 1.5) clear = false;
-        if (!clear) continue;
-        if (houses.some(o => Math.abs(o.x - cx2) < o.hxA + hxA + 1.2 && Math.abs(o.z - cz2) < o.hzA + hzA + 1.2)) continue;
-        houses.push({ x: cx2, z: cz2, w, d, h, tx: p.tx, tz: p.tz, k, hxA, hzA });
+    for (const rd of roads) {
+      let acc = 0, nextAt = r(2, 5);
+      const R = rd.ribbon;
+      for (let i = 1; i < R.length - 1; i++) {
+        acc += Math.hypot(R[i].x - R[i - 1].x, R[i].z - R[i - 1].z);
+        if (acc < nextAt) continue;
+        nextAt += 7;
+        const p = R[i];
+        for (const k of [-1, 1]) {
+          const w = r(8, 9.5), d = r(6.5, 7.5), h = r(4.5, 6);
+          const nx = -p.tz, nz = p.tx, dOff = ESTATE_ROAD + 2.6 + d / 2;
+          const cx2 = p.x + k * nx * dOff, cz2 = p.z + k * nz * dOff;
+          const ca = Math.abs(p.tx), sa = Math.abs(p.tz);
+          const hxA = (w * ca + d * sa) / 2, hzA = (w * sa + d * ca) / 2;
+          if (cx2 - hxA < lo_x + 1 || cx2 + hxA > hi_x - 1 || cz2 - hzA < lo_z + 1 || cz2 + hzA > hi_z - 1) continue;
+          if (!clearOfRoads(cx2, cz2, p.tx, p.tz, w, d)) continue;
+          if (houses.some(o => Math.abs(o.x - cx2) < o.hxA + hxA + 1.2 && Math.abs(o.z - cz2) < o.hzA + hzA + 1.2)) continue;
+          houses.push({ x: cx2, z: cz2, w, d, h, tx: p.tx, tz: p.tz, k, hxA, hzA });
+        }
       }
     }
     if (houses.length < 4) continue;
     const trees = [];
-    for (let a2 = 0; a2 < 40 && trees.length < 7; a2++) {
+    for (let a2 = 0; a2 < 60 && trees.length < 9; a2++) {
       const x = r(lo_x + 2, hi_x - 2), z = r(lo_z + 2, hi_z - 2);
-      let ok = Math.hypot(x - disc.x, z - disc.z) >= ESTATE_DISC + 4;
-      for (let j = 0; ok && j < ribbon.length; j += 2) if (Math.hypot(x - ribbon[j].x, z - ribbon[j].z) < ESTATE_ROAD + 4) ok = false;
+      let ok = discs.every(dc => Math.hypot(x - dc.x, z - dc.z) >= ESTATE_DISC + 4);
+      for (let j = 0; ok && j < samples.length; j++) if (Math.hypot(x - samples[j].x, z - samples[j].z) < ESTATE_ROAD + 4) ok = false;
       if (ok && houses.some(o => Math.abs(o.x - x) < o.hxA + 2.5 && Math.abs(o.z - z) < o.hzA + 2.5)) ok = false;
       if (ok) trees.push({ x, z });
     }
-    if (!best || houses.length > best.houses.length) best = { side, ribbon, disc, houses, trees };
-    if (houses.length >= 6) break;
+    if (!best || houses.length > best.houses.length) best = { side, roads, houses, trees };
+    if (houses.length >= 10) break;
   }
   return best;
 }
@@ -842,6 +879,17 @@ function generateChunk(cx, cz, defer = false) {
   };
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
+  // ---- closed streets (three-way junctions, see segClosed in flyover.js) ----
+  // A street closed for this block: its half of the carriageway (the side of the block's own kerb) is grass, and a
+  // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
+  // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
+  const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
+  const closedBarrier = (x, z, hx, hz) => { solid(x, z, hx, hz, 'barrier'); add(box(hx * 2, 0.9, hz * 2, mat(0xd6402f), x, 0.75, z, false)); };
+  const closedGrass = (w, d, x, z) => add(box(w, 0.1, d, mat(0x7bc96f), x, 0.25, z, false));   // top at 0.30, as a block's pad
+  if (closed[0]) { closedGrass(8, 64, x0 + 4, z0 + 40); closedBarrier(x0 + 4, z0 + 8.2, 4, 0.3); closedBarrier(x0 + 4, z0 + 71.8, 4, 0.3); }
+  if (closed[1]) { closedGrass(8, 64, x0 + 76, z0 + 40); closedBarrier(x0 + 76, z0 + 8.2, 4, 0.3); closedBarrier(x0 + 76, z0 + 71.8, 4, 0.3); }
+  if (closed[2]) { closedGrass(64, 8, x0 + 40, z0 + 4); closedBarrier(x0 + 8.2, z0 + 4, 0.3, 4); closedBarrier(x0 + 71.8, z0 + 4, 0.3, 4); }
+  if (closed[3]) { closedGrass(64, 8, x0 + 40, z0 + 76); closedBarrier(x0 + 8.2, z0 + 76, 0.3, 4); closedBarrier(x0 + 71.8, z0 + 76, 0.3, 4); }
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group, ch);
   // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the
@@ -1297,18 +1345,20 @@ function generateChunk(cx, cz, defer = false) {
     }
     if (plan) {
       const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.33;      // the road sits 3 cm above the pad (its top is 0.30)
-      // the road: flat box segments about 1 m long, each turned to the path's tangent (a curve of 1 m chords on a 6 m
-      // radius reads as smooth, and boxes bake like every other block piece)
-      for (let i = 0; i + 2 < plan.ribbon.length; i += 2) {
-        const p = plan.ribbon[i], q = plan.ribbon[i + 2];
-        const len = Math.hypot(q.x - p.x, q.z - p.z);
-        const sg = box(len + 0.1, 0.04, ESTATE_ROAD * 2, asph, (p.x + q.x) / 2, Y + 0.02, (p.z + q.z) / 2, false);
-        sg.rotation.y = Math.atan2(-p.tz, p.tx); add(sg);
+      for (const rd of plan.roads) {
+        // the road: flat box segments about 1 m long, each turned to the path's tangent (a curve of 1 m chords on a 6 m
+        // radius reads as smooth, and boxes bake like every other block piece)
+        for (let i = 0; i + 2 < rd.ribbon.length; i += 2) {
+          const p = rd.ribbon[i], q = rd.ribbon[i + 2];
+          const len = Math.hypot(q.x - p.x, q.z - p.z);
+          const sg = box(len + 0.1, 0.04, ESTATE_ROAD * 2, asph, (p.x + q.x) / 2, Y + 0.02, (p.z + q.z) / 2, false);
+          sg.rotation.y = Math.atan2(-p.tz, p.tx); add(sg);
+        }
+        rd.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
+          if (i % 8 === 0 && i > 2 && i < rd.ribbon.length - 4) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
+        });
+        add(cyl(rd.disc.r, rd.disc.r, 0.04, 28, asph, rd.disc.x, Y + 0.02, rd.disc.z, false));
       }
-      plan.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
-        if (i % 8 === 0 && i > 2 && i < plan.ribbon.length - 4) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
-      });
-      add(cyl(plan.disc.r, plan.disc.r, 0.04, 28, asph, plan.disc.x, Y + 0.02, plan.disc.z, false));
       for (const h of plan.houses) {
         const hg = new THREE.Group();
         hg.position.set(h.x, 0, h.z); hg.rotation.y = Math.atan2(-h.tz, h.tx);   // local +x runs along the road, +z away from it
@@ -1323,8 +1373,9 @@ function generateChunk(cx, cz, defer = false) {
       }
       for (const t of plan.trees) tree(t.x, t.z);
       ch.estate = {
-        side: plan.side, roadY: Y, entrance: [plan.ribbon[0].x, plan.ribbon[0].z], ribbon: plan.ribbon.map(p => [p.x, p.z]),
-        disc: plan.disc, houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
+        side: plan.side, roadY: Y, entrance: [plan.roads[0].ribbon[0].x, plan.roads[0].ribbon[0].z],
+        roads: plan.roads.map(rd => ({ ribbon: rd.ribbon.map(p => [p.x, p.z]), disc: rd.disc })),
+        houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
         bounds: { lo_x, hi_x, lo_z, hi_z },
       };
     }
@@ -1837,17 +1888,17 @@ function generateChunk(cx, cz, defer = false) {
     // the cut made rather than on the pavement the cut leaves.
     const lampA = [bx + s * (CHUNK / 2 - kx - 1.35), bz + o], lampB = [bx + o, bz + s * (CHUNK / 2 - kz - 1.35)];
     if (rng() < 0.8) {
-      if (cutClear(lampA[0], lampA[1], 1.2)) prop('streetlight', lampA[0], lampA[1], 0);
-      if (cutClear(lampB[0], lampB[1], 1.2)) prop('streetlight', lampB[0], lampB[1], 0);
+      if (cutClear(lampA[0], lampA[1], 1.2) && !closed[s < 0 ? 0 : 1]) prop('streetlight', lampA[0], lampA[1], 0);
+      if (cutClear(lampB[0], lampB[1], 1.2) && !closed[s < 0 ? 2 : 3]) prop('streetlight', lampB[0], lampB[1], 0);
     }
-    if (rng() < 0.45 && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
-    if (rng() < 0.45 && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
+    if (rng() < 0.45 && !closed[s < 0 ? 0 : 1] && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
+    if (rng() < 0.45 && !closed[s < 0 ? 2 : 3] && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
   }
   if (!safe) {
     // Bus stops — occasional, on the sidewalk; reserves a clear zone so no car parks in front of it
     const busReserved = [];
     for (const side of [0, 1, 2, 3]) {
-      if (rng() > 0.07) continue;
+      if (rng() > 0.07 || closed[side]) continue;
       const alongLocal = r(20, 60);
       busStop(side, alongLocal);
       busReserved.push({ side, along: alongLocal });
@@ -1860,7 +1911,7 @@ function generateChunk(cx, cz, defer = false) {
       // No kerbside parking on a side that carries an interchange's at-grade street either: that street is the
       // through route past the structure (and under the deck), so a car left standing at its kerb would be a
       // car left standing in the way — the same reason no tree pit is planted there.
-      if (atGradeSide(cx, cz, side)) continue;
+      if (atGradeSide(cx, cz, side) || closed[side]) continue;   // no kerbside parking on a closed street either
       const along = r(14, 66), alongX = side >= 2;
       if (busReserved.some(b => b.side === side && Math.abs(b.along - along) < 11)) continue;
       const x = side === 0 ? x0 + kerbIn(0) - 1.35 : side === 1 ? x0 + CHUNK - kerbIn(1) + 1.35 : x0 + along;   // parallel-parked along the kerb
@@ -1880,7 +1931,7 @@ function generateChunk(cx, cz, defer = false) {
       const along = r(14, 66);
       const cx = side === 0 ? x0 + kerbIn(0) + 2.4 : side === 1 ? x0 + CHUNK - kerbIn(1) - 2.4 : x0 + along;
       const cz = side === 2 ? z0 + kerbIn(2) + 2.4 : side === 3 ? z0 + CHUNK - kerbIn(3) - 2.4 : z0 + along;
-      if (!cutClear(cx, cz, 1.0)) continue;                      // never in the mouth a cut corner opened
+      if (closed[side] || !cutClear(cx, cz, 1.0)) continue;      // never in the mouth a cut corner opened, nor on a closed street
       const roll = rng();
       const n = roll < 0.4 ? 1 : roll < 0.72 ? 2 : roll < 0.9 ? 3 : 4;
       const mix = ['trashcan', 'trashbag', 'trashbag', 'cardboard'];
@@ -1971,6 +2022,7 @@ function generateChunk(cx, cz, defer = false) {
     const n = 2 + Math.floor(rng() * 3);
     for (let i = 0; i < n; i++) {
       const swi = Math.floor(rng() * 4), s = SIDEWALK_SIDES[swi];
+      if (closed[swi]) continue;
       const along = (s.along === 'z' ? cz : cx) * CHUNK + 16 + rng() * (CHUNK - 32);
       const d = kerbIn(swi) + (rng() < 0.55 ? 1.15 : 2.1);      // just behind the kerb of its own side
       const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : along;

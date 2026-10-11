@@ -399,22 +399,119 @@ export function parapetPush(x, z, y, box, out) {
   return out;
 }
 
-// ---- Junction plazas ----
-// A circular island in the middle of an eligible plain four-way junction, with a fountain, statue or tree
-// grove. Plazas only go on side streets (never on a main road where flyovers sit), never at a flyover junction
-// itself, never beside one (the cut corner would swallow them), and never under a ramp. The decision is
-// deterministic and hash-based so every block computes the same answer.
-// `plazaAt(jx, jz)` returns null when the junction should stay plain, or `{ feature }` where feature is 0
-// (fountain), 1 (statue), or 2 (tree grove) — the hash decides which.
-//
-// Dimensions: the island is 5 m in radius, leaving 3.25 m of carriageway on each side of a 16.5 m junction —
-// enough for a lane each way, and traffic naturally goes around it like a small roundabout. The island is
-// recorded as a solid so cars steer clear of it, and as a keepout so props and parked cars stay off it.
+// ---- Closed streets (three-way junctions) ----
+// A grid street can be closed for one block: the segment between two neighbouring junctions is taken out, so
+// each of its two junctions has three arms instead of four (a T). `segClosed(axis, jx, jz)` answers for the
+// segment that leaves junction (jx, jz) along `axis` ('x': to (jx+1, jz); 'z': to (jx, jz+1)). It is pure
+// hash, so every block agrees, and it is never on a main road (junction index 0), never near spawn, a flyover
+// or a ramp. Among the candidates touching either end only the lowest hash closes, so no junction ever loses
+// two arms. About one candidate in five is closed.
+const CLOSE_CLEAR = 3;           // junctions this close (in each axis) to the origin stay four-way
+const closedCache = new Map();
+const segHashOf = (axis, jx, jz) => hash2(jx * 2 + (axis === 'x' ? 0 : 1), jz * 3 + (axis === 'x' ? 17 : 91)) >>> 0;
+function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez - 1], ['z', ex, ez]]; }
+function segCandidate(axis, jx, jz) {
+  const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
+  for (const [x, z] of ends) {
+    if (x === 0 || z === 0) return false;                                 // main roads carry the flyovers
+    if (Math.abs(x) <= CLOSE_CLEAR && Math.abs(z) <= CLOSE_CLEAR) return false;   // the spawn district stays a normal grid
+    if (besideFlyover(x, z)) return false;
+    if (flyoverNear(x * FLY.span, z * FLY.span, FLY.rampEnd + 4)) return false;
+  }
+  return (segHashOf(axis, jx, jz) & 0xFF) < 18;
+}
+export function segClosed(axis, jx, jz) {
+  const key = axis + jx + ',' + jz;
+  let v = closedCache.get(key);
+  if (v !== undefined) return v;
+  v = false;
+  if (segCandidate(axis, jx, jz)) {
+    const h = segHashOf(axis, jx, jz);
+    const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
+    v = true;
+    for (const [ex, ez] of ends) for (const [a, x, z] of segsAt(ex, ez)) {
+      if (a === axis && x === jx && z === jz) continue;
+      if (!segCandidate(a, x, z)) continue;
+      const g = segHashOf(a, x, z);
+      if (g < h || (g === h && a < axis)) { v = false; break; }
+    }
+  }
+  closedCache.set(key, v);
+  return v;
+}
+// Which arm of junction (jx, jz) is closed: 'e', 'w', 'n', 's', or null for a four-way junction.
+export function closedArm(jx, jz) {
+  if (segClosed('x', jx, jz)) return 'e';
+  if (segClosed('x', jx - 1, jz)) return 'w';
+  if (segClosed('z', jx, jz)) return 'n';
+  if (segClosed('z', jx, jz - 1)) return 's';
+  return null;
+}
+// Can a car leave junction (jx, jz) along `axis` in direction `dir` (+1 or -1)? False when that arm is closed.
+export function armOpen(jx, jz, axis, dir) {
+  if (axis === 'x') return !segClosed('x', dir > 0 ? jx : jx - 1, jz);
+  return !segClosed('z', jx, dir > 0 ? jz : jz - 1);
+}
+// Is the point on a closed street (within `margin` of its centre line)? Used to keep spawns off a closed street.
+export function nearClosedStreet(x, z, margin) {
+  const zl = Math.round(z / CHUNK), xl = Math.round(x / CHUNK);
+  if (Math.abs(z - zl * CHUNK) <= margin && segClosed('x', Math.floor(x / CHUNK), zl)) return true;
+  if (Math.abs(x - xl * CHUNK) <= margin && segClosed('z', xl, Math.floor(z / CHUNK))) return true;
+  return false;
+}
+
+// ---- Junction plazas (roundabouts) ----
+// A circular island in the middle of a plain four-way junction, with a fountain, statue or tree grove. Plazas
+// never go on a main road, beside or under a flyover, or at a closed (three-way) junction. They come in chains:
+// a chain starts at a junction whose priority is the lowest among the eligible junctions within six junctions,
+// so two chain starts are at least seven junctions apart, and it runs on along one street for one or two more
+// junctions (chosen by hash). A chain is therefore one roundabout followed by one or two more, with at least
+// two plain junctions before the next chain: no lone roundabouts scattered at random, no clusters of 2-3 by
+// chance. `plazaAt(jx, jz)` returns null for a plain junction or `{ feature, radius }`; feature is 0 (fountain),
+// 1 (statue) or 2 (tree grove).
+const plazaCache = new Map();
+const plazaPrio = (jx, jz) => hash2(jx * 5 + 1, jz * 5 + 2) >>> 0;
+function plazaEligible(jx, jz) {
+  if (jx === 0 || jz === 0) return false;                       // main roads carry flyovers: keep plazas off them
+  if (besideFlyover(jx, jz)) return false;                      // the cut corner would swallow the island
+  if (flyoverNear(jx * FLY.span, jz * FLY.span, FLY.rampEnd + 4)) return false; // a ramp would sweep through it
+  return closedArm(jx, jz) === null;                            // a T has no island
+}
+function plazaStart(jx, jz) {
+  if (!plazaEligible(jx, jz)) return false;
+  const p = plazaPrio(jx, jz);
+  for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+    if (!dx && !dz) continue;
+    const x = jx + dx, z = jz + dz;
+    if (plazaPrio(x, z) < p && plazaEligible(x, z)) return false;
+  }
+  return true;
+}
+function chainOf(jx, jz) {
+  const p = plazaPrio(jx, jz);
+  const unit = (p >>> 8) & 1 ? [1, 0] : [0, 1], len = 1 + ((p >>> 9) & 1);
+  const out = [[jx, jz]];
+  for (let k = 1; k <= len; k++) {
+    const x = jx + unit[0] * k, z = jz + unit[1] * k;
+    if (!plazaEligible(x, z)) break;
+    out.push([x, z]);
+  }
+  return out;
+}
 export function plazaAt(jx, jz) {
-  if (jx === 0 || jz === 0) return null;                       // main roads carry flyovers — keep plazas off them
-  if (besideFlyover(jx, jz)) return null;                      // the cut corner would swallow the island
-  if (flyoverNear(jx * FLY.span, jz * FLY.span, FLY.rampEnd + 4)) return null; // ramp would sweep through it
-  const h = hash2(jx, jz);
-  if ((h & 0xFF) >= 40) return null;                           // ~15.6% of eligible junctions
-  return { feature: (h >>> 8) % 3, radius: 5.0 };
+  const key = jx + ',' + jz;
+  if (plazaCache.has(key)) return plazaCache.get(key);
+  let res = null;
+  if (plazaEligible(jx, jz)) {
+    search: for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+      const sx = jx + dx, sz = jz + dz;
+      if (!plazaStart(sx, sz)) continue;
+      if (chainOf(sx, sz).some(([x, z]) => x === jx && z === jz)) {
+        res = { feature: (plazaPrio(sx, sz) >>> 12) % 3, radius: 5.0 };
+        break search;
+      }
+    }
+  }
+  plazaCache.set(key, res);
+  return res;
 }

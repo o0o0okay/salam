@@ -16,6 +16,7 @@ node tools/sidewalk-checks/heavyhit.mjs  # drives a real car into a parked ambul
 node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, clear lanes and repeatable placement
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
+node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
