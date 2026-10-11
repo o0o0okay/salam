@@ -950,6 +950,12 @@ function generateChunk(cx, cz, defer = false) {
   const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
   const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
   const add = o => bake(ch, o);
+  // The footprint of every suburban house in this block (grid or estate). A house's yard needs a way in from the street,
+  // so the hedge and fence lines in front of it get a gap (see yardGap).
+  const yards = [];
+  const yardGap = (x, z, alongZ) => yards.some(y => alongZ
+    ? Math.abs(z - y.z) < 2 + y.hd && Math.abs(x - y.x) < 14 + y.hw
+    : Math.abs(x - y.x) < 2 + y.hw && Math.abs(z - y.z) < 14 + y.hd);
   // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
   // for a car at grade under the bridge and gone for a car standing on the deck above them.
   const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
@@ -1683,6 +1689,7 @@ function generateChunk(cx, cz, defer = false) {
         for (const sx of [-1, 1]) hg.add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), sx * h.w * 0.28, h.h * 0.58, front - h.k * 0.04, false));
         add(hg);
         solid(h.x, h.z, h.hxA, h.hzA, 'building');
+        yards.push({ x: h.x, z: h.z, hw: h.hxA, hd: h.hzA });
       }
       for (const t of plan.trees) tree(t.x, t.z);
       ch.estate = {
@@ -1719,11 +1726,17 @@ function generateChunk(cx, cz, defer = false) {
       for (const sx of [-1, 1]) { add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz + d / 2 + 0.04, false)); add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz - d / 2 - 0.04, false)); }
       add(box(1.1, 2.2, 1.1, mat(0x8a5a44), hx + w * 0.3, h + 1.3, hz - d * 0.2));
       solid(hx, hz, w / 2, d / 2, 'building');
+      yards.push({ x: hx, z: hz, hw: w / 2, hd: d / 2 });
       const cs = rng() < 0.5 ? 1 : -1, cs2 = rng() < 0.5 ? 1 : -1;
       tree(lx + cs * 7.6, lz + cs2 * 7.6);
       if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
     }
-    for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) if (rng() > 0.25) prop('fence', bx + x + padOx, bz + side * (padD/2 - 0.4) + padOz, 0, 0.2);
+    for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) {
+      if (rng() > 0.25) {
+        const fx = bx + x + padOx, fz = bz + side * (padD/2 - 0.4) + padOz;
+        if (!yardGap(fx, fz, false)) prop('fence', fx, fz, 0, 0.2);      // the fence also opens at each house's entrance
+      }
+    }
     }
   } else if (type === 'park') {
     // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
@@ -2441,6 +2454,7 @@ function generateChunk(cx, cz, defer = false) {
         if (Math.abs(a - (edge0 + CHUNK / 2)) < 4) continue;      // and a driveway gap in the middle of every side, so the yards can be reached
         const x = s.along === 'z' ? bx + s.fixed * (CHUNK / 2 - d) : a;
         const z = s.along === 'z' ? a : bz + s.fixed * (CHUNK / 2 - d);
+        if (yardGap(x, z, s.along === 'z')) continue;             // a house's own entrance from the street
         if (occupied(x, z, 1.5)) continue;
         prop('hedge', x, z, s.along === 'z' ? PI / 2 : 0, 0.25);
       }
