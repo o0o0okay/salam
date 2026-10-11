@@ -1038,23 +1038,32 @@ function generateChunk(cx, cz, defer = false) {
     const alongX = hx > hz;
     for (const d of [-2.8, 0, 2.8]) prop('hoarding', alongX ? x + d : x, alongX ? z : z + d, alongX ? 0 : PI / 2);
   };
-  const closedGrass = (w, d, x, z) => add(box(w, 0.1, d, mat(0x7bc96f), x, 0.25, z, false));   // top at 0.30, as a block's pad
+  const closedGrass = (w, d, x, z, colour = 0x7bc96f) => add(box(w, 0.1, d, mat(colour), x, 0.25, z, false));   // top at 0.30, as a block's pad
   // A filled street (segFilled in flyover.js): this block's half of it, out to the block's edge, is grass, so the pads
   // either side join. It takes the walkway too, which is why the walkway side is skipped (sidewalkPieces).
   const fillHalf = (k, x, z, w, d) => { if (filled[k]) closedGrass(w, d, x, z); };
   const filled = [0, 1, 2, 3].map(si => closed[si] && (si === 0 ? segFilled('z', cx, cz) : si === 1 ? segFilled('z', cx + 1, cz) : si === 2 ? segFilled('x', cx, cz) : segFilled('x', cx, cz + 1)));
+  // a construction site (siteOn, below) sits on a barred, unfilled, non-neighbourhood street; its grass half is bare earth
+  const siteFree = (j1, j2) => !nbhdJunction(j1[0], j1[1]) && !nbhdJunction(j2[0], j2[1]);
+  const site = [
+    closed[0] && !filled[0] && siteFree([cx, cz], [cx, cz + 1]),
+    closed[1] && !filled[1] && siteFree([cx + 1, cz], [cx + 1, cz + 1]),
+    closed[2] && !filled[2] && siteFree([cx, cz], [cx + 1, cz]),
+    closed[3] && !filled[3] && siteFree([cx, cz + 1], [cx + 1, cz + 1]),
+  ];
+  const EARTH = 0xa98b64, GRASS = 0x7bc96f;
   // A neighbourhood's centre junction is inside it: the streets that meet there have no barrier at that end, and its
   // corner squares are grass (see nbhdInterior in flyover.js).
   const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz)) closedBarrier(x, z, hx, hz); };
-  if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
-  if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
-  if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
-  if (closed[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
+  if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40, site[0] ? EARTH : GRASS); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
+  if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40, site[1] ? EARTH : GRASS); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
+  if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
+  if (closed[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76, site[3] ? EARTH : GRASS); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
   // ---- construction site on a barred closed street ----
-  // The grass half of a barred street, between its mouths, is a building site: a half-built concrete frame (columns,
+  // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
   // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
   // pair, a tower crane. Boxes only, and no solids: the hoarding at the mouths keeps every car out. Neighbourhood
   // streets (their curved roads run across the grass) and filled streets get no site.
@@ -1084,11 +1093,10 @@ function generateChunk(cx, cz, defer = false) {
     put(0, ma + 24, 0.08, 16, 0.08, 0.3 + mastTop - 8, 0x222222);
   };
   const siteSeed = (cx2, cz2, k) => hash2(cx2 * 7 + k, cz2 * 11 + 3 * k + 1);
-  const siteFree = (j1, j2) => !nbhdJunction(j1[0], j1[1]) && !nbhdJunction(j2[0], j2[1]);
-  if (closed[0] && !filled[0] && siteFree([cx, cz], [cx, cz + 1])) siteOn('z', x0 + 4, z0 + 30, true, siteSeed(cx, cz, 0));
-  if (closed[1] && !filled[1] && siteFree([cx + 1, cz], [cx + 1, cz + 1])) siteOn('z', x0 + 76, z0 + 30, false, siteSeed(cx, cz, 1));
-  if (closed[2] && !filled[2] && siteFree([cx, cz], [cx + 1, cz])) siteOn('x', z0 + 4, x0 + 30, true, siteSeed(cx, cz, 2));
-  if (closed[3] && !filled[3] && siteFree([cx, cz + 1], [cx + 1, cz + 1])) siteOn('x', z0 + 76, x0 + 30, false, siteSeed(cx, cz, 3));
+  if (site[0]) siteOn('z', x0 + 4, z0 + 30, true, siteSeed(cx, cz, 0));
+  if (site[1]) siteOn('z', x0 + 76, z0 + 30, false, siteSeed(cx, cz, 1));
+  if (site[2]) siteOn('x', z0 + 4, x0 + 30, true, siteSeed(cx, cz, 2));
+  if (site[3]) siteOn('x', z0 + 76, x0 + 30, false, siteSeed(cx, cz, 3));
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group, ch);
   // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the

@@ -5,6 +5,7 @@ import { scene } from './renderer.js';
 import { mat, box, ASSET } from './assets.js';
 import { game, player, spikes, cars } from './state.js';
 import { solidAt } from './world.js';
+import { segClosed } from './flyover.js';
 import { toast } from './ui.js';
 import { sfx } from './audio.js';
 import { sparks, smoke } from './particles.js';
@@ -18,6 +19,11 @@ function makeSpikeMesh(axisZ) {
   for (const sx of [-1, 1]) { g.add(box(0.25, 2.4, 0.25, dark, sx * 7.6, 1.2, 0, false)); g.add(box(0.55, 0.55, 0.55, ASSET.spikeLit, sx * 7.6, 2.6, 0, false)); }
   g.rotation.y = axisZ ? 0 : PI / 2;
   return g;
+}
+
+// a closed street (barred, or filled with blocks) is not a road: its grass strip never takes a spike strip or a roadblock
+export function onClosedStreet(x, z, axisZ) {
+  return axisZ ? segClosed('z', Math.round(x / CHUNK), Math.floor(z / CHUNK)) : segClosed('x', Math.floor(x / CHUNK), Math.round(z / CHUNK));
 }
 
 export function deploySpike() {
@@ -34,7 +40,7 @@ export function deploySpike() {
     if (Math.abs(along - node) < 20) along = node + (along >= node ? 22 : -22); // never inside an intersection
     const lat = rc + (Math.random() < 0.5 ? -4 : 4);     // 14 m strip on a 16 m road: a gap stays open on one side
     const x = axisZ ? lat : along, z = axisZ ? along : lat;
-    if (Math.hypot(x - player.x, z - player.z) < 70 || solidAt(x, z, 7, 0)) continue;
+    if (Math.hypot(x - player.x, z - player.z) < 70 || solidAt(x, z, 7, 0) || onClosedStreet(x, z, axisZ)) continue;
     if (spikes.some(o => Math.hypot(o.x - x, o.z - z) < 30)) continue;
     const mesh = makeSpikeMesh(axisZ); mesh.position.set(x, 0.02, z); scene.add(mesh);
     spikes.push({ x, z, axisZ, mesh, life: 50 });
