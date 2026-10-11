@@ -1032,11 +1032,11 @@ function generateChunk(cx, cz, defer = false) {
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
   // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
-  // the mouth of a barred street: three orange hoarding props across it (soft and breakable, like the road barriers),
-  // so a hard hit breaks through and a bump does not
+  // the mouth of a barred street: three striped road-works barricades across it (soft and breakable, like the road
+  // barriers), so a hard hit breaks through and a bump does not
   const closedBarrier = (x, z, hx, hz) => {
     const alongX = hx > hz;
-    for (const d of [-2.8, 0, 2.8]) prop('hoarding', alongX ? x + d : x, alongX ? z : z + d, alongX ? 0 : PI / 2);
+    for (const d of [-2.8, 0, 2.8]) prop('barricade', alongX ? x + d : x, alongX ? z : z + d, alongX ? 0 : PI / 2);
   };
   const closedGrass = (w, d, x, z, colour = 0x7bc96f) => add(box(w, 0.1, d, mat(colour), x, 0.25, z, false));   // top at 0.30, as a block's pad
   // A filled street (segFilled in flyover.js): this block's half of it, out to the block's edge, is grass, so the pads
@@ -1066,17 +1066,7 @@ function generateChunk(cx, cz, defer = false) {
   const EARTH = 0xa98b64, GRASS = 0x7bc96f;
   // A neighbourhood's centre junction is inside it: the streets that meet there have no barrier at that end, and its
   // corner squares are grass (see nbhdInterior in flyover.js).
-  // A fixed fence stands 2.6 m inside each barrier, across the same width: once a hoarding breaks, the street stays shut.
-  const fenceBehind = (x, z, hx, hz) => {
-    const alongX = hx > hz;
-    const fx = alongX ? x : x + ((x - x0) < CHUNK / 2 ? 1 : -1) * 2.6;
-    const fz = alongX ? z + ((z - z0) < CHUNK / 2 ? 1 : -1) * 2.6 : z;
-    const ehx = alongX ? hx : 0.15, ehz = alongX ? 0.15 : hz;
-    solid(fx, fz, ehx, ehz, 'building');
-    add(box(ehx * 2, 1.5, ehz * 2, mat(0x5d6b62), fx, 1.05, fz, true));
-    add(box(ehx * 2, 0.12, ehz * 2, mat(0x3f4a44), fx, 1.85, fz, false));
-  };
-  const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz)) { closedBarrier(x, z, hx, hz); fenceBehind(x, z, hx, hz); } };
+  const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz)) closedBarrier(x, z, hx, hz); };
   if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40, site[0] ? EARTH : GRASS); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
   if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40, site[1] ? EARTH : GRASS); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
   if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
@@ -1087,7 +1077,7 @@ function generateChunk(cx, cz, defer = false) {
   // ---- construction site on a barred closed street ----
   // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
   // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
-  // pair, a tower crane. Boxes only, and no solids: the hoarding at the mouths keeps every car out. Neighbourhood
+  // pair, a tower crane. Boxes only, and no solids: the barricades at the mouths keep every car out. Neighbourhood
   // streets (their curved roads run across the grass) and filled streets get no site.
   const siteOn = (axis, acr, alc, crane, seed) => {
     const L = 28, D = 6, H = 3.2, nF = 5 + (seed & 1) + ((seed >>> 1) & 1), top = nF * H;

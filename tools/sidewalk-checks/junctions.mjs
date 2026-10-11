@@ -112,7 +112,7 @@ assert(filledShare >= 0.35 && filledShare <= 0.65, `filled streets are ${(filled
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
 let barriers = 0, blocksChecked = 0, cranesChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
-  // one hoarding per mouth (three props); a mouth on a neighbourhood's centre junction has none
+  // one barricade per mouth (three props); a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
   // a filled street (segFilled) has no barrier at either mouth: its blocks join across it
   const barred = (axis, jx, jz) => F.segClosed(axis, jx, jz) && !F.segFilled(axis, jx, jz);
@@ -122,13 +122,10 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
     + (barred('x', cx, cz + 1) ? mouths(cx, cz + 1) + mouths(cx + 1, cz + 1) : 0);
   const ch = W.generateChunk(cx, cz, true);
   blocksChecked++;
-  // each open mouth is three hoarding props across it (soft, breakable), not a solid
-  const got = ch.props.filter(p => p.kind === 'hoarding').length;
-  assert.equal(got, want * 3, `block ${cx},${cz}: ${got} hoarding props for ${want} open mouths (want ${want * 3})`);
+  // each open mouth is three barricade props across it (soft, breakable), not a solid
+  const got = ch.props.filter(p => p.kind === 'barricade').length;
+  assert.equal(got, want * 3, `block ${cx},${cz}: ${got} barricade props for ${want} open mouths (want ${want * 3})`);
   barriers += got;
-  // and a fixed fence stands behind each: a 0.3 m thick solid, 2.6 m inside the hoarding, so a broken hoarding does not open the street
-  const fences = ch.solids.filter(q => q.kind === 'building' && (q.hx === 0.15 || q.hz === 0.15)).length;
-  assert.equal(fences, want, `block ${cx},${cz}: ${fences} fixed fences behind ${want} open mouths`);
   // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
   // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
   const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
@@ -146,4 +143,4 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
 }
 
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} hoarding props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid`);
+  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid`);

@@ -12,10 +12,16 @@ export const PROP_DEFS = {
   barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, soft: true, make() { const g = new THREE.Group();
     g.add(box(3.4, 0.9, 0.6, mat(0xf2f2f2), 0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), -1.0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), 0.2, 0.75, 0, false));
     g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
-  // a construction hoarding across a barred street's mouth: orange with a white top band, soft and breakable like a barrier
-  hoarding: { r: 1.5, drag: 0.93, color: 0xf08c1e, soft: true, make() { const g = new THREE.Group();
-    g.add(box(3.4, 0.9, 0.6, mat(0xf08c1e), 0, 0.75, 0, false)); g.add(box(3.4, 0.14, 0.62, mat(0xf4f4f4), 0, 1.27, 0, false));
-    g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
+  // a road-works barricade across a barred street's mouth: two yellow boards with black diagonal stripes on white-and-
+  // orange posts and concrete feet (the striped barricade of the construction sites). Soft and breakable like a barrier.
+  barricade: { r: 1.5, drag: 0.93, color: 0xf2c200, soft: true, make() { const g = new THREE.Group();
+    const yel = mat(0xf2c200), blk = mat(0x222222), wht = mat(0xf4f4f4), org = mat(0xf07a1a), base = mat(0xb8bcc0);
+    for (const sx of [-1.25, 1.25]) { g.add(cyl(0.07, 0.07, 1.7, 6, wht, sx, 0.85, 0, false)); g.add(cyl(0.09, 0.09, 0.3, 6, org, sx, 1.72, 0, false)); g.add(box(0.6, 0.12, 0.7, base, sx, 0.06, 0, false)); }
+    for (const by of [0.55, 1.15]) {
+      g.add(box(2.6, 0.32, 0.1, yel, 0, by, 0, false));
+      for (const bx of [-1.1, -0.55, 0, 0.55, 1.1]) { const st = box(0.2, 0.42, 0.12, blk, bx, by, 0, false); st.rotation.z = 0.9; g.add(st); }
+    }
+    return g; } },
   crate: { r: 1.1, drag: 0.94, color: 0xa87440, soft: true, make() { const g = new THREE.Group();
     g.add(box(1.7, 1.7, 1.7, mat(0xa87440), 0, 0.85, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 0.3, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 1.4, 0, false)); return g; } },
   barrel: { r: 0.8, drag: 0.94, color: 0xd64545, soft: true, make() { const g = new THREE.Group(); const c = Math.random() < 0.5 ? 0xd64545 : 0x3b7ddd;
