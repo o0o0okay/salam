@@ -80,7 +80,10 @@ export function stripStops(ix, iz, cx, cz, si) {
   const stop = (!lane && (bridgeAt(ix, iz) || onLaneRoad)) ? roadEdge() : PAVE_IN;
   return { stop, cut: besideFlyover(ix, iz) ? FLY.chamfer : 0 };
 }
-export function sidewalkPieces(cx, cz, style, filled = []) {
+// `gate` (optional) opens a stretch of one side's walkway: `{ side, t, cut }` cuts the strip on side `side` across
+// the lateral band t ± cut (world coordinates along the edge). The walk, the kerb and the border course are all
+// split there, so the entrance of an estate road reaches the carriageway through the pavement.
+export function sidewalkPieces(cx, cz, style, filled = [], gate = null) {
   const bx = cx * CHUNK + 40, bz = cz * CHUNK + 40, E = CHUNK / 2, PH = CURB_H + 0.04;
   const x0 = bx - E, z0 = bz - E;                       // the block's own corners, for the chamfered ones
   const st = SW_STYLES[style] || SW_STYLES.slab;
@@ -116,6 +119,17 @@ export function sidewalkPieces(cx, cz, style, filled = []) {
     const cuts = ends.map(([ix, iz]) => stripStops(ix, iz, cx, cz, si).cut);
     const a0 = (s.along === 'z' ? cz : cx) * CHUNK + stops[0] + cuts[0];
     const len = CHUNK - stops[0] - stops[1] - cuts[0] - cuts[1], mid = a0 + len / 2;
+    // The spans the strip is laid in: the whole strip, or the two stretches either side of a gate on this side.
+    // Only the outer ends keep their chamfer twins (`first` / `last`), exactly as an uncut strip has them.
+    let spans = [{ m: mid, l: len, first: true, last: true }];
+    if (gate && gate.side === si) {
+      const lo = Math.max(a0, gate.t - gate.cut), hi = Math.min(a0 + len, gate.t + gate.cut);
+      if (hi > lo) {
+        spans = [];
+        if (lo - a0 > 0.2) spans.push({ m: (a0 + lo) / 2, l: lo - a0, first: true, last: false });
+        if (a0 + len - hi > 0.2) spans.push({ m: (hi + a0 + len) / 2, l: a0 + len - hi, first: false, last: true });
+      }
+    }
     const at = (radial, along) => s.along === 'z'
       ? { x: bx + s.fixed * radial, z: along }
       : { x: along, z: bz + s.fixed * radial };
@@ -139,9 +153,11 @@ export function sidewalkPieces(cx, cz, style, filled = []) {
       arr.push({ w: L, h, d: w, x, y: y + s.dy, z, rot: sx * sz * PI / 4 });
     };
     const place = (arr, w, h, d, radial, y) => {
-      const p = at(radial, mid);
-      arr.push({ w: C ? w : len, h, d: C ? len : w, x: p.x, y: y + s.dy, z: p.z });
-      for (const end of [0, 1]) if (cuts[end]) chamferCorner(arr, w, h, radial, y, end);
+      for (const sp of spans) {
+        const p = at(radial, sp.m);
+        arr.push({ w: C ? w : sp.l, h, d: C ? sp.l : w, x: p.x, y: y + s.dy, z: p.z });
+        for (const end of [0, 1]) if (cuts[end] && (end === 0 ? sp.first : sp.last)) chamferCorner(arr, w, h, radial, y, end);
+      }
     };
     // `place` takes the offset from the block centre: 0 = middle of the block, CHUNK/2 = road centre line,
     // so a distance `d` measured from the road is passed as E - d.

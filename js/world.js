@@ -51,7 +51,7 @@ import { solidAt, solidsNear } from './solidIndex.js';
 import { PAVE_IN, PAVE_OUT, WALK_Y, PIT_IN, FACTORY_SHARE, PAD_IN, CURB_TILE, BORDER_TILE, SIDEWALK_SIDES, pickSidewalkStyle, stripStops, sidewalkPieces, treePit, bakeRing } from './sidewalks.js';
 import { FRAME_COLORS, NET_COLORS, PLANK_COLORS, SIGN_COLORS, buildScaffoldMesh, MACH_Y, MIXER_ORANGE, siteMachine, siteSpots } from './sites.js';
 import { buildFlyoverNoseGuard, buildFlyoverDelineator, buildFlyoverNameboard, buildFlyoverBillboard, buildFlyoverGantry, buildPlazaIsland, warmTextCache } from './flyoverFurniture.js';
-import { ESTATE_ROAD, planEstate, utilityNbhd, nbhdPlan, nbhdClip, ESTATE_MEMO_MAX, estatePlanMemo } from './neighbourhoods.js';
+import { ESTATE_ROAD, ESTATE_DISC, planEstate, utilityNbhd, nbhdPlan, nbhdClip, ESTATE_MEMO_MAX, estatePlanMemo } from './neighbourhoods.js';
 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
 // in the suburbs: the palette of the reference street art, where no two neighbouring fronts match.
@@ -923,7 +923,7 @@ function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng,
   }
 }
 
-function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, padBox, prop, r, rng, solid, tree, x0, yardGap, yards, z0 }) {
+function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, filled, nbPlan, nbRX, nbRZ, padBox, parkedCar, PARKED_COLORS, PARKED_KINDS, prop, r, rng, solid, tree, x0, yardGap, yards, z0 }) {
   // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
   // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
   const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
@@ -981,6 +981,32 @@ function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, p
       });
       if (plan.inC(rd.disc.x, rd.disc.z)) add(cyl(rd.disc.r, rd.disc.r, 0.04, 28, asph, rd.disc.x, Y + 0.02, rd.disc.z, false));
     }
+    // The entrance: the main road meets the pad at its edge, and the pavement, kerb and tree line in front of it are
+    // cut open (ch.gate, read by sidewalkPieces). A ramp runs from the pad's edge down to the street's edge, so a car
+    // drives from the carriageway on to the estate road. Props, trees and hedges stay out of the corridor. A side whose
+    // street is closed and filled with grass (`filled`) has no carriageway to open on to, so it keeps no gate.
+    if (!nbPlan && !filled[plan.side]) {
+      const side = plan.side, e0 = plan.roads[0].ribbon[0];
+      const ax = side < 2, sgn = side % 2 ? 1 : -1;     // radial axis (x on sides 0-1, z on 2-3) and the outward sign
+      const C0 = ax ? bx : bz, E = CHUNK / 2;
+      const gt = ax ? e0.z : e0.x;                       // the entrance, along the edge
+      const P = ax ? (side === 0 ? lo_x : hi_x) : (side === 2 ? lo_z : hi_z);   // the pad's edge
+      const O = C0 + sgn * (E - PAVE_IN), In = C0 + sgn * (E - PAVE_OUT);      // the street's edge; the walk's inner line
+      ch.gate = { side, t: gt, cut: ESTATE_ROAD + 0.25, clear: ESTATE_ROAD + 1.2, r0: Math.min(In, O), r1: Math.max(In, O) };
+      const W = [[P, Y + 0.04, gt - ESTATE_ROAD], [P, Y + 0.04, gt + ESTATE_ROAD], [O, 0.03, gt - ESTATE_ROAD], [O, 0.03, gt + ESTATE_ROAD]]
+        .map(([rad, y, lat]) => ax ? [rad, y, lat] : [lat, y, rad]);
+      // each triangle is wound so that its normal points up (whichever way the entrance faces)
+      const up = (i, j, k) => {
+        const ux = W[j][0] - W[i][0], uz = W[j][2] - W[i][2], vx = W[k][0] - W[i][0], vz = W[k][2] - W[i][2];
+        return uz * vx - ux * vz > 0 ? [i, j, k] : [i, k, j];
+      };
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(W.flat(), 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+      geo.setIndex([...up(0, 1, 2), ...up(1, 3, 2)]); geo.computeVertexNormals();
+      ch.geos.push(geo);
+      add(new THREE.Mesh(geo, asph));
+    }
     for (const h of plan.houses) {
       const hg = new THREE.Group();
       hg.position.set(h.x, 0, h.z); hg.rotation.y = Math.atan2(-h.tz, h.tx);   // local +x runs along the road, +z away from it
@@ -995,6 +1021,25 @@ function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, p
       yards.push({ x: h.x, z: h.z, hw: h.hxA, hd: h.hzA });
     }
     for (const t of plan.trees) tree(t.x, t.z);
+    if (!nbPlan) {
+      // One car parked at random on the estate road, at its kerb. It has a generator of its own, seeded by the block,
+      // so the block's own draws do not move. A spot is kept only when it lies clear of the entrance, the cul-de-sacs and
+      // every solid (houses, trees).
+      const rp = mulberry32(hash2(cx * 37 + 5, cz * 53 - 9) ^ 0x7c3), e0 = plan.roads[0].ribbon[0];
+      const CAR_W = 1.15, CAR_L = 2.35, lat = ESTATE_ROAD - 1.5;   // half width, half length; the kerbside offset
+      for (let tries = 0; tries < 40; tries++) {
+        const R = plan.roads[Math.floor(rp() * plan.roads.length)].ribbon;
+        const p = R[8 + Math.floor(rp() * (R.length - 16))], sl = rp() < 0.5 ? -1 : 1;
+        const x = p.x - p.tz * sl * lat, z = p.z + p.tx * sl * lat;
+        const hx = CAR_L * Math.abs(p.tx) + CAR_W * Math.abs(p.tz), hz = CAR_L * Math.abs(p.tz) + CAR_W * Math.abs(p.tx);
+        const kind = PARKED_KINDS[Math.floor(rp() * PARKED_KINDS.length)], color = PARKED_COLORS[Math.floor(rp() * PARKED_COLORS.length)];
+        if (Math.hypot(x - e0.x, z - e0.z) < 14) continue;
+        if (plan.roads.some(rd => Math.hypot(x - rd.disc.x, z - rd.disc.z) < ESTATE_DISC + 8)) continue;
+        if (ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + hx + 0.4 && Math.abs(z - o.z) < o.hz + hz + 0.4)) continue;
+        parkedCar(x, z, hx, hz, Math.atan2(p.tx, p.tz), kind, color, Y + 0.04);
+        break;
+      }
+    }
     ch.estate = {
       side: nbPlan ? -1 : plan.side, nb: nbPlan ? [nbRX, nbRZ] : null, roadY: Y,
       entrance: [plan.roads[0].ribbon[0].x, plan.roads[0].ribbon[0].z],
@@ -1789,13 +1834,21 @@ function generateChunk(cx, cz, defer = false) {
     const inBand = a => a >= WALK_LO && a <= WALK_HI;
     return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
   };
+  // The corridor of an estate's entrance (ch.gate): from the walk's inner line out to the street's edge, and across
+  // the road with a margin. Nothing that stands in it is planted or placed (props, trees, hedges, furniture).
+  const inGate = (x, z, rad) => {
+    const g = ch.gate;
+    if (!g) return false;
+    const along = g.side < 2 ? z : x, across = g.side < 2 ? x : z;
+    return Math.abs(along - g.t) < g.clear + rad && across > g.r0 - rad && across < g.r1 + rad;
+  };
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
+    if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;   // that strip is carriageway now, not pavement
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
     ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
   };
   const tree = (x, z, y = 0.2) => {
-    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
+    if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
     const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
     solid(x, z, 0.65, 0.65, 'tree');
     const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
@@ -1867,12 +1920,11 @@ function generateChunk(cx, cz, defer = false) {
   let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng);
-  const sw = sidewalkPieces(cx, cz, swStyle, filled);
   const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
   if (type === 'downtown') {
     downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng, scaffold, solid, tree, x0, z0 });
   } else if (type === 'suburb') {
-    suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, padBox, prop, r, rng, solid, tree, x0, yardGap, yards, z0 });
+    suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, filled, nbPlan, nbRX, nbRZ, padBox, parkedCar, PARKED_COLORS, PARKED_KINDS, prop, r, rng, solid, tree, x0, yardGap, yards, z0 });
   } else if (type === 'park') {
     parkBlock({ add, bx, bz, ch, cx, cz, p, padBox, prop, r, rng, tree, x0, z0 });
   } else if (type === 'commercial') {
@@ -1910,12 +1962,15 @@ function generateChunk(cx, cz, defer = false) {
   const zSides = nbLines ? [-1, 1] : avS ? [avS] : [];   // x-side pavements: their line runs along z
   const xSides = nbLines ? [-1, 1] : crS ? [crS] : [];   // z-side pavements: their line runs along x
   const utility = zSides.length > 0 || xSides.length > 0;
+  // The walkway is laid once the block is built, so it can open the estate's entrance (ch.gate, set by suburbBlock).
+  const sw = sidewalkPieces(cx, cz, swStyle, filled, ch.gate || null);
   utilityPoles({ add, bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, t, utility, x0, xSides, z0, zSides });
   streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng });
   safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
     || ch.keepouts.some(k => Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad)
-    || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad);
+    || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad)
+    || inGate(x, z, rad);
   furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz });
   dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop });
   hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz });
