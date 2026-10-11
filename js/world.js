@@ -1729,6 +1729,18 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
   }
 }
 
+// A cone whose centre lies inside a solid of its own block is buried: a car can never reach it, so it can never be
+// knocked over, and it only clips into the wall or scaffold. Such cones are removed. Nothing is drawn from the RNG here.
+function dropBuriedCones(ch) {
+  const solids = ch.solids.filter(s => s.hx > 0 && s.hz > 0);
+  ch.props = ch.props.filter(p => {
+    if (p.kind !== 'cone') return true;
+    if (!solids.some(s => Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz)) return true;
+    ch.group.remove(p.mesh);
+    return false;
+  });
+}
+
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
@@ -1887,6 +1899,7 @@ function generateChunk(cx, cz, defer = false) {
   streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
   sidewalkSurfaces({ sw, swPainted, ch });
   crossings({ x0, z0, kerbIn, add, cx, cz });
+  dropBuriedCones(ch);
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
