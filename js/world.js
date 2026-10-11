@@ -1139,7 +1139,32 @@ function generateChunk(cx, cz, defer = false) {
     put(0, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
     put(0, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
     put(-1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
-    put(0, ma + 24, 0.08, 16, 0.08, 0.3 + mastTop - 8, 0x222222);
+    // hook block: four wire ropes run from the jib end down to a yellow and black pulley block with a J hook, as on a
+    // real tower crane. It hangs 15 m up, over the street past the site, so no car at grade can reach it.
+    const hbTop = 0.3 + mastTop - 16, hbY = hbTop - 1.1, hbAl = ma + 24, ropeLen = 16;
+    const hb = new THREE.Group();
+    hb.position.set(axis === 'z' ? acr : alc + hbAl, hbY, axis === 'z' ? alc + hbAl : acr);
+    hb.rotation.y = axis === 'z' ? 0 : PI / 2;                     // local x is across the street, as the machines do
+    const hY = mat(0xf2c230), hK = mat(0x1d1d1d), hD = mat(0x2b2b2b), hH = mat(0x2a2d33), hR = mat(0x222222);
+    hb.add(box(1.0, 2.2, 0.9, hY, 0, 0, 0));                        // yoke body, yellow
+    for (const fz of [-0.46, 0.46]) for (const sx of [-0.42, 0, 0.42]) {   // black diagonal stripes on both faces
+      const st = box(0.14, 1.2, 0.03, hK, sx, 0, fz); st.rotation.z = 0.9; hb.add(st);
+    }
+    hb.add(cyl(0.2, 0.2, 0.22, 10, hY, 0, 1.2, 0));                 // top eye / bolt cap
+    for (const fz of [-0.46, 0.46]) for (const sx of [-0.42, 0.42]) hb.add(cyl(0.035, 0.035, 0.03, 4, hD, sx, 0.9, fz));   // bolt heads
+    const drum = cyl(0.45, 0.45, 0.2, 14, hD, -0.6, 0.2, 0); drum.rotation.z = PI / 2; hb.add(drum);   // wire-rope drum on the side
+    const hub = cyl(0.3, 0.3, 0.24, 12, hY, -0.6, 0.2, 0); hub.rotation.z = PI / 2; hb.add(hub);
+    // the hook: a shank from the yoke, then a J of short cylinders on a circle of radius 0.45 about (0.45, -1.7)
+    const hookSeg = (x0, y0, x1, y1) => {
+      const L = Math.hypot(x1 - x0, y1 - y0), m = cyl(0.09, 0.09, L + 0.02, 6, hH, (x0 + x1) / 2, (y0 + y1) / 2, 0);
+      m.rotation.z = Math.atan2(y1 - y0, x1 - x0) - PI / 2; hb.add(m);
+    };
+    const J = [[0, -1.1], [0, -1.7]];
+    for (let i = 0; i <= 12; i++) { const a = PI + (PI + 0.7) * i / 12; J.push([0.45 + 0.45 * Math.cos(a), -1.7 + 0.45 * Math.sin(a)]); }
+    for (let i = 1; i < J.length; i++) hookSeg(J[i - 1][0], J[i - 1][1], J[i][0], J[i][1]);
+    hb.add(cyl(0.14, 0.14, 0.2, 8, hD, 0, -1.2, 0));                 // the nut at the top of the shank
+    for (const rx of [-0.25, 0.25]) for (const rz of [-0.25, 0.25]) hb.add(cyl(0.035, 0.035, ropeLen, 4, hR, rx, 1.1 + ropeLen / 2, rz, false));
+    add(hb);
   };
   const siteSeed = (cx2, cz2, k) => hash2(cx2 * 7 + k, cz2 * 11 + 3 * k + 1);
   if (site[0]) siteOn('z', x0 + 4, z0 + 30, true, siteSeed(cx, cz, 0));
