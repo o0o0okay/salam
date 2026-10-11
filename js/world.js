@@ -1032,8 +1032,12 @@ function generateChunk(cx, cz, defer = false) {
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
   // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
-  // the mouth of a barred street: a solid hoarding (orange, white top band), not a red block
-  const closedBarrier = (x, z, hx, hz) => { solid(x, z, hx, hz, 'barrier'); add(box(hx * 2, 0.9, hz * 2, mat(0xf08c1e), x, 0.75, z, false)); add(box(hx * 2, 0.14, hz * 2, mat(0xf4f4f4), x, 1.27, z, false)); };
+  // the mouth of a barred street: three orange hoarding props across it (soft and breakable, like the road barriers),
+  // so a hard hit breaks through and a bump does not
+  const closedBarrier = (x, z, hx, hz) => {
+    const alongX = hx > hz;
+    for (const d of [-2.8, 0, 2.8]) prop('hoarding', alongX ? x + d : x, alongX ? z : z + d, alongX ? 0 : PI / 2);
+  };
   const closedGrass = (w, d, x, z) => add(box(w, 0.1, d, mat(0x7bc96f), x, 0.25, z, false));   // top at 0.30, as a block's pad
   // A filled street (segFilled in flyover.js): this block's half of it, out to the block's edge, is grass, so the pads
   // either side join. It takes the walkway too, which is why the walkway side is skipped (sidewalkPieces).
@@ -1066,6 +1070,8 @@ function generateChunk(cx, cz, defer = false) {
     for (let f = 1; f <= nF; f++) put(0, 0, D, 0.3, L, f * H + 0.15, 0xa9adb1);
     for (let f = 0; f < 2 && f < nF; f++) put(D / 2 - 0.2, -L / 4, 0.4, H - 0.4, L / 2, 0.3 + f * H + H / 2, 0xb5583a);
     for (let a = -L / 2 + 0.6; a < L / 2; a += 8) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.12, 1.2, 0.12, 0.3 + top + 0.6, 0x6b6f73);
+    // the frame is solid on its footprint: a car cannot drive in under its columns
+    solid(axis === 'z' ? acr : alc, axis === 'z' ? alc : acr, axis === 'z' ? D / 2 : L / 2, axis === 'z' ? L / 2 : D / 2, 'building');
     if (!crane) return;
     // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
     const ma = L / 2 + 8, mastTop = 34;

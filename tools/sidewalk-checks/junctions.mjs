@@ -112,7 +112,7 @@ assert(filledShare >= 0.35 && filledShare <= 0.65, `filled streets are ${(filled
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
 let barriers = 0, blocksChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
-  // one barrier per mouth; a mouth on a neighbourhood's centre junction has none
+  // one hoarding per mouth (three props); a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
   // a filled street (segFilled) has no barrier at either mouth: its blocks join across it
   const barred = (axis, jx, jz) => F.segClosed(axis, jx, jz) && !F.segFilled(axis, jx, jz);
@@ -122,10 +122,11 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
     + (barred('x', cx, cz + 1) ? mouths(cx, cz + 1) + mouths(cx + 1, cz + 1) : 0);
   const ch = W.generateChunk(cx, cz, true);
   blocksChecked++;
-  const got = ch.solids.filter(s => s.kind === 'barrier').length;
-  assert.equal(got, want, `block ${cx},${cz}: ${got} barriers for ${want} open mouths`);
+  // each open mouth is three hoarding props across it (soft, breakable), not a solid
+  const got = ch.props.filter(p => p.kind === 'hoarding').length;
+  assert.equal(got, want * 3, `block ${cx},${cz}: ${got} hoarding props for ${want} open mouths (want ${want * 3})`);
   barriers += got;
 }
 
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} barriers at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns`);
+  `${blocksChecked} blocks built, ${barriers} hoarding props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns`);

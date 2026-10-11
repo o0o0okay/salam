@@ -12,6 +12,10 @@ export const PROP_DEFS = {
   barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, soft: true, make() { const g = new THREE.Group();
     g.add(box(3.4, 0.9, 0.6, mat(0xf2f2f2), 0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), -1.0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), 0.2, 0.75, 0, false));
     g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
+  // a construction hoarding across a barred street's mouth: orange with a white top band, soft and breakable like a barrier
+  hoarding: { r: 1.5, drag: 0.93, color: 0xf08c1e, soft: true, make() { const g = new THREE.Group();
+    g.add(box(3.4, 0.9, 0.6, mat(0xf08c1e), 0, 0.75, 0, false)); g.add(box(3.4, 0.14, 0.62, mat(0xf4f4f4), 0, 1.27, 0, false));
+    g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
   crate: { r: 1.1, drag: 0.94, color: 0xa87440, soft: true, make() { const g = new THREE.Group();
     g.add(box(1.7, 1.7, 1.7, mat(0xa87440), 0, 0.85, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 0.3, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 1.4, 0, false)); return g; } },
   barrel: { r: 0.8, drag: 0.94, color: 0xd64545, soft: true, make() { const g = new THREE.Group(); const c = Math.random() < 0.5 ? 0xd64545 : 0x3b7ddd;
