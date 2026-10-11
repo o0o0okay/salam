@@ -1583,9 +1583,12 @@ function generateChunk(cx, cz, defer = false) {
         scaffold(sx, sz, rotS, o);
         const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
         const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
+        // The cones stand just outside the scaffold's outer face (its footprint is sd/2 + 0.3 deep), not inside its solid:
+        // a cone buried in the scaffolding is one a car can never reach, so it could never be knocked over.
+        const coneOut = sd / 2 + 0.3 + 0.75;
         for (let k = 0; k < coneCount; k++) {
           const off = -sw / 2 + k * step;
-          const cx2 = rotS === 0 ? sx + off : sx + cdx * 1.0, cz2 = rotS === 0 ? sz + cdz * 1.0 : sz + off;
+          const cx2 = rotS === 0 ? sx + off : sx + cdx * coneOut, cz2 = rotS === 0 ? sz + cdz * coneOut : sz + off;
           prop('cone', cx2, cz2, rng() * PI, 0);
         }
       }
