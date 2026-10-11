@@ -2199,13 +2199,22 @@ function generateChunk(cx, cz, defer = false) {
     for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
     if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
   }
-  // Utility poles (utilityNbhd): in a neighbourhood that has them, a pole stands on each pavement 20 m either side of the
-  // block's middle, on both sides of both streets (the paving band is 27.4 to 31.5 m from the centre). Wires run between
-  // poles 40 m apart: inside the block, and across the boundary on to the next block's first pole, so a row of blocks
-  // reads as one line. The wires are cosmetic (no solids); a neighbourhood's edge ends its lines.
-  const utility = !!nbPlan && utilityNbhd(nbRX, nbRZ);
+  // Utility poles. A line of poles stands on a pavement 20 m either side of the block's middle, 29.5 m out from its
+  // centre (the paving band is 27.4 to 31.5 m). Two kinds of line:
+  //  - a utility neighbourhood (utilityNbhd) has a line on all four of its sides, and it ends at the neighbourhood's edge;
+  //  - the avenue (x = 0) and the cross street (z = 0) carry a line on the pavement facing them, in every block beside
+  //    them, so the line runs on through the whole city along each main road.
+  // Wires run between poles 40 m apart: inside the block, and across the boundary on to the next block's first pole.
+  const nbLines = !!nbPlan && utilityNbhd(nbRX, nbRZ);
+  const avS = cx === 0 ? -1 : cx === -1 ? 1 : 0;    // the side of this block that faces the avenue (x = 0)
+  const crS = cz === 0 ? -1 : cz === -1 ? 1 : 0;    // the side that faces the cross street (z = 0)
+  const zSides = nbLines ? [-1, 1] : avS ? [avS] : [];   // x-side pavements: their line runs along z
+  const xSides = nbLines ? [-1, 1] : crS ? [crS] : [];   // z-side pavements: their line runs along x
+  const utility = zSides.length > 0 || xSides.length > 0;
   if (utility) {
     const ix = cx - nbRX * NB_BLOCKS, iz = cz - nbRZ * NB_BLOCKS;
+    const zCross = nbLines ? iz + 1 < NB_BLOCKS : true;   // the avenue runs on through every block; a neighbourhood does not
+    const xCross = nbLines ? ix + 1 < NB_BLOCKS : true;
     const wireMat = mat(0x1b1b1b);
     const utilityLine = (p0, p1, along) => {               // p0, p1: [x, z] of two poles; four wires sag between them
       const SAG = 0.45, Y0 = 0.33;
@@ -2225,16 +2234,17 @@ function generateChunk(cx, cz, defer = false) {
         }
       }
     };
-    for (const s of [-1, 1]) for (const o of [-20, 20]) {
-      prop('utilitypole', bx + s * 29.5, bz + o, 0, 0.15);          // on the x-side pavements: line runs along z
-      prop('utilitypole', bx + o, bz + s * 29.5, PI / 2, 0.15);     // on the z-side pavements: line runs along x
+    for (const s of zSides) {
+      const px = bx + s * 29.5;
+      prop('utilitypole', px, bz - 20, 0, 0.15); prop('utilitypole', px, bz + 20, 0, 0.15);
+      utilityLine([px, bz - 20], [px, bz + 20], 'z');
+      if (zCross) utilityLine([px, bz + 20], [px, bz + 60], 'z');   // on to the next block's first pole
     }
-    for (const s of [-1, 1]) {
-      const zx = bx + s * 29.5, xz = bz + s * 29.5;
-      utilityLine([zx, bz - 20], [zx, bz + 20], 'z');
-      if (iz + 1 < NB_BLOCKS) utilityLine([zx, bz + 20], [zx, bz + 60], 'z');   // on to the next block's first pole
-      utilityLine([bx - 20, xz], [bx + 20, xz], 'x');
-      if (ix + 1 < NB_BLOCKS) utilityLine([bx + 20, xz], [bx + 60, xz], 'x');
+    for (const s of xSides) {
+      const pz = bz + s * 29.5;
+      prop('utilitypole', bx - 20, pz, PI / 2, 0.15); prop('utilitypole', bx + 20, pz, PI / 2, 0.15);
+      utilityLine([bx - 20, pz], [bx + 20, pz], 'x');
+      if (xCross) utilityLine([bx + 20, pz], [bx + 60, pz], 'x');
     }
   }
   // Streetlights
@@ -2243,10 +2253,9 @@ function generateChunk(cx, cz, defer = false) {
     // ... and none of them where a flyover has opened the corner: a light left there would stand in the mouth
     // the cut made rather than on the pavement the cut leaves.
     const lampA = [bx + s * (CHUNK / 2 - kx - 1.35), bz + o], lampB = [bx + o, bz + s * (CHUNK / 2 - kz - 1.35)];
-    if (rng() < 0.8 && !utility) {
-      if (cutClear(lampA[0], lampA[1], 1.2) && !closed[s < 0 ? 0 : 1]) prop('streetlight', lampA[0], lampA[1], 0);
-      if (cutClear(lampB[0], lampB[1], 1.2) && !closed[s < 0 ? 2 : 3]) prop('streetlight', lampB[0], lampB[1], 0);
-    }
+    const lampRoll = rng() < 0.8;                                 // drawn either way, so the rest of the block is unchanged
+    if (lampRoll && !nbLines && s !== avS && cutClear(lampA[0], lampA[1], 1.2) && !closed[s < 0 ? 0 : 1]) prop('streetlight', lampA[0], lampA[1], 0);
+    if (lampRoll && !nbLines && s !== crS && cutClear(lampB[0], lampB[1], 1.2) && !closed[s < 0 ? 2 : 3]) prop('streetlight', lampB[0], lampB[1], 0);
     if (rng() < 0.45 && !closed[s < 0 ? 0 : 1] && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
     if (rng() < 0.45 && !closed[s < 0 ? 2 : 3] && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
   }
