@@ -109,6 +109,9 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
   // deterministic: building the same block again gives the same estate
   const again = W.generateChunk(cx, cz, true);
   assert.deepEqual(again.estate, ch.estate, `${where}: the estate changes when the block is built again`);
+  // the memo (world.js estatePlanMemo) replays the block's random draws: the rest of the block is the same too
+  const sig = c => JSON.stringify(c.solids.map(o => [o.x, o.z, o.hx, o.hz, o.kind])) + '|' + c.geos.length;
+  assert.equal(sig(again), sig(ch), `${where}: the block's solids change when it is built again`);
 }
 
 // the share of all blocks that are estates: suburb is about 26% of blocks and nearly all of those become estates

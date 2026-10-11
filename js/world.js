@@ -686,6 +686,23 @@ function buildPlazaIsland(radius) {
  * the planner keeps every house at least 5 m from every road's centre line, so no solid sits on a road.
  */
 const ESTATE_ROAD = 3.5, ESTATE_DISC = 6;
+// A coarse grid over points, so a clearance test reads only the points near it instead of every road sample. The
+// query returns every point within `rad` (it may return some further away too, which callers test themselves).
+function pointGrid(points, cell) {
+  const m = new Map();
+  const key = (i, j) => i * 100003 + j;
+  for (const p of points) {
+    const k = key(Math.floor(p.x / cell), Math.floor(p.z / cell));
+    let a = m.get(k); if (!a) m.set(k, a = []); a.push(p);
+  }
+  return (x, z, rad) => {
+    const out = [];
+    const i0 = Math.floor((x - rad) / cell), i1 = Math.floor((x + rad) / cell);
+    const j0 = Math.floor((z - rad) / cell), j1 = Math.floor((z + rad) / cell);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = m.get(key(i, j)); if (a) for (const p of a) out.push(p); }
+    return out;
+  };
+}
 function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
   const mx = (lo_x + hi_x) / 2, mz = (lo_z + hi_z) / 2;
   const Du = side < 2 ? hi_x - lo_x : hi_z - lo_z;        // depth of the pad from the chosen edge, inward
@@ -748,8 +765,9 @@ function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
     // houses along every road, both sides, clear of every road and every cul-de-sac
     const samples = roads.flatMap(rd => rd.ribbon.filter((_, i) => i % 2 === 0));
     const discs = roads.map(rd => rd.disc);
+    const nearS = pointGrid(samples, 12);
     const clearOfRoads = (cx2, cz2, tx, tz, w, d) => {
-      for (const p of samples) if (rectDist(cx2, cz2, tx, tz, w, d, p.x, p.z) < ESTATE_ROAD + 1.5) return false;
+      for (const p of nearS(cx2, cz2, 12)) if (rectDist(cx2, cz2, tx, tz, w, d, p.x, p.z) < ESTATE_ROAD + 1.5) return false;
       for (const dc of discs) if (rectDist(cx2, cz2, tx, tz, w, d, dc.x, dc.z) < ESTATE_DISC + 1.5) return false;
       return true;
     };
@@ -780,7 +798,7 @@ function planEstate(lo_x, hi_x, lo_z, hi_z, side, r) {
     for (let a2 = 0; a2 < 60 && trees.length < 9; a2++) {
       const x = r(lo_x + 2, hi_x - 2), z = r(lo_z + 2, hi_z - 2);
       let ok = discs.every(dc => Math.hypot(x - dc.x, z - dc.z) >= ESTATE_DISC + 4);
-      for (let j = 0; ok && j < samples.length; j++) if (Math.hypot(x - samples[j].x, z - samples[j].z) < ESTATE_ROAD + 4) ok = false;
+      if (ok) for (const p of nearS(x, z, ESTATE_ROAD + 4)) if (Math.hypot(x - p.x, z - p.z) < ESTATE_ROAD + 4) { ok = false; break; }
       if (ok && houses.some(o => Math.abs(o.x - x) < o.hxA + 2.5 && Math.abs(o.z - z) < o.hzA + 2.5)) ok = false;
       if (ok) trees.push({ x, z });
     }
@@ -848,6 +866,7 @@ function buildNbhd(RX, RZ) {
     const pts1 = makeRoad(pad4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), pz4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), r() * Math.PI * 2, true, s);
     if (!inside(pts1)) continue;
     const roads = [toRoad(pts1)];
+    let roadNear = pointGrid(roads[0].ribbon, 10);
     for (let tries = 0, made = 0; tries < 60 && made < 6; tries++) {
       // a spur branches off the road at a random point, heading off to one side
       const i = 8 + Math.floor(r() * (pts1.length - 16));
@@ -856,14 +875,16 @@ function buildNbhd(RX, RZ) {
       const pts2 = makeRoad(px, pz, Math.atan2(qz - pz, qx - px) + side * Math.PI / 2, false, r() < 0.5 ? 1 : -1);
       if (!inside(pts2)) continue;
       // past its first 10 m a spur must not run back across another road
-      if (!pts2.every((q, j) => j < 20 || roads.every(rd => rd.ribbon.every(p => Math.hypot(q[0] - p.x, q[1] - p.z) >= 10)))) continue;
+      if (!pts2.every((q, j) => j < 20 || roadNear(q[0], q[1], 10).every(p => Math.hypot(q[0] - p.x, q[1] - p.z) >= 10))) continue;
       roads.push(toRoad(pts2)); made++;
+      roadNear = pointGrid(roads.flatMap(rd => rd.ribbon), 10);
     }
     // houses along every road, alternately on both sides, each in one block's pad and clear of every road
     const samples = roads.flatMap(rd => rd.ribbon.filter((_, i) => i % 2 === 0));
     const discs = roads.map(rd => rd.disc);
+    const nearS = pointGrid(samples, 12);
     const clear = (cx2, cz2, tx, tz, w, d) => {
-      for (const p of samples) if (nbRectGap(cx2, cz2, tx, tz, w, d, p.x, p.z) < NB_ROAD + 1.5) return false;
+      for (const p of nearS(cx2, cz2, 12)) if (nbRectGap(cx2, cz2, tx, tz, w, d, p.x, p.z) < NB_ROAD + 1.5) return false;
       for (const dc of discs) if (nbRectGap(cx2, cz2, tx, tz, w, d, dc.x, dc.z) < NB_DISC + 1.5) return false;
       return true;
     };
@@ -896,7 +917,7 @@ function buildNbhd(RX, RZ) {
       const [a0, a1, b0, b1] = nbPad(x, z);
       if (x < a0 + 2 || x > a1 - 2 || z < b0 + 2 || z > b1 - 2) continue;
       if (!discs.every(dc => Math.hypot(x - dc.x, z - dc.z) >= NB_DISC + 4)) continue;
-      if (samples.some(p => Math.hypot(x - p.x, z - p.z) < NB_ROAD + 4)) continue;
+      if (nearS(x, z, NB_ROAD + 4).some(p => Math.hypot(x - p.x, z - p.z) < NB_ROAD + 4)) continue;
       if (houses.some(o => Math.abs(o.x - x) < o.hxA + 2.5 && Math.abs(o.z - z) < o.hzA + 2.5)) continue;
       trees.push({ x, z });
     }
@@ -913,6 +934,8 @@ function nbhdClip(plan, cx, cz) {
   return { roads: plan.roads, houses: plan.houses.filter(h => inC(h.x, h.z)), trees: plan.trees.filter(t => inC(t.x, t.z)), inC };
 }
 
+const ESTATE_MEMO_MAX = 400;
+const estatePlanMemo = new Map();
 function generateChunk(cx, cz, defer = false) {
   const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
   const r = (a = 0, b = 1) => a + (b - a) * rng();
@@ -1480,8 +1503,21 @@ function generateChunk(cx, cz, defer = false) {
     let plan = null;
     if (nbPlan) plan = nbhdClip(nbPlan, cx, cz);
     else if (estateNow) {
-      const sides = [0, 1, 2, 3].filter(si => !atGradeSide(cx, cz, si));
-      if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(r(0, sides.length))], r);
+      // A block's estate plan is a pure function of the block, so it is kept for the next time the block streams in
+      // (a bounded memo). A cached plan replays the same number of random draws, so the rest of the block is unchanged.
+      const key = cx + ',' + cz;
+      const hit = estatePlanMemo.get(key);
+      if (hit) {
+        for (let k = 0; k < hit.draws; k++) rng();
+        plan = hit.plan;
+      } else {
+        let draws = 0;
+        const rc = (a, b) => { draws++; return r(a, b); };
+        const sides = [0, 1, 2, 3].filter(si => !atGradeSide(cx, cz, si));
+        if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(rc(0, sides.length))], rc);
+        estatePlanMemo.set(key, { plan, draws });
+        if (estatePlanMemo.size > ESTATE_MEMO_MAX) estatePlanMemo.delete(estatePlanMemo.keys().next().value);
+      }
       if (plan) plan.inC = () => true;
     }
     if (plan) {
