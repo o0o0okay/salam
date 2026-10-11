@@ -1085,7 +1085,7 @@ function generateChunk(cx, cz, defer = false) {
     const n = 1 + ((seed >>> 3) & 1), k1 = (seed >>> 4) % 5, k2 = (k1 + 1 + ((seed >>> 7) % 4)) % 5;
     [k1, k2].slice(0, n).forEach((kind, i) => {
       const { g, L, W } = siteMachine(kind);
-      const ac = n === 1 ? 0 : (i === 0 ? -1.9 : 1.9), al = 34;
+      const ac = n === 1 ? 0 : (i === 0 ? -1.9 : 1.9), al = 31;
       const px = axis === 'z' ? acr + ac : alc + al, pz = axis === 'z' ? alc + al : acr + ac;
       const m = own(ch, mergeStandalone(g)); m.position.set(px, 0, pz); m.rotation.y = axis === 'z' ? 0 : PI / 2; group.add(m);
       solid(px, pz, axis === 'z' ? W / 2 : L / 2, axis === 'z' ? L / 2 : W / 2, 'building');
@@ -2439,55 +2439,100 @@ const MACH_Y = 0xf2b705, MACH_D = 0x2b2f35, MACH_GL = 0x3d5566, MACH_BK = 0x1d1f
 function siteMachine(kind) {
   const g = new THREE.Group();
   const sm = (w, h, d, c, x, y, z, rx = 0) => { const m = box(w, h, d, mat(c), x, y, z, false); m.rotation.x = rx; g.add(m); };
-  const sc = (r, h, c, x, y, z, rx = 0, rz = 0) => { const m = cyl(r, r, h, 10, mat(c), x, y, z, false); m.rotation.x = rx; m.rotation.z = rz; g.add(m); };
-  if (kind === 0) {                       // tracked excavator: tracks, house, a boom and stick with a bucket
-    sm(0.7, 0.9, 6.0, 0x222428, -1.05, 0.45, 0); sm(0.7, 0.9, 6.0, 0x222428, 1.05, 0.45, 0);
-    sm(2.2, 0.5, 3.4, MACH_Y, 0, 1.15, -0.6);
-    sm(2.0, 1.1, 2.2, MACH_Y, 0, 1.95, -1.0);
-    sm(1.9, 0.15, 1.6, MACH_D, 0, 2.97, -1.0);
-    sm(1.8, 0.8, 0.08, MACH_GL, 0, 2.4, 0.15);
-    sm(0.5, 3.4, 0.5, MACH_Y, 0, 3.39, 1.42, 0.8);
-    sm(0.4, 2.9, 0.4, MACH_Y, 0, 3.74, 3.7, 2.2);
-    sm(1.1, 0.7, 0.9, MACH_D, 0, 2.9, 5.0);
-    return { g, L: 6.4, W: 2.6 };
+  const sc = (r, h, c, x, y, z, rx = 0, rz = 0, seg = 12) => { const m = cyl(r, r, h, seg, mat(c), x, y, z, false); m.rotation.x = rx; m.rotation.z = rz; g.add(m); };
+  const sct = (rt, rb, h, c, x, y, z, rx = 0) => { const m = cyl(rt, rb, h, 14, mat(c), x, y, z, false); m.rotation.x = rx; g.add(m); };
+  // a bar from point A to point B, both given as [y, z] in the side view (the bar lies in the y-z plane, at x)
+  const seg3 = (w, c, A, B, x = 0) => { const dy = B[0] - A[0], dz = B[1] - A[1]; sm(w, Math.hypot(dy, dz), w, c, x, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, Math.atan2(dz, dy)); };
+  const ray = (p, th, len) => [p[0] + len * Math.cos(th), p[1] + len * Math.sin(th)];
+  const Y = MACH_Y, K = MACH_D, T = MACH_BK, GL = MACH_GL, O = MACH_OR, W_ = 0xf4f4f4;
+  // Each kind is built with its length along z (front +z) and its ground at y = 0, then its centre is moved to zc.
+  if (kind === 0) {                       // tracked excavator: long tracks, a yellow house, a boom and stick, a toothed bucket
+    for (const x of [-1.2, 1.2]) { sm(0.85, 0.8, 6.0, T, x, 0.4, 0); sc(0.4, 0.85, 0x2e3237, x, 0.4, 3.0, 0, Math.PI / 2); sc(0.4, 0.85, 0x2e3237, x, 0.4, -3.0, 0, Math.PI / 2); }
+    sm(1.9, 0.35, 4.4, K, 0, 0.95, -0.2);
+    sm(2.4, 0.6, 3.2, Y, 0, 1.45, -0.6);                 // upper house
+    sm(2.2, 0.9, 1.4, Y, 0, 2.0, -2.2);                  // engine deck at the back
+    sm(2.0, 0.7, 0.08, 0x202326, 0, 2.0, -2.93);         // grille
+    sm(1.6, 1.25, 1.5, Y, 0.45, 2.45, 0.2);              // cab
+    sm(1.3, 0.85, 0.06, GL, 0.45, 2.55, 0.97);           // cab front glass
+    sm(0.06, 0.8, 1.2, GL, 1.27, 2.55, 0.2);             // side glass
+    sm(1.7, 0.12, 1.7, K, 0.45, 3.1, 0.2);               // roof
+    seg3(0.6, Y, [2.1, 0.9], [4.37, 4.43], -0.6);        // boom
+    seg3(0.22, 0x2a2d31, [2.5, 0.2], [3.2, 2.2], -0.95); // boom cylinder
+    seg3(0.45, Y, [4.37, 4.43], [1.9, 6.0], -0.6);       // stick
+    sm(1.2, 0.9, 1.0, K, -0.6, 1.5, 6.4);                // bucket
+    for (const x of [-1.05, -0.6, -0.15]) sm(0.14, 0.2, 0.2, K, x, 1.0, 6.95);   // teeth
+    return finishMachine(g, 10.2, 3.2, 2.0);
   }
-  if (kind === 1) {                       // cement mixer: a truck cab and a tilted drum
-    sm(2.2, 0.5, 8.0, MACH_D, 0, 0.95, 0);
-    sm(2.4, 1.8, 2.2, MACH_OR, 0, 1.95, 3.0);
-    sm(2.1, 0.8, 0.06, MACH_GL, 0, 2.2, 4.13);
-    sm(1.2, 0.8, 1.8, MACH_D, 0, 1.5, -1.2);
-    sc(0.95, 4.2, MACH_DRUM, 0, 2.5, -1.2, Math.PI / 2);
-    for (const z of [2.6, -2.8, -3.6]) for (const x of [-1.25, 1.25]) sc(0.5, 0.4, MACH_BK, x, 0.5, z, 0, Math.PI / 2);
-    return { g, L: 8.0, W: 2.6 };
+  if (kind === 1) {                       // cement mixer: a cab-over orange truck with a tilted grey-banded drum
+    sm(2.0, 0.45, 8.6, K, 0, 0.9, 0.6);                  // chassis
+    sm(2.4, 1.9, 2.1, O, 0, 2.0, 3.25);                  // cab
+    sm(2.1, 1.0, 0.06, GL, 0, 2.45, 4.31);               // windscreen
+    for (const x of [-1.3, 1.3]) sm(0.12, 0.6, 0.3, K, x, 2.6, 4.2);   // mirrors
+    sm(2.2, 1.1, 1.9, O, 0, 1.4, 5.1);                   // bonnet
+    sm(1.8, 0.9, 0.08, 0x6b7078, 0, 1.5, 6.1);           // grille
+    sm(2.2, 0.35, 0.22, K, 0, 0.7, 6.25);                // bumper
+    for (const x of [-0.7, 0.7]) sm(0.32, 0.22, 0.1, W_, x, 1.5, 6.2);
+    for (const x of [-1.05, 1.05]) sc(0.09, 2.0, 0x9aa0a6, x, 2.9, 2.2);   // exhaust stacks
+    sm(1.4, 0.9, 2.0, K, 0, 1.2, -1.3);                  // drum frame
+    const a = 0.35, th = Math.PI / 2 - a;                // drum axis (0, sin a, cos a): the front rides higher
+    sct(0.9, 1.05, 4.6, MACH_DRUM, 0, 2.6, -1.3, th);
+    for (const t of [-1.2, 1.2]) sct(1.08, 1.08, 0.16, 0x5b6066, 0, 2.6 + t * Math.sin(a), -1.3 + t * Math.cos(a), th);
+    for (const z of [4.1]) for (const x of [-1.2, 1.2]) sc(0.55, 0.42, T, x, 0.55, z, 0, Math.PI / 2);
+    for (const z of [-1.9, -2.9]) for (const x of [-1.25, 1.25]) { sc(0.6, 0.42, T, x, 0.6, z, 0, Math.PI / 2); sc(0.3, 0.44, O, x, 0.6, z, 0, Math.PI / 2); }
+    return finishMachine(g, 10.0, 2.6, 1.3);
   }
-  if (kind === 2) {                       // wheel loader: a cab on a short body, lift arms and a front bucket
-    sm(2.1, 0.9, 2.8, MACH_Y, 0, 1.0, -1.1);
-    sm(1.9, 1.3, 1.8, MACH_Y, 0, 2.2, -1.4);
-    sm(1.7, 0.8, 0.06, MACH_GL, 0, 2.4, -0.46);
-    sm(2.0, 0.12, 1.9, MACH_D, 0, 2.9, -1.4);
-    for (const x of [-0.9, 0.9]) sm(0.3, 0.3, 2.4, MACH_D, x, 1.6, 1.7);
-    sm(2.3, 0.9, 0.9, MACH_Y, 0, 1.2, 3.0);
-    sm(2.3, 0.2, 0.2, MACH_D, 0, 1.75, 3.45);
-    for (const z of [1.2, -2.0]) for (const x of [-1.15, 1.15]) sc(0.6, 0.45, MACH_BK, x, 0.6, z, 0, Math.PI / 2);
-    return { g, L: 5.6, W: 2.4 };
+  if (kind === 2) {                       // wheel loader: big black tyres with yellow hubs, a cab with glass, a scoop bucket on lift arms
+    sm(2.0, 0.8, 1.9, Y, 0, 1.0, 1.4);                   // front frame
+    sm(2.2, 1.3, 2.0, Y, 0, 1.3, -1.6);                  // rear body
+    sm(2.0, 1.4, 1.9, Y, 0, 2.6, -0.6);                  // cab
+    sm(1.8, 1.0, 0.06, GL, 0, 2.7, 0.37);                // windscreen
+    for (const x of [-1.02, 1.02]) sm(0.06, 0.9, 1.4, GL, x, 2.7, -0.6);
+    sm(2.1, 0.12, 2.0, K, 0, 3.35, -0.6);                // roof
+    for (const x of [-0.95, 0.95]) seg3(0.22, K, [3.0, 0.1], [1.7, 3.0], x);   // lift arms
+    sm(2.3, 0.9, 1.1, Y, 0, 0.75, 3.4);                  // bucket
+    sm(2.3, 1.2, 0.12, Y, 0, 1.6, 2.95);                 // bucket back
+    sm(2.36, 0.2, 0.25, K, 0, 0.3, 3.98);                // cutting lip
+    for (const z of [1.6, -2.0]) for (const x of [-1.25, 1.25]) { sc(0.72, 0.5, T, x, 0.72, z, 0, Math.PI / 2, 16); sc(0.36, 0.52, Y, x, 0.72, z, 0, Math.PI / 2, 10); }
+    return finishMachine(g, 6.7, 3.0, 0.6);
   }
-  if (kind === 3) {                       // truck-mounted crane: a cab, a chassis and a boom raised at an angle
-    sm(2.3, 0.7, 7.6, MACH_D, 0, 0.85, 0);
-    sm(2.3, 1.5, 1.9, MACH_Y, 0, 1.85, 3.1);
-    sm(2.1, 0.8, 0.06, MACH_GL, 0, 2.0, 4.07);
-    sm(2.1, 0.9, 2.8, MACH_Y, 0, 1.9, -1.4);
-    sm(0.6, 8.0, 0.6, 0xe0a010, 0, 4.88, 1.92, 0.9);
-    for (const z of [2.4, -2.6, -3.6]) for (const x of [-1.25, 1.25]) sc(0.6, 0.5, MACH_BK, x, 0.6, z, 0, Math.PI / 2);
-    return { g, L: 8.0, W: 2.5 };
+  if (kind === 3) {                       // truck-mounted crane: a yellow cab, outriggers, a telescopic boom and a hook
+    sm(2.2, 0.6, 9.4, K, 0, 0.9, 0.2);                   // chassis
+    sm(2.4, 1.9, 2.3, Y, 0, 2.0, 4.0);                   // cab
+    sm(2.2, 1.1, 0.06, GL, 0, 2.2, 5.17);                // windscreen
+    for (const x of [-1.21, 1.21]) sm(0.06, 1.2, 1.1, K, x, 1.9, 4.1);   // door seams
+    sm(2.5, 0.45, 0.3, K, 0, 0.7, 5.7);                  // bumper
+    for (const x of [-0.85, 0.85]) sm(0.35, 0.22, 0.08, W_, x, 1.25, 5.66);
+    sm(3.8, 0.35, 0.45, K, 0, 0.45, -3.8);               // outrigger beam
+    for (const x of [-1.8, 1.8]) sm(0.6, 0.1, 0.6, T, x, 0.05, -3.8);   // pads
+    sm(2.3, 1.1, 2.8, Y, 0, 1.9, -1.5);                  // crane body
+    for (const x of [-1.16, 1.16]) sm(0.05, 0.7, 2.2, K, x, 1.9, -1.5);
+    const pv = [2.6, -1.5], th = 1.2;                    // boom pivot (y, z) and its angle
+    seg3(0.7, Y, pv, ray(pv, th, 4.0));                  // boom, base section
+    seg3(0.55, T, ray(pv, th, 4.0), ray(pv, th, 9.0));   // boom, upper section
+    seg3(0.18, 0x222222, [2.2, 0.2], ray(pv, th, 2.5));  // luffing cylinder
+    const tip = ray(pv, th, 9.0);
+    sc(0.3, 0.4, O, 0, tip[0], tip[1], 0, Math.PI / 2);  // head sheave
+    seg3(0.04, 0x111111, tip, [3.2, tip[1]]);            // hoist cable
+    sc(0.35, 0.5, O, 0, 3.0, tip[1], 0, Math.PI / 2);    // hook block
+    for (const z of [4.2]) for (const x of [-1.2, 1.2]) sc(0.6, 0.5, T, x, 0.6, z, 0, Math.PI / 2);
+    for (const z of [-2.4, -3.5]) for (const x of [-1.2, 1.2]) sc(0.6, 0.5, T, x, 0.6, z, 0, Math.PI / 2);
+    return finishMachine(g, 9.8, 2.6, 1.0);
   }
-  // road roller: a single steel drum under a yellow frame and a cab
-  sc(1.1, 2.3, MACH_BK, 0, 1.1, 1.1, 0, Math.PI / 2);
-  sm(2.2, 0.6, 3.0, MACH_Y, 0, 1.4, 0);
-  sm(2.0, 1.4, 1.7, MACH_Y, 0, 2.6, -0.9);
-  sm(1.8, 0.9, 0.06, MACH_GL, 0, 2.7, -0.04);
-  for (const x of [-1.15, 1.15]) sc(0.6, 0.5, MACH_BK, x, 0.6, -1.5, 0, Math.PI / 2);
-  return { g, L: 4.8, W: 2.6 };
+  // road roller: a steel drum with yellow flanges under an orange frame and a glazed cab
+  sc(1.05, 2.3, T, 0, 1.05, 1.5, 0, Math.PI / 2, 16);
+  for (const x of [-1.2, 1.2]) sc(1.07, 0.12, Y, x, 1.05, 1.5, 0, Math.PI / 2, 16);
+  sm(2.2, 0.5, 1.2, Y, 0, 1.2, 1.4);
+  sm(2.3, 0.9, 2.6, O, 0, 1.7, -0.6);
+  for (const x of [-1.16, 1.16]) sm(0.05, 0.6, 1.2, K, x, 1.9, -0.9);
+  sm(2.1, 1.6, 2.0, O, 0, 2.9, -0.6);
+  sm(1.9, 1.1, 0.06, GL, 0, 3.0, 0.42);
+  for (const x of [-1.06, 1.06]) sm(0.06, 1.0, 1.6, GL, x, 3.0, -0.6);
+  sm(2.2, 0.14, 2.2, K, 0, 3.8, -0.6);
+  for (const x of [-1.2, 1.2]) { sc(0.7, 0.5, T, x, 0.7, -2.0, 0, Math.PI / 2); sc(0.35, 0.52, Y, x, 0.7, -2.0, 0, Math.PI / 2, 10); }
+  return finishMachine(g, 5.35, 2.6, -0.03);
 }
+// Moves a machine's centre to zc and returns its footprint: length L along z, width W along x.
+function finishMachine(g, L, W, zc) { g.position.z = -zc; return { g, L, W }; }
 // The construction sites of block (cx, cz) as footprints (the frame, and the crane base where there is one): the same
 // streets and rules that generateChunk uses for the grass half of a barred street (see `site` there). A pure function of
 // the street plan, so a pickup on a block's edge can ask about the site next door.
