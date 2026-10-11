@@ -1318,11 +1318,12 @@ function generateChunk(cx, cz, defer = false) {
     // Protect every exposed parapet nose, on both sides of both approaches. Keep the assembly on the
     // splitter line, behind the neighbouring crossing; the centre lanes and the at-grade lane remain open.
     const guardU = Q.su * (FLY.rampEnd + 1.4), guardV = Q.sv * (W - 0.70);
-    const gp = at(guardU, 0, guardV), guard = buildFlyoverNoseGuard();
-    guard.position.set(gp[0], 0, gp[2]);
-    guard.rotation.y = alongX ? Q.su * PI / 2 : Q.su > 0 ? 0 : PI;
-    add(guard);
-    solid(gp[0], gp[2], 0.65, 0.65, 'flyover-guard', 1.15);
+    // The drum is a breakable prop like the delineators, not a solid: a car that hits it knocks it over. maxY keeps it
+    // to the road: a car up on the deck above does not touch it (collideProps checks the car's height against maxY).
+    const gp = at(guardU, 0, guardV), guardRot = alongX ? Q.su * PI / 2 : Q.su > 0 ? 0 : PI;
+    const guard = own(ch, mergeStandalone(buildFlyoverNoseGuard()));
+    guard.position.set(gp[0], 0, gp[2]); guard.rotation.y = guardRot; group.add(guard);
+    ch.props.push({ mesh: guard, x: gp[0], z: gp[2], r: 0.68, drag: 0.93, color: 0xffc928, kind: 'nosedrum', broken: false, soft: true, maxY: 1.15 });
     const guardRecord = { axis: Q.axis, node: Q.node, su: Q.su, sv: Q.sv, x: gp[0], z: gp[2],
       u: guardU, v: guardV, radius: 0.68, heading: guard.rotation.y, posts: [] };
     (fly.guards = fly.guards || []).push(guardRecord);

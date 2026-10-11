@@ -580,10 +580,16 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   {
     const guardV = F.halfW - 0.70;
     const nose = mk(-F.rampEnd - 8, guardV, alongH);
-    roll(nose, 3);
-    if (mu(nose) + nose.box.e1 > -F.rampEnd - 1.4 - 0.65 + 0.03)
-      bad(`${name}: car penetrated the nose-protection drum`);
-    else ok(`${name}: nose-protection drum stops a frontal approach before the concrete`);
+    // The drum is a breakable prop now (kind 'nosedrum'): a frontal approach knocks it over instead of stopping the car.
+    const drum = [...world.chunks.values()].flatMap(ch => ch.props).find(p => p.kind === 'nosedrum' && Math.hypot(p.x - wx(-F.rampEnd - 1.4, guardV), p.z - wz(-F.rampEnd - 1.4, guardV)) < 0.05);
+    for (let t = 0; t < 3 * 60; t++) {
+      M.driveCar(nose, { throttle: 1, hand: false }, 1 / 60);
+      M.game.time += 1 / 60;
+      M.collideSolids(nose); M.collideFlyover(nose); M.collideProps(nose);
+    }
+    if (!drum) bad(`${name}: no nose drum to test`);
+    else if (!drum.broken) bad(`${name}: nose drum did not break under a frontal approach`);
+    else ok(`${name}: nose drum is breakable and a frontal approach knocks it over`);
     const posts = [...world.chunks.values()].flatMap(ch => ch.props).filter(p => p.kind === 'delineator');
     const post = posts.find(p => Math.hypot(p.x - wx(-F.rampEnd - 5.6, guardV), p.z - wz(-F.rampEnd - 5.6, guardV)) < 0.01);
     if (!post) bad(`${name}: no approach delineator to test`);

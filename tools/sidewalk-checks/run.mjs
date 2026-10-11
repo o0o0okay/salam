@@ -30,10 +30,12 @@ const edgeDist = (v, o) => { const l = v - o; return Math.min(l, CHUNK - l); };
 
 // Splitter-nose delineators intentionally stand in the approach, not on a sidewalk. Exempt only
 // registered posts in the narrow nose footprint; unrelated furniture still obeys the clear-road checks.
-const isNosePost = (ch, p) => p.kind === 'delineator' && (ch.flyover?.guards || []).some(g =>
-  Math.abs(g.v) + 0.21 < FLY.halfW && g.posts.some(d => d.x === p.x && d.z === p.z)
-  && Math.abs(alongOf(g, p.x, p.z)) > FLY.rampEnd
-  && Math.abs(alongOf(g, p.x, p.z)) < FLY.rampEnd + 6);
+// The nose drum (kind 'nosedrum') is the same registered nose assembly: it is exempt at its own registered position.
+const isNosePost = (ch, p) => (ch.flyover?.guards || []).some(g =>
+  (p.kind === 'nosedrum' && p.x === g.x && p.z === g.z)
+  || (p.kind === 'delineator' && Math.abs(g.v) + 0.21 < FLY.halfW && g.posts.some(d => d.x === p.x && d.z === p.z)
+    && Math.abs(alongOf(g, p.x, p.z)) > FLY.rampEnd
+    && Math.abs(alongOf(g, p.x, p.z)) < FLY.rampEnd + 6));
 
 // ---- 1) generate a lattice of blocks: nothing may throw, and no coordinate may be NaN ----
 let spawnStreetTrees = -1;

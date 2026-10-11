@@ -423,7 +423,9 @@ function breakProp(pr, c) {
 export function collideProps(c) {
   const list = nearChunks(c.x, c.z); const s = Math.sin(c.h), co = Math.cos(c.h);
   for (const ch of list) for (const pr of ch.props) {
-    if (pr.broken) continue; const dx = pr.x - c.x, dz = pr.z - c.z;
+    if (pr.broken) continue;
+    if (pr.maxY !== undefined && (c.y || 0) > pr.maxY) continue;           // a car up on a deck passes over a low prop
+    const dx = pr.x - c.x, dz = pr.z - c.z;
     if (dx * dx + dz * dz > 25) continue;
     const lf = dx * s + dz * co, ll = dx * co - dz * s;
     const cf = clamp(lf, -c.box.e1, c.box.e1), cl = clamp(ll, -c.box.e2, c.box.e2);
