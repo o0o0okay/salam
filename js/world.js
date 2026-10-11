@@ -42,7 +42,7 @@ import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
 import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, FUEL_BRANDS, textBlocks } from "./campus.js";
-import { buildSportMesh, SPORT_KINDS, SPORT_DEFS, sportScale } from "./sports.js";
+import { buildSportMesh, SPORT_KINDS, SPORT_SLOTS, SPORT_DEFS, sportScale } from "./sports.js";
 import { buildFactoryMesh, FACTORY_KINDS } from "./factory.js";
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
 import { bake, finishChunk, flushChunk, buildTreeInstances, mergeStandalone, own } from './chunkBake.js';
@@ -597,7 +597,7 @@ function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
   // Sports and play grounds: about 15% of park or suburban blocks, from its own hash (a different one from the shops).
   const sportRoll = hash2(cx + 31, cz - 17);
   if (!laneBlock && !nearSpawn && (type === 'park' || (type === 'suburb' && !estateNow)) && (sportRoll & 0xFF) < 40)
-    type = SPORT_KINDS[(sportRoll >>> 8) % SPORT_KINDS.length];
+    type = SPORT_SLOTS[(sportRoll >>> 8) % SPORT_SLOTS.length] || type;
   return { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow };
 }
 
@@ -1594,41 +1594,64 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ram
   if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
 }
 
-function utilityPoles({ add, bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, t, utility, x0, xSides, z0, zSides }) {
+// The power poles and the wire runs between them. The runs are only planned here: they are drawn by powerLines once the
+// poles are relocated (freeStreetProps), so the wires meet the poles where they really stand.
+function utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides }) {
+  const runs = [];                                       // [p0, p1, along]: planned pole spots, one wire run each
   if (utility) {
     const ix = cx - nbRX * NB_BLOCKS, iz = cz - nbRZ * NB_BLOCKS;
     const zCross = nbLines ? iz + 1 < NB_BLOCKS : true;   // the avenue runs on through every block; a neighbourhood does not
     const xCross = nbLines ? ix + 1 < NB_BLOCKS : true;
-    const wireMat = mat(0x1b1b1b);
-    const utilityLine = (p0, p1, along) => {               // p0, p1: [x, z] of two poles; four wires sag between them
-      const SAG = 0.45, Y0 = 0.33;
-      for (const yy of [8.0, 7.2]) for (const lat of [-1.1, 1.1]) {
-        const pts = [];
-        for (let k = 0; k <= 6; k++) {
-          const t = k / 6;
-          pts.push([p0[0] + (p1[0] - p0[0]) * t + (along === 'x' ? 0 : lat), Y0 + yy - 4 * SAG * t * (1 - t), p0[1] + (p1[1] - p0[1]) * t + (along === 'x' ? lat : 0)]);
-        }
-        for (let k = 1; k < pts.length; k++) {
-          const [x0, y0, z0] = pts[k - 1], [x1, y1, z1] = pts[k];
-          const L = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
-          const seg = along === 'z' ? box(0.05, 0.05, L, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false)
-                                    : box(L, 0.05, 0.05, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false);
-          if (along === 'z') seg.rotation.x = -Math.atan2(y1 - y0, z1 - z0); else seg.rotation.z = Math.atan2(y1 - y0, x1 - x0);
-          add(seg);
-        }
-      }
-    };
     for (const s of zSides) {
       const px = bx + s * 29.5;
       prop('utilitypole', px, bz - 20, 0, 0.15); prop('utilitypole', px, bz + 20, 0, 0.15);
-      utilityLine([px, bz - 20], [px, bz + 20], 'z');
-      if (zCross) utilityLine([px, bz + 20], [px, bz + 60], 'z');   // on to the next block's first pole
+      runs.push([[px, bz - 20], [px, bz + 20], 'z']);
+      if (zCross) runs.push([[px, bz + 20], [px, bz + 60], 'z']);   // on to the next block's first pole
     }
     for (const s of xSides) {
       const pz = bz + s * 29.5;
       prop('utilitypole', bx - 20, pz, PI / 2, 0.15); prop('utilitypole', bx + 20, pz, PI / 2, 0.15);
-      utilityLine([bx - 20, pz], [bx + 20, pz], 'x');
-      if (xCross) utilityLine([bx + 20, pz], [bx + 60, pz], 'x');
+      runs.push([[bx - 20, pz], [bx + 20, pz], 'x']);
+      if (xCross) runs.push([[bx + 20, pz], [bx + 60, pz], 'x']);
+    }
+  }
+  return runs;
+}
+
+// Draws the wire runs of a chunk. Each end is the pole that stands at its planned spot (within 2 m, in this chunk or a
+// neighbour): a relocated pole pulls its wire along with it. A run that reaches a spot where no pole stands (the pole
+// was left out of the carriageway, see `noPole`) is not drawn, so no wire ends in the air. ch.powerEnds keeps the ends
+// that were drawn, so the checks can see a wire that does not reach a pole in the finished world.
+function powerLines(ch, runs, add, noPole) {
+  const wireMat = mat(0x1b1b1b);
+  const SAG = 0.45, Y0 = 0.33;
+  const poleNear = (p) => {
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const c = i || j ? chunks.get(ck(ch.cx + i, ch.cz + j)) : ch;
+      const pole = c && c.props.find(q => q.kind === 'utilitypole' && Math.hypot(q.x - p[0], q.z - p[1]) < 2);
+      if (pole) return [pole.x, pole.z];
+    }
+    return p;
+  };
+  ch.powerEnds = [];
+  for (const [q0, q1, along] of runs) {
+    if (noPole(q0[0], q0[1]) || noPole(q1[0], q1[1])) continue;
+    const p0 = poleNear(q0), p1 = poleNear(q1);
+    ch.powerEnds.push(p0, p1);
+    for (const yy of [8.0, 7.2]) for (const lat of [-1.1, 1.1]) {
+      const pts = [];
+      for (let k = 0; k <= 6; k++) {
+        const t = k / 6;
+        pts.push([p0[0] + (p1[0] - p0[0]) * t + (along === 'x' ? 0 : lat), Y0 + yy - 4 * SAG * t * (1 - t), p0[1] + (p1[1] - p0[1]) * t + (along === 'x' ? lat : 0)]);
+      }
+      for (let k = 1; k < pts.length; k++) {
+        const [x0, y0, z0] = pts[k - 1], [x1, y1, z1] = pts[k];
+        const L = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+        const seg = along === 'z' ? box(0.05, 0.05, L, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false)
+                                  : box(L, 0.05, 0.05, wireMat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, false);
+        if (along === 'z') seg.rotation.x = -Math.atan2(y1 - y0, z1 - z0); else seg.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+        add(seg);
+      }
     }
   }
 }
@@ -2047,7 +2070,7 @@ function generateChunk(cx, cz, defer = false) {
   const utility = zSides.length > 0 || xSides.length > 0;
   // The walkway is laid once the block is built, so it can open the estate's entrance (ch.gate, set by suburbBlock).
   const sw = sidewalkPieces(cx, cz, swStyle, filled, ch.gate || null);
-  utilityPoles({ add, bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, t, utility, x0, xSides, z0, zSides });
+  const powerRuns = utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides });
   streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng });
   safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
@@ -2062,6 +2085,7 @@ function generateChunk(cx, cz, defer = false) {
   crossings({ x0, z0, kerbIn, add, cx, cz });
   pruneBlockedRoadworks(ch);
   freeStreetProps(ch);
+  powerLines(ch, powerRuns, add, (x, z) => onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7));   // the same test prop() makes
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames

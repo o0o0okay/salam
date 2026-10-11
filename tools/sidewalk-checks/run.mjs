@@ -1197,6 +1197,23 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (trappedP) bad(`${trappedP} street prop(s) have no free approach for a car`);
     if (!buriedP && !trappedP) console.log(`street props reachable: ${Object.values(counts).reduce((s, v) => s + v, 0)} in the sample (${counts.nosedrum} nose-guard drums, ${counts.hedge} hedges); none buried, none walled in`);
   }
+  // ---- 2d-10) the power wires meet the poles in the finished world: a relocated pole takes its wire with it, so every
+  // wire end must sit on a utility pole (the blocks of 2d-9, plus two whose poles are relocated). A wire end with no pole there is a wire in the air.
+  {
+    const extra = [[-8, 3], [-1, 6], [-6, -1], [0, -6], [5, -6], [5, 6], [8, -8], [10, 0]].map(([x, z]) => generateChunk(x, z, false));
+    const all = [...chunks.values(), ...extra];
+    const poles = all.flatMap(ch => ch.props.filter(pr => pr.kind === 'utilitypole'));
+    const have = new Set(all.map(ch => ch.cx + ',' + ch.cz));       // a wire running into a block outside the sample has no pole to meet
+    let ends = 0, astray = 0, outside = 0;
+    for (const ch of all) for (const [x, z] of ch.powerEnds || []) {
+      if (!have.has(Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK))) { outside++; continue; }
+      ends++;
+      if (!poles.some(pr => Math.abs(pr.x - x) < 1e-6 && Math.abs(pr.z - z) < 1e-6)) astray++;
+    }
+    if (!ends) bad('no power wires in the sample: the check would be empty');
+    if (astray) bad(`${astray} power wire end(s) do not meet a pole in the finished world`);
+    if (ends && !astray) console.log(`power wires meet their poles: ${ends} wire ends in the sample, all on a standing pole (${outside} run into blocks outside it)`);
+  }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fireSlots);

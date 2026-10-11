@@ -1,4 +1,4 @@
-/* Sports and play grounds: the football and basketball courts, futsal, hoops, baseball, golf and the playground, with their balls.
+/* Sports and play grounds: the basketball and futsal courts, hoops, golf and the playground, with their balls.
  * Split out of js/campus.js. */
 import * as THREE from 'three';
 import { mat } from './assets.js';
@@ -6,18 +6,20 @@ import { box } from './assets.js';
 import { cyl } from './assets.js';
 import { PI } from './utils.js';
 
-// ---- Sports and play grounds: basketball, futsal, baseball diamond, golf, playground ----
+// ---- Sports and play grounds: basketball, futsal, golf, playground ----
 // Each one is a fenced ground with its own markings and fittings. The fences are solids, so a car stops at them
 // the way it would at a real chain-link fence, and each fence panel breaks on a hard hit (see the fencePieces);
 // the hoops and goal posts are solids too.
 export const SPORT_DEFS = {
   hoops:      { pad: [38, 26], ground: 0xb8653a, court: 0x2d5fa8 },
   futsal:     { pad: [46, 30], ground: 0x9aa0a6, court: 0x2f8f4e },
-  baseball:   { pad: [52, 52], ground: 0x6b6f76, court: 0x3f7f3a },
   playground: { pad: [34, 28], ground: 0x4f8f45, court: 0xe8d49a },
   golf:       { pad: [48, 48], ground: 0x2f6b35, court: 0x6fb85a },
 };
 export const SPORT_KINDS = Object.keys(SPORT_DEFS);
+// The block picker: one slot per ground, in the order the grounds were added. The baseball diamond was taken out, so its
+// slot is empty (null) and its blocks stay plain; the other grounds keep their slots, and so their blocks.
+export const SPORT_SLOTS = ['hoops', 'futsal', null, 'playground', 'golf'];
 // Balls for the courts: one shared sphere and seam ring per size, so a ground with several balls adds no geometry cost.
 export const BALL_R = 0.12;
 export const BALL_GEO = new THREE.SphereGeometry(BALL_R, 16, 12);
@@ -25,8 +27,6 @@ export const SEAM_GEO = new THREE.TorusGeometry(BALL_R * 1.01, 0.006, 4, 24);
 export const PATCH_GEO = new THREE.DodecahedronGeometry(0.045);
 export const RING_GEO = new THREE.TorusGeometry(0.23, 0.025, 6, 20);
 export const GOLF_GEO = new THREE.SphereGeometry(0.03, 10, 8);
-export const BASE_GEO = new THREE.SphereGeometry(0.07, 14, 10);
-export const BASE_SEAM_GEO = new THREE.TorusGeometry(0.0705, 0.006, 4, 20);
 // How far a ground is grown: 1.5 times, or as far as the block allows. A block's interior is 56 m across (the paving
 // takes the rest), so the longest side is held to SPORT_MAX_SIDE, which keeps a little clear of the pad edge.
 export const SPORT_MAX_SIDE = 55;
@@ -110,10 +110,9 @@ export function buildSportMesh(kind, bx, bz, rng) {
     for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + r * Math.cos(a), cz + r * Math.sin(a)]); }
     return p;
   };
-  const flat = (w, d, x, z, m, rot = 0) => { const b = box(w, 0.03, d, m, x, Y + 0.04, z, false); b.rotation.y = rot; g.add(b); };
   const dot = (x, z, r, m = M.line) => g.add(cyl(r, r, 0.02, 14, m, x, Y + 0.05, z, false));
   const ballAt = (x, z, kind) => {
-    const r = kind === 'golf' ? 0.03 : kind === 'base' ? 0.07 : BALL_R;
+    const r = kind === 'golf' ? 0.03 : BALL_R;
     const b = new THREE.Group();
     b.position.set(x, Y + r, z); b.scale.set(1 / sc, 1, 1 / sc);         // undoes the ground's x/z growth, so the ball stays round
     if (kind === 'basket') {
@@ -127,9 +126,6 @@ export function buildSportMesh(kind, bx, bz, rng) {
         const pt = new THREE.Mesh(PATCH_GEO, M.dark);
         pt.position.set(px * BALL_R * 0.97, py * BALL_R * 0.97, pz * BALL_R * 0.97); b.add(pt);
       }
-    } else if (kind === 'base') {                                         // a white ball with a red seam
-      b.add(new THREE.Mesh(BASE_GEO, M.white));
-      const seam = new THREE.Mesh(BASE_SEAM_GEO, M.red); seam.rotation.x = 0.4; seam.rotation.z = 0.6; b.add(seam);
     } else {
       b.add(new THREE.Mesh(GOLF_GEO, M.white));
     }
@@ -192,35 +188,6 @@ export function buildSportMesh(kind, bx, bz, rng) {
     }
     ballAt(rng() * 6 - 3, rng() * 4 - 2, 'foot');
     ballAt(-w / 2 + 6 + rng() * 3, (rng() - 0.5) * (d * 0.6), 'foot');
-    for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
-  } else if (kind === 'baseball') {
-    // A ball diamond on the outfield grass: mown stripes, a dirt infield, white bases, home plate, the batters' boxes,
-    // the foul lines, a pitcher's mound with its rubber, a dugout on each side, a backstop, and balls and bats on the ground.
-    const R = 12.5;                                                      // home plate to each base, along the diagonals
-    const stripe = mat(0x4c9440);
-    B(CW, 0.03, CD, M.court, 0, 0.015, 0);                              // the outfield grass
-    for (let k = -3; k <= 3; k += 2) B(CW, 0.035, CD / 7, stripe, 0, 0.02, k * CD / 7, false);
-    CYL(R + 1.5, R + 1.5, 0.04, 4, M.dirt, 0, 0.02, 0, false);          // the infield dirt, a diamond with its corners on the axes
-    CYL(1.5, 1.5, 0.2, 12, M.dirt, 0, 0.1, 0);                          // pitcher's mound
-    flat(0.6, 0.15, 0, 0, M.white, 0);                                  // pitcher's rubber
-    for (const [bxp, bzp] of [[R, 0], [0, -R], [-R, 0]]) flat(0.7, 0.7, bxp, bzp, M.white, PI / 4);
-    flat(0.9, 0.9, 0, R, M.white, PI / 4);                              // home plate
-    path([[-3.1, R - 1.2], [-0.9, R - 1.2], [-0.9, R + 1.2], [-3.1, R + 1.2]], M.line, true);   // batters' boxes
-    path([[0.9, R - 1.2], [3.1, R - 1.2], [3.1, R + 1.2], [0.9, R + 1.2]], M.line, true);
-    mark(0, R, 30, R - 30); mark(0, R, -30, R - 30);                    // foul lines, through first and third
-    for (const sx of [-1, 1]) {                                          // a dugout on each side, behind the foul lines
-      const dx = sx * 12, dz = -10;
-      B(6.4, 0.15, 2.4, M.metal, dx, 2.6, dz, false);                    // roof
-      B(6.2, 1.6, 0.15, M.dark, dx, 1.05, dz - 1.0, false);             // back wall
-      for (const px of [-3, 3]) B(0.1, 2.5, 0.1, M.metal, dx + px, 1.3, dz + 1.0, false);   // posts
-      B(5.6, 0.25, 0.8, M.wood, dx, 0.4, dz, false);                     // bench
-      solids.push({ x: bx + dx * sc, z: bz + (dz - 1.0) * sc, hx: 3.2 * sc, hz: 0.1 * sc, kind: 'building' });   // back wall, solid
-    }
-    const bat = cyl(0.03, 0.05, 0.9, 6, M.wood, 9, Y + 0.05, -15.5); bat.rotation.z = PI / 2; bat.rotation.y = 0.3; g.add(bat);
-    fence(28, 3.6, 0, 13.5, 'x');                                       // backstop
-    ballAt(-6, 11, 'base');
-    ballAt(0.4, 0.6, 'base');
-    ballAt(-14, 8, 'base');
     for (const s of [-1, 1]) { fence(PW, 3.6, 0, s * PD / 2, 'x'); fence(PD, 3.6, s * PW / 2, 0, 'z'); }
   } else if (kind === 'playground') {
     B(CW, 0.03, CD, M.court, 0, 0.015, 0);                      // the sand, 80% of the enclosure; the grass round it is the pad
