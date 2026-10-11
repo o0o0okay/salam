@@ -53,7 +53,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, NB_BLOCKS } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -1032,7 +1032,8 @@ function generateChunk(cx, cz, defer = false) {
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
   // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
-  const closedBarrier = (x, z, hx, hz) => { solid(x, z, hx, hz, 'barrier'); add(box(hx * 2, 0.9, hz * 2, mat(0xd6402f), x, 0.75, z, false)); };
+  // the mouth of a barred street: a solid hoarding (orange, white top band), not a red block
+  const closedBarrier = (x, z, hx, hz) => { solid(x, z, hx, hz, 'barrier'); add(box(hx * 2, 0.9, hz * 2, mat(0xf08c1e), x, 0.75, z, false)); add(box(hx * 2, 0.14, hz * 2, mat(0xf4f4f4), x, 1.27, z, false)); };
   const closedGrass = (w, d, x, z) => add(box(w, 0.1, d, mat(0x7bc96f), x, 0.25, z, false));   // top at 0.30, as a block's pad
   // A filled street (segFilled in flyover.js): this block's half of it, out to the block's edge, is grass, so the pads
   // either side join. It takes the walkway too, which is why the walkway side is skipped (sidewalkPieces).
@@ -1048,6 +1049,38 @@ function generateChunk(cx, cz, defer = false) {
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
+  // ---- construction site on a barred closed street ----
+  // The grass half of a barred street, between its mouths, is a building site: a half-built concrete frame (columns,
+  // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
+  // pair, a tower crane. Boxes only, and no solids: the hoarding at the mouths keeps every car out. Neighbourhood
+  // streets (their curved roads run across the grass) and filled streets get no site.
+  const siteOn = (axis, acr, alc, crane, seed) => {
+    const L = 28, D = 6, H = 3.2, nF = 5 + (seed & 1) + ((seed >>> 1) & 1), top = nF * H;
+    // (ac, al) are offsets across and along the street from the site's centre (acr, alc)
+    const put = (ac, al, wAc, h, lAl, y, colour) => {
+      const [sx, sz] = axis === 'z' ? [wAc, lAl] : [lAl, wAc];
+      const [px, pz] = axis === 'z' ? [acr + ac, alc + al] : [alc + al, acr + ac];
+      add(box(sx, h, sz, mat(colour), px, y, pz, true));
+    };
+    for (let a = -L / 2 + 0.6; a < L / 2; a += 4) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.9, top, 0.9, top / 2 + 0.3, 0xbfc3c7);
+    for (let f = 1; f <= nF; f++) put(0, 0, D, 0.3, L, f * H + 0.15, 0xa9adb1);
+    for (let f = 0; f < 2 && f < nF; f++) put(D / 2 - 0.2, -L / 4, 0.4, H - 0.4, L / 2, 0.3 + f * H + H / 2, 0xb5583a);
+    for (let a = -L / 2 + 0.6; a < L / 2; a += 8) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.12, 1.2, 0.12, 0.3 + top + 0.6, 0x6b6f73);
+    if (!crane) return;
+    // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
+    const ma = L / 2 + 8, mastTop = 34;
+    put(0, ma, 2.6, 0.8, 2.6, 0.7, 0x7a7f86);
+    put(0, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
+    put(0, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
+    put(-1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
+    put(0, ma + 24, 0.08, 16, 0.08, 0.3 + mastTop - 8, 0x222222);
+  };
+  const siteSeed = (cx2, cz2, k) => hash2(cx2 * 7 + k, cz2 * 11 + 3 * k + 1);
+  const siteFree = (j1, j2) => !nbhdJunction(j1[0], j1[1]) && !nbhdJunction(j2[0], j2[1]);
+  if (closed[0] && !filled[0] && siteFree([cx, cz], [cx, cz + 1])) siteOn('z', x0 + 4, z0 + 30, true, siteSeed(cx, cz, 0));
+  if (closed[1] && !filled[1] && siteFree([cx + 1, cz], [cx + 1, cz + 1])) siteOn('z', x0 + 76, z0 + 30, false, siteSeed(cx, cz, 1));
+  if (closed[2] && !filled[2] && siteFree([cx, cz], [cx + 1, cz])) siteOn('x', z0 + 4, x0 + 30, true, siteSeed(cx, cz, 2));
+  if (closed[3] && !filled[3] && siteFree([cx, cz + 1], [cx + 1, cz + 1])) siteOn('x', z0 + 76, x0 + 30, false, siteSeed(cx, cz, 3));
   // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
   buildIntersection(x0, z0, group, ch);
   // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the
