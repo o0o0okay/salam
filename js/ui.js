@@ -58,18 +58,21 @@ export function drawRadar() {
   rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.moveTo(R, R - 11); rctx.lineTo(R - 7, R + 8); rctx.lineTo(R + 7, R + 8); rctx.closePath(); rctx.fill();
 }
 let hudCache = {};
-// The dial, as in Need for Speed: a 240-degree speed scale, one degree per km/h (so 0-240 km/h, which is above the top
-// speed of a boosted car: 48 m/s plus nitro is about 233 km/h), numbered 0-8 (one number per 30 km/h), with a red
-// band over 210-240 km/h. The needle is the group #needle, turned about the hub. The nitro is the outer arc, from
-// about 10 to 2 o'clock, filled by the nitro level (game.nitro).
+// The dial, after the reference design. Angles are degrees, clockwise from 3 o'clock, as SVG draws them. The scale
+// runs from 0 at 88 degrees (bottom) to 8 at 312 degrees (upper right), 28 degrees a unit, and the redline covers 7-8.
+// The needle reads 7.5 at 153 km/h: 20.4 km/h a unit up to 153 km/h; the last half unit then stretches over the rest of
+// the range up to 240 km/h (GAUGE_MAX), so the needle keeps moving on a boosted car (about 233 km/h).
+// The N2O arc (the outer, cyan one) is filled by the nitro level (game.nitro).
 const GAUGE_MAX = 240;
-const SPEED_A0 = 135, NITRO_A0 = 200, NITRO_A1 = 340, NITRO_R = 91;   // degrees, clockwise from 3 o'clock
+const SCALE_A0 = 88, SCALE_STEP = 28;
+const NITRO_A0 = 176, NITRO_A1 = 332, NITRO_R = 94.5;
+const dialUnits = kmh => kmh <= 153 ? kmh / 20.4 : Math.min(8, 7.5 + (kmh - 153) / 174);
 const dialPt = (r, a) => [100 + r * Math.cos(a * PI / 180), 100 + r * Math.sin(a * PI / 180)];
 const arcD = (r, a0, a1) => {
   const [x0, y0] = dialPt(r, a0), [x1, y1] = dialPt(r, a1);
   return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 };
-{ // the static parts of the dial, drawn once
+{ // the static parts of the dial, drawn once, bottom to top
   const g = $('gaugeTicks'), NS = 'http://www.w3.org/2000/svg';
   const el = (tag, attrs, cls) => {
     const e = document.createElementNS(NS, tag);
@@ -77,19 +80,25 @@ const arcD = (r, a0, a1) => {
     if (cls) e.setAttribute('class', cls);
     g.appendChild(e); return e;
   };
-  el('path', { d: arcD(NITRO_R, NITRO_A0, NITRO_A1) }, 'dialTrack');                           // the empty nitro arc
-  el('path', { d: arcD(66, SPEED_A0 + 210, SPEED_A0 + GAUGE_MAX) }, 'dialRed');              // the red band, 210-240 km/h
-  $('nitroFill').setAttribute('d', arcD(NITRO_R, NITRO_A0, NITRO_A1));
-  for (let k = 0; k <= GAUGE_MAX / 15; k++) {                                                 // a tick every 15 km/h
-    const a = SPEED_A0 + k * 15, major = k % 2 === 0;
-    const [x1, y1] = dialPt(major ? 70 : 74, a), [x2, y2] = dialPt(80, a);
-    el('line', { x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2) }, major ? 'dialTick' : 'dialTickMinor');
+  el('circle', { cx: 100, cy: 100, r: 26.5 }, 'dialHub');                                      // the dark centre
+  el('circle', { cx: 100, cy: 100, r: 46 }, 'dialRing');                                       // the light ring round it
+  el('path', { d: arcD(NITRO_R, NITRO_A0, NITRO_A1) }, 'dialTrack');                           // the empty N2O arc
+  const fill = el('path', { d: arcD(NITRO_R, NITRO_A0, NITRO_A1), pathLength: 100 }, 'nitroFill');
+  fill.id = 'nitroFill';                                                                       // filled by updateHUD
+  for (let k = 1; k <= 11; k++) {                                                              // notches across the N2O arc, every 14 degrees
+    const a = NITRO_A0 + k * 14, [x1, y1] = dialPt(91, a), [x2, y2] = dialPt(98, a);
+    el('line', { x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2) }, 'nitroNotch');
   }
-  for (let i = 0; i <= 8; i++) {                                                              // the numbers 0-8, one per 30 km/h
-    const [x, y] = dialPt(56, SPEED_A0 + i * 30);
+  el('path', { d: arcD(79, SCALE_A0, SCALE_A0 + 8 * SCALE_STEP) }, 'dialBand');                // the grey scale band
+  el('path', { d: arcD(79, SCALE_A0 + 7 * SCALE_STEP, SCALE_A0 + 8 * SCALE_STEP) }, 'dialRed'); // the redline, 7 to 8
+  for (let i = 0; i <= 8; i++) {                                                               // a tick and a number per unit
+    const a = SCALE_A0 + i * SCALE_STEP;
+    const [x1, y1] = dialPt(73, a), [x2, y2] = dialPt(85, a);
+    el('line', { x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2) }, 'dialTick');
+    const [x, y] = dialPt(65, a);
     el('text', { x: x.toFixed(2), y: y.toFixed(2) }, 'dialNum').textContent = String(i);
   }
-  const [lx, ly] = dialPt(NITRO_R, 300), lb = el('text', { x: lx.toFixed(2), y: ly.toFixed(2), transform: `rotate(30 ${lx.toFixed(2)} ${ly.toFixed(2)})` }, 'nitroLbl');   // reads along the arc
+  const [lx, ly] = dialPt(NITRO_R, 314), lb = el('text', { x: lx.toFixed(2), y: ly.toFixed(2), transform: `rotate(44 ${lx.toFixed(2)} ${ly.toFixed(2)})` }, 'nitroLbl');
   lb.textContent = 'N2O';
 }
 // the gear is derived from the speed (the car has no gearbox): 1 to 5, stepping up at 40, 80, 130 and 200 km/h
@@ -101,7 +110,7 @@ export function updateHUD() {
   setText('score', game.score.toLocaleString()); setText('timeDist', fmtTime(game.time) + ' · ' + (game.dist / 1000).toFixed(2) + ' km');
   const kmh = Math.round(player.speed * 3.6);
   setText('speed', kmh); setText('cash', game.cash); setText('takedowns', game.takedowns);
-  const ang = SPEED_A0 + clamp(kmh, 0, GAUGE_MAX) - 270;             // the needle is drawn pointing up (270 degrees)
+  const ang = SCALE_A0 + SCALE_STEP * dialUnits(clamp(kmh, 0, GAUGE_MAX)) - 270;   // the needle is drawn pointing up (270 degrees)
   if (hudCache.needle !== ang) { hudCache.needle = ang; $('needle').setAttribute('transform', 'rotate(' + ang.toFixed(2) + ' 100 100)'); }
   setText('gear', 1 + GEAR_STEPS.filter(v => kmh >= v).length);
   const hrs = (env.phase * 24 + 6) % 24, hh = Math.floor(hrs), mm = Math.floor((hrs - hh) * 60);
