@@ -110,7 +110,7 @@ const filledShare = filledSegs / Math.max(1, filledSegs + closedOnly);
 assert(filledShare >= 0.35 && filledShare <= 0.65, `filled streets are ${(filledShare * 100).toFixed(1)}% of the hash-closed ones (want about half)`);
 
 // the built blocks: barriers in the block's own solids, one per mouth of each closed half-street
-let barriers = 0, blocksChecked = 0;
+let barriers = 0, blocksChecked = 0, cranesChecked = 0;
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   // one hoarding per mouth (three props); a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
@@ -126,7 +126,21 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   const got = ch.props.filter(p => p.kind === 'hoarding').length;
   assert.equal(got, want * 3, `block ${cx},${cz}: ${got} hoarding props for ${want} open mouths (want ${want * 3})`);
   barriers += got;
+  // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
+  // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
+  const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
+  const siteFree = (a, b) => !F.nbhdJunction(a[0], a[1]) && !F.nbhdJunction(b[0], b[1]);
+  const cranes = [
+    [barred('z', cx, cz) && !F.segFilled('z', cx, cz) && siteFree([cx, cz], [cx, cz + 1]), x0 + 4, z0 + 52],
+    [barred('x', cx, cz) && !F.segFilled('x', cx, cz) && siteFree([cx, cz], [cx + 1, cz]), x0 + 52, z0 + 4],
+  ];
+  for (const [on, bx, bz] of cranes) {
+    if (!on) continue;
+    const base = ch.solids.find(q => q.kind === 'building' && q.hx === 1.3 && q.hz === 1.3 && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
+    assert(base, `block ${cx},${cz}: crane base at ${bx},${bz} is not solid`);
+    cranesChecked++;
+  }
 }
 
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} hoarding props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns`);
+  `${blocksChecked} blocks built, ${barriers} hoarding props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid`);

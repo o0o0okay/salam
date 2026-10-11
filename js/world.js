@@ -1076,6 +1076,8 @@ function generateChunk(cx, cz, defer = false) {
     // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
     const ma = L / 2 + 8, mastTop = 34;
     put(0, ma, 2.6, 0.8, 2.6, 0.7, 0x7a7f86);
+    // the crane's base is solid too: the mast stands on it, so a car cannot drive through the foot of the tower
+    solid(axis === 'z' ? acr : alc + ma, axis === 'z' ? alc + ma : acr, 1.3, 1.3, 'building');
     put(0, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
     put(0, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
     put(-1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
