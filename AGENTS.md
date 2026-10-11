@@ -29,11 +29,23 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 
 ## Where things are
 
-- `js/world.js` — chunk generation (blocks, buildings, sidewalks, trees, props, parked cars), chunk
-  streaming (`updateChunks`) and disposal (`disposeChunk`). Every block is an 80 m square chunk. The top
-  of the file documents the chunk record (`ch`), its solids and the geometry lifecycle.
-- `js/campus.js` — the hospital (with the air ambulance and the box-pixel lettering), fire station, school
-  filling station and factory (industrial plant) builders. `js/shops.js` — shop kits and high-street parades.
+- `js/world.js` — the chunk generator (`generateChunk`: blocks, buildings, parked cars, pickups, roadworks,
+  interchange and estate placement), chunk streaming (`updateChunks`) and disposal (`disposeChunk`), bus stops.
+  Every block is an 80 m square chunk. The top of the file documents the chunk record (`ch`), its solids and
+  the geometry lifecycle. It re-exports the names the other modules used before the split (see below).
+- The chunk modules split out of `js/world.js` (world.js imports them; the test harness stitches them in front of it):
+  - `js/chunkBake.js` — `bake`, `own`, `mergeStandalone`, `flushChunk` (the merged-geometry slices, and the
+    `NO_MERGE` hook in tools/sidewalk-checks/hooks.mjs swaps out `flushChunk` here).
+  - `js/chunkState.js` — the `chunks` registry, `nearChunks`, `plazaIn`.
+  - `js/solidIndex.js` — `solidAt` and `solidsNear` over the per-chunk grid index.
+  - `js/sidewalks.js` — the sidewalk rings: kerb, paving, border course, tree-pit beds, sidewalk styles.
+  - `js/neighbourhoods.js` — estate and neighbourhood plans (curved roads, cul-de-sacs, houses, the memo).
+  - `js/flyoverFurniture.js` — the interchange's nose guards, delineators, nameboards, billboards, gantry,
+    plaza island, and `warmTextCache`.
+  - `js/sites.js` — construction-site scaffolding, the site machines, and `siteSpots`.
+- `js/campus.js` — the hospital (with the air ambulance and the box-pixel lettering), fire station, school,
+  fuel station, bank and stores. `js/sports.js` — the sports and play grounds. `js/factory.js` — the factory
+  plants. `js/shops.js` — shop kits and high-street parades.
 - `js/assets.js` — shared materials, textures and geometry (window glass, brick facades, road, paving).
 - `js/flyover.js` — the grade-separated interchange numbers (imported by world.js and the harness).
 - `js/trafficLights.js`, `js/carModels.js`, `js/props.js`, `js/trees.js` — street furniture and vehicles.

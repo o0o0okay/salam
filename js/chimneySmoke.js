@@ -1,6 +1,6 @@
 /* Smoke from factory chimneys: a dedicated pool of dark grey puffs, kept apart from the shared particle pool so a
    steady plume can never crowd out a crash, a fire or an explosion. Each plant's stacks are listed on its chunk
-   (`ch.stacks`, filled by buildFactoryMesh in js/campus.js). Every stack in the streamed chunks puffs out at a steady
+   (`ch.stacks`, filled by buildFactoryMesh in js/factory.js). Every stack in the streamed chunks puffs out at a steady
    rate; the puffs rise, drift with the wind, spread, and fade out. Plain geometry only: low-poly puffs with flat
    shading, like the rest of the scene. */
 import * as THREE from 'three';

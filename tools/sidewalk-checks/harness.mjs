@@ -18,7 +18,14 @@ export function build() {
   const REAL_DIMS = JSON.parse(JSON.stringify(eval('(' + dimsMatch[1] + ')')));
 
   let src = fs.readFileSync(path.join(repo, 'js/world.js'), 'utf8');
-  src = src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  // js/world.js re-exports the names it moved to the chunk modules (`export { ... };`). Inside the stitched module
+  // they are already in scope, so that line goes, and so do the imports.
+  src = src.replace(/^export \{[^}]*\};?\s*$/gm, '').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  // The chunk modules split out of js/world.js, stitched in front of it in dependency order.
+  const CHUNK_MODULES = ['chunkBake.js', 'chunkState.js', 'solidIndex.js', 'sidewalks.js', 'sites.js', 'flyoverFurniture.js', 'neighbourhoods.js'];
+  let chunkSrc = '';
+  for (const f of CHUNK_MODULES) chunkSrc += fs.readFileSync(path.join(repo, 'js', f), 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\n';
+  src = chunkSrc + src;
   // The interchange's numbers live in their own module (js/flyover.js, no three.js in it) and js/world.js imports
   // them: the stitched module needs its source in front of world.js, the same way the browser gets it.
   let flySrc = fs.readFileSync(path.join(repo, 'js/flyover.js'), 'utf8');
@@ -32,7 +39,7 @@ export function build() {
   src = lightSrc + '\n' + src;
   // ... and the campus buildings and the shop kits, split out of world.js: stitched in front of it, in the order
   // they depend on (campus first: the shops use its text lettering).
-  for (const f of ['shops.js', 'campus.js']) {
+  for (const f of ['shops.js', 'factory.js', 'sports.js', 'campus.js']) {
     let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
     part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
     src = part + '\n' + src;

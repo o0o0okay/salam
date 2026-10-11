@@ -1,4 +1,4 @@
-/* Industrial plants (buildFactoryMesh in js/campus.js, placed by generateChunk in js/world.js):
+/* Industrial plants (buildFactoryMesh in js/factory.js, placed by generateChunk in js/world.js):
    * about FACTORY_SHARE of the ordinary blocks become a plant, and every one of the four layouts turns up;
    * a plant's solids (its buildings, stacks, tanks and containers) stand inside the block's effective bounds,
      so nothing reaches the pavement or the road;
