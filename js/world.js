@@ -778,864 +778,775 @@ function crossings({ x0, z0, kerbIn, add, cx, cz }) {
   }
 }
 
-function generateChunk(cx, cz, defer = false) {
-  const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
-  const r = (a = 0, b = 1) => a + (b - a) * rng();
-  const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
-  const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
-  const group = new THREE.Group();
-  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
-  const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
-  const add = o => bake(ch, o);
-  // The footprint of every suburban house in this block (grid or estate). A house's yard needs a way in from the street,
-  // so the hedge and fence lines in front of it get a gap (see yardGap).
-  const yards = [];
-  const yardGap = (x, z, alongZ) => yards.some(y => alongZ
-    ? Math.abs(z - y.z) < 2 + y.hd && Math.abs(x - y.x) < 14 + y.hw
-    : Math.abs(x - y.x) < 2 + y.hw && Math.abs(z - y.z) < 14 + y.hd);
-  // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
-  // for a car at grade under the bridge and gone for a car standing on the deck above them.
-  const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
-  // Sidewalk ring occupies these distances from the block centre (kerb stone up to the inner kerb).
-  const WALK_LO = CHUNK / 2 - PAVE_OUT, WALK_HI = CHUNK / 2 - PAVE_IN;
-  const onWalk = (x, z) => {
-    const dx = Math.abs(x - bx), dz = Math.abs(z - bz);
-    const inBand = a => a >= WALK_LO && a <= WALK_HI;
-    return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
-  };
-  const prop = (kind, x, z, rotY = 0, y = 0.15) => {
-    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
-    const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
-    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
-  };
-  const tree = (x, z, y = 0.2) => {
-    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
-    const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
-    solid(x, z, 0.65, 0.65, 'tree');
-    const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
-    t.solid.tree = t; ch.trees.push(t);
-  };
-  // Parked cars are registered as solids and linked to a destructible record (s.parked).
-  // Light taps behave like a static obstacle; a hard enough hit wrecks one (see collisions.js breakParkedCar).
-  const PARKED_KINDS = ['sedan', 'hatchback', 'suv', 'oldclassic'];
-  const PARKED_COLORS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
-  const parkedCar = (x, z, hx, hz, rotY, kind, color, y = 0.1) => {
-    const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
-    const m = buildCar(kind, color, false);
-    m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
-    solid(x, z, hx, hz, 'parkedcar');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    sEntry.base = { hx, hz };                                     // so a car that leaves can hand its bay back
-    const rec = { mesh: m, x, z, kind, mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
-    sEntry.parked = rec;
-    return rec;
-  };
-  // Bus stop shelter on the sidewalk — a real solid (destructible), and a navigation target for AI buses (see civilians.js).
-  const busStop = (side, alongLocal) => {
-    const axisIsZ = side < 2;
-    const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
-    const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
-    const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
-    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
-    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
-    // The flyover's at-grade lane runs through there: test the whole shelter, not just its centre, since its ends
-    // are 2.5 m from it and the shelter is a solid.
-    for (let ax = -hx; ax <= hx + 1e-9; ax += 0.4) for (let az = -hz; az <= hz + 1e-9; az += 0.4) if (onAtGradeLane(x + ax, z + az, 0.3)) return;
-    const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
-    const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
-    const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
-    solid(x, z, hx, hz, 'busstop');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    const rec = { mesh: g, x, z, axis: axisIsZ ? 'z' : 'x', road: roadCoord, along: axisIsZ ? z : x, broken: false, solid: sEntry };
-    sEntry.busstop = rec; ch.busStops.push(rec);
-  };
-  // Construction scaffolding against a building — a real destructible solid, randomized size/style per instance.
-  const scaffold = (x, z, rotY, o) => {
-    const g = own(ch, mergeStandalone(buildScaffoldMesh(o))); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
-    const swap = Math.abs(Math.cos(rotY)) < 0.5;
-    const hx = swap ? o.d / 2 + 0.3 : o.w / 2 + 0.3, hz = swap ? o.w / 2 + 0.3 : o.d / 2 + 0.3;
-    solid(x, z, hx, hz, 'scaffold');
-    const sEntry = ch.solids[ch.solids.length - 1];
-    sEntry.scaffold = { mesh: g, x, z, broken: false, solid: sEntry };
-  };
-  const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
-  // The block's own ground cover: the lot asphalt, the grass of a suburb or a park, a forecourt's concrete. Every
-  // one of them stops at the building line, and on a side that carries an interchange's at-grade lane that line
-  // stands `FLY.frontage` further out: without this the pad would lie over the pavement behind the lane (and, on
-  // the wider lots, poke into the lane itself) — which is exactly the strip the lane's widening is not allowed to
-  // eat. A pad that does not reach the line is left exactly where it was, so only the lane sides change.
-  const padBox = (w, d, m, ox = 0, oz = 0, y = 0.2, h = 0.1) => {
-    const lo = si => (si < 2 ? x0 : z0) + PAD_IN + (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
-    const hi = si => (si < 2 ? x0 : z0) + CHUNK - PAD_IN - (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
-    const a = Math.max(bx + ox - w / 2, lo(0)), b = Math.min(bx + ox + w / 2, hi(1));
-    const c = Math.max(bz + oz - d / 2, lo(2)), e = Math.min(bz + oz + d / 2, hi(3));
-    if (b - a < 0.2 || e - c < 0.2) return;
-    ch.pads.push({ x: (a + b) / 2, z: (c + e) / 2, w: b - a, d: e - c });      // for the suite: where a block's ground stops
-    add(box(b - a, h, e - c, m, (a + b) / 2, y, (c + e) / 2, false));
-  };
-  const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
-  const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
-  let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
-  let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
-  interchanges({ ch, p, add, ramp, group, r, cx, cz });
-  let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
-  // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
-  const swStyle = pickSidewalkStyle(type, rng);
-  const sw = sidewalkPieces(cx, cz, swStyle, filled);
-  const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
-  if (type === 'downtown') {
-    // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole
-    // pavement: a high-street shopfront projects up to 2.5 m from its wall (awning, outdoor display, its base),
-    // and without the offset that projection would stand in the at-grade lane. Effective bounds shrink the grid
-    // on lane sides so buildings never encroach on the carriageway — on either side of the block.
-    const loX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
-    const hiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
-    const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
-    const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
-    const walkUps = [];
-    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
-      // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
-      // building's half-extent (up to 12.5 m) stays inside [lo, hi].
-      const cellW = (hiX - loX) / 2, cellD = (hiZ - loZ) / 2;
-      const lx = loX + cellW * (i + 0.5), lz = loZ + cellD * (j + 0.5);
-      if (rng() < 0.12) { // plaza
-        add(box(24, 0.1, 24, mat(0xd9d2c3), lx, 0.2, lz, false));
-        tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
-        continue;
-      }
-      const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
-      // Clamp building centre so the whole footprint stays within effective bounds
-      const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
-      const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
-      // A mid-rise under ~32 m is a walk-up in brick (brownstone / shop-house); the taller blocks keep the glass.
-      const walkUp = h <= 32 && rng() < 0.85;
-      const geo = makeBuildingGeo(w, h, d);
-      const wm = walkUp ? facadeMat(WALKUP_WALLS[Math.floor(rng() * WALKUP_WALLS.length)])
-                        : ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
-      const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
-      mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
-      solid(clx, clz, w / 2, d / 2, 'building');
-      // Ground-floor shops on the face that looks at the street: a downtown block becomes a high street.
-      const ox = clx - bx, oz = clz - bz;
-      const alongX = Math.abs(ox) >= Math.abs(oz);
-      const faceAxis = alongX ? Math.sign(ox || 1) : Math.sign(oz || 1);
-      const faceLen = alongX ? d : w;
-      const faceAt = alongX ? clx + faceAxis * (w / 2) : clz + faceAxis * (d / 2);
-      const radial = alongX ? (faceAxis > 0 ? bx0 + CHUNK - faceAt : faceAt - bx0)
-                            : (faceAxis > 0 ? bz0 + CHUNK - faceAt : faceAt - bz0);
-      const clear = radial - PAVE_OUT;                                  // room between the wall and the paving
-      const nFace = Math.max(1, Math.min(3, Math.floor(faceLen / 9)));
-      const rotY = alongX ? (faceAxis > 0 ? PI / 2 : -PI / 2) : (faceAxis > 0 ? 0 : PI);
-      const shopWide = Math.min(8.6, (faceLen - 0.8) / nFace);
-      for (let si = 0; si < nFace; si++) {
-        const shop = SHOP_TYPES[Math.floor(rng() * SHOP_TYPES.length)];
-        const off = (si + 0.5 - nFace / 2) * (faceLen / nFace);
-        const sx = alongX ? faceAt + faceAxis * 0.05 : clx + off;
-        const sz = alongX ? clz + off : faceAt + faceAxis * 0.05;
-        const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
-        const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
-        const gm = own(ch, mergeStandalone(kit.glass));
-        gm.position.set(sx, 0.15, sz); gm.rotation.y = rotY; group.add(gm);
-        const hx = alongX ? 0.24 : shopWide / 2 - 0.2, hz = alongX ? shopWide / 2 - 0.2 : 0.24;
-        solid(sx, sz, hx, hz, 'shopfront');
-        const sEntry = ch.solids[ch.solids.length - 1];
-        sEntry.shop = { mesh: gm, x: sx, z: sz, w: shopWide, name: shop.name, kind: shop.kind, broken: false, solid: sEntry, downtown: true };
-        ch.shops.push(sEntry.shop);
-      }
-      if (walkUp) walkUps.push({ clx, clz, w, d, h, alongX, faceAxis });
-      // rooftop details
-      if (walkUp) {
-        // a cornice round the parapet, then a wooden water tower on four legs or a brick chimney stack
-        add(box(w + 0.7, 0.8, d + 0.7, mat(rng() < 0.6 ? 0xe8dfcc : 0x4a4f57), clx, h + 0.55, clz));
-        if (rng() < 0.5) {
-          const tx = clx + r(-w * 0.2, w * 0.2), tz = clz + r(-d * 0.2, d * 0.2);
-          for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(cyl(0.1, 0.1, 3, 5, mat(IRON), tx + sx * 0.9, h + 0.15 + 1.5, tz + sz * 0.9));
-          add(cyl(1.4, 1.4, 2.4, 10, mat(0x8a6a4a), tx, h + 0.15 + 3 + 1.2, tz));
-          const cap = new THREE.Mesh(ASSET.roofGeo, mat(0x4a3a2c)); cap.scale.set(2.2, 1.1, 2.2);
-          cap.position.set(tx, h + 0.15 + 3 + 2.4 + 0.55, tz); add(cap);
-        } else {
-          add(box(0.9, 2.4, 0.9, mat(0x7a4a3a), clx + r(-w * 0.3, w * 0.3), h + 0.15 + 1.2, clz + r(-d * 0.3, d * 0.3)));
-        }
-      } else if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
-      else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
-      // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
-      // reflective warning cones placed along the sidewalk line in front of it. Every downtown building has its
-      // shopfront on the face that looks at the street, so the scaffolding goes on one of the other three faces,
-      // and only where its whole footprint stays inside the block's building line and clear of every other solid.
-      if (h > 20 && rng() < 0.3) {
-        const shopSide = alongX ? (faceAxis > 0 ? 0 : 1) : (faceAxis > 0 ? 2 : 3);
-        let sideS = Math.floor(rng() * 3); if (sideS >= shopSide) sideS++;
-        const faceLen = (sideS === 0 || sideS === 1) ? d : w;
-        const sw = Math.max(4, Math.min(15, faceLen * r(0.5, 0.85)));
-        const sh = Math.max(6, Math.min(h - 1.5, h * r(0.55, 0.92)));
-        const sd = r(1.5, 2.2), bays = Math.max(2, Math.round(sw / r(1.8, 2.4))), levels = Math.max(3, Math.min(6, Math.round(sh / 2.6)));
-        const style = Math.floor(rng() * 4);
-        const o = { w: sw, d: sd, h: sh, bays, levels, style, frame: FRAME_COLORS[Math.floor(rng() * FRAME_COLORS.length)], net: NET_COLORS[Math.floor(rng() * NET_COLORS.length)], plank: PLANK_COLORS[Math.floor(rng() * PLANK_COLORS.length)], sign: SIGN_COLORS[Math.floor(rng() * SIGN_COLORS.length)] };
-        const dx = sideS === 0 ? w / 2 + sd / 2 + 0.6 : sideS === 1 ? -(w / 2 + sd / 2 + 0.6) : 0;
-        const dz = sideS === 2 ? d / 2 + sd / 2 + 0.6 : sideS === 3 ? -(d / 2 + sd / 2 + 0.6) : 0;
-        const rotS = (sideS === 0 || sideS === 1) ? PI / 2 : 0;
-        const sx = clx + dx, sz = clz + dz;
-        const fhx = rotS === 0 ? sw / 2 + 0.3 : sd / 2 + 0.3, fhz = rotS === 0 ? sd / 2 + 0.3 : sw / 2 + 0.3;
-        if (sx - fhx < loX || sx + fhx > hiX || sz - fhz < loZ || sz + fhz > hiZ) continue;
-        const clash = ch.solids.some(q => !(q.x === clx && q.z === clz && q.kind === 'building') &&
-          sx + fhx > q.x - q.hx - 0.6 && sx - fhx < q.x + q.hx + 0.6 && sz + fhz > q.z - q.hz - 0.6 && sz - fhz < q.z + q.hz + 0.6);
-        if (clash) continue;
-        scaffold(sx, sz, rotS, o);
-        const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
-        const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
-        // The cones stand just outside the scaffold's outer face (its footprint is sd/2 + 0.3 deep), not inside its solid:
-        // a cone buried in the scaffolding is one a car can never reach, so it could never be knocked over.
-        const coneOut = sd / 2 + 0.3 + 0.75;
-        for (let k = 0; k < coneCount; k++) {
-          const off = -sw / 2 + k * step;
-          const cx2 = rotS === 0 ? sx + off : sx + cdx * coneOut, cz2 = rotS === 0 ? sz + cdz * coneOut : sz + off;
-          prop('cone', cx2, cz2, rng() * PI, 0);
-        }
-      }
+function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng, scaffold, solid, tree, x0, z0 }) {
+  // The building grid moves out with the frontage line, so a downtown block beside a flyover keeps its whole
+  // pavement: a high-street shopfront projects up to 2.5 m from its wall (awning, outdoor display, its base),
+  // and without the offset that projection would stand in the at-grade lane. Effective bounds shrink the grid
+  // on lane sides so buildings never encroach on the carriageway — on either side of the block.
+  const loX = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+  const hiX = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+  const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const walkUps = [];
+  for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+    // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
+    // building's half-extent (up to 12.5 m) stays inside [lo, hi].
+    const cellW = (hiX - loX) / 2, cellD = (hiZ - loZ) / 2;
+    const lx = loX + cellW * (i + 0.5), lz = loZ + cellD * (j + 0.5);
+    if (rng() < 0.12) { // plaza
+      add(box(24, 0.1, 24, mat(0xd9d2c3), lx, 0.2, lz, false));
+      tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
+      continue;
     }
-    // Iron fire escapes on the walk-ups: one landing per floor on a side wall (never the shopfront face). Each one
-    // stays inside the block's building line and clear of every other solid, so it can never reach a road.
-    for (const u of walkUps) {
-      if (rng() < 0.3) continue;
-      const s = rng() < 0.5 ? -1 : 1, along = rng() < 0.5 ? -1 : 1, p = 1.0, tw = 2.2;
-      const sideZ = u.alongX;                                   // the shop is on an x face, so this wall is a z face
-      const face = sideZ ? u.clz + s * u.d / 2 : u.clx + s * u.w / 2;
-      const span = sideZ ? u.w : u.d;
-      const cen = (sideZ ? u.clx : u.clz) + along * (span / 2 - 1.6);      // tangent coordinate of the escape
-      const nLo = Math.min(face, face + s * (p + 0.1)), nHi = Math.max(face, face + s * (p + 0.1));
-      const tLo = cen - tw / 2 - 0.1, tHi = cen + tw / 2 + 0.1;
-      const ex = sideZ ? [tLo, tHi] : [nLo, nHi], ez = sideZ ? [nLo, nHi] : [tLo, tHi];
-      if (ex[0] < loX || ex[1] > hiX || ez[0] < loZ || ez[1] > hiZ) continue;
-      const clash = ch.solids.some(q => !(q.x === u.clx && q.z === u.clz && q.kind === 'building') &&
-        ex[1] > q.x - q.hx - 0.6 && ex[0] < q.x + q.hx + 0.6 && ez[1] > q.z - q.hz - 0.6 && ez[0] < q.z + q.hz + 0.6);
-      if (clash) continue;
-      const iron = mat(IRON), floors = Math.floor((u.h - 1) / 3.5);
-      // a piece: `nC` is its coordinate across the wall, `tC` along it; `nSize` its depth out from the wall
-      const piece = (nC, tC, hgt, yC, nSize, tSize) => add(sideZ
-        ? box(tSize, hgt, nSize, iron, tC, yC, nC, false) : box(nSize, hgt, tSize, iron, nC, yC, tC, false));
-      for (let f = 1; f < floors; f++) {
-        const y = 0.15 + f * 3.5;
-        piece(face + s * p / 2, cen, 0.12, y + 0.06, p, tw);                          // landing
-        piece(face + s * (p - 0.05), cen, 0.05, y + 0.52, 0.08, tw);                  // top rail
-        piece(face + s * (p - 0.05), cen, 0.05, y + 0.25, 0.08, tw);                  // mid rail
-      }
-      // two rails of the ladder that climbs the wall at one end of the landings
-      const top = 0.15 + floors * 3.5;
-      for (const k of [-1, 1]) piece(face + s * p * 0.6, cen + k * (tw / 2 - 0.08), top - 0.15, (top + 0.15) / 2, 0.12, 0.1);
+    const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
+    // Clamp building centre so the whole footprint stays within effective bounds
+    const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
+    const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
+    // A mid-rise under ~32 m is a walk-up in brick (brownstone / shop-house); the taller blocks keep the glass.
+    const walkUp = h <= 32 && rng() < 0.85;
+    const geo = makeBuildingGeo(w, h, d);
+    const wm = walkUp ? facadeMat(WALKUP_WALLS[Math.floor(rng() * WALKUP_WALLS.length)])
+                      : ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
+    const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
+    mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
+    solid(clx, clz, w / 2, d / 2, 'building');
+    // Ground-floor shops on the face that looks at the street: a downtown block becomes a high street.
+    const ox = clx - bx, oz = clz - bz;
+    const alongX = Math.abs(ox) >= Math.abs(oz);
+    const faceAxis = alongX ? Math.sign(ox || 1) : Math.sign(oz || 1);
+    const faceLen = alongX ? d : w;
+    const faceAt = alongX ? clx + faceAxis * (w / 2) : clz + faceAxis * (d / 2);
+    const radial = alongX ? (faceAxis > 0 ? bx0 + CHUNK - faceAt : faceAt - bx0)
+                          : (faceAxis > 0 ? bz0 + CHUNK - faceAt : faceAt - bz0);
+    const clear = radial - PAVE_OUT;                                  // room between the wall and the paving
+    const nFace = Math.max(1, Math.min(3, Math.floor(faceLen / 9)));
+    const rotY = alongX ? (faceAxis > 0 ? PI / 2 : -PI / 2) : (faceAxis > 0 ? 0 : PI);
+    const shopWide = Math.min(8.6, (faceLen - 0.8) / nFace);
+    for (let si = 0; si < nFace; si++) {
+      const shop = SHOP_TYPES[Math.floor(rng() * SHOP_TYPES.length)];
+      const off = (si + 0.5 - nFace / 2) * (faceLen / nFace);
+      const sx = alongX ? faceAt + faceAxis * 0.05 : clx + off;
+      const sz = alongX ? clz + off : faceAt + faceAxis * 0.05;
+      const kit = buildShopFrontMesh(shop, shopWide, 3.6, rng, { awning: clear > 2.0, outdoor: clear > 1.9 });
+      const body = kit.body; body.position.set(sx, 0.15, sz); body.rotation.y = rotY; add(body);
+      const gm = own(ch, mergeStandalone(kit.glass));
+      gm.position.set(sx, 0.15, sz); gm.rotation.y = rotY; group.add(gm);
+      const hx = alongX ? 0.24 : shopWide / 2 - 0.2, hz = alongX ? shopWide / 2 - 0.2 : 0.24;
+      solid(sx, sz, hx, hz, 'shopfront');
+      const sEntry = ch.solids[ch.solids.length - 1];
+      sEntry.shop = { mesh: gm, x: sx, z: sz, w: shopWide, name: shop.name, kind: shop.kind, broken: false, solid: sEntry, downtown: true };
+      ch.shops.push(sEntry.shop);
     }
-  } else if (type === 'suburb') {
-    // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
-    // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
-    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
-    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
-    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
-    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
-    const padW = hi_x - lo_x, padD = hi_z - lo_z;
-    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
-    padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
-    const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
-    // ---- estate (see planEstate): a curved road, its houses on both sides and a cul-de-sac, instead of the grid ----
-    let plan = null;
-    if (nbPlan) plan = nbhdClip(nbPlan, cx, cz);
-    else if (estateNow) {
-      // A block's estate plan is a pure function of the block, so it is kept for the next time the block streams in
-      // (a bounded memo). A cached plan replays the same number of random draws, so the rest of the block is unchanged.
-      const key = cx + ',' + cz;
-      const hit = estatePlanMemo.get(key);
-      if (hit) {
-        for (let k = 0; k < hit.draws; k++) rng();
-        plan = hit.plan;
+    if (walkUp) walkUps.push({ clx, clz, w, d, h, alongX, faceAxis });
+    // rooftop details
+    if (walkUp) {
+      // a cornice round the parapet, then a wooden water tower on four legs or a brick chimney stack
+      add(box(w + 0.7, 0.8, d + 0.7, mat(rng() < 0.6 ? 0xe8dfcc : 0x4a4f57), clx, h + 0.55, clz));
+      if (rng() < 0.5) {
+        const tx = clx + r(-w * 0.2, w * 0.2), tz = clz + r(-d * 0.2, d * 0.2);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(cyl(0.1, 0.1, 3, 5, mat(IRON), tx + sx * 0.9, h + 0.15 + 1.5, tz + sz * 0.9));
+        add(cyl(1.4, 1.4, 2.4, 10, mat(0x8a6a4a), tx, h + 0.15 + 3 + 1.2, tz));
+        const cap = new THREE.Mesh(ASSET.roofGeo, mat(0x4a3a2c)); cap.scale.set(2.2, 1.1, 2.2);
+        cap.position.set(tx, h + 0.15 + 3 + 2.4 + 0.55, tz); add(cap);
       } else {
-        let draws = 0;
-        const rc = (a, b) => { draws++; return r(a, b); };
-        const sides = [0, 1, 2, 3].filter(si => !atGradeSide(cx, cz, si));
-        if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(rc(0, sides.length))], rc);
-        estatePlanMemo.set(key, { plan, draws });
-        if (estatePlanMemo.size > ESTATE_MEMO_MAX) estatePlanMemo.delete(estatePlanMemo.keys().next().value);
+        add(box(0.9, 2.4, 0.9, mat(0x7a4a3a), clx + r(-w * 0.3, w * 0.3), h + 0.15 + 1.2, clz + r(-d * 0.3, d * 0.3)));
       }
-      if (plan) plan.inC = () => true;
-    }
-    if (plan) {
-      const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.33;      // the road sits 3 cm above the pad (its top is 0.30)
-      for (const rd of plan.roads) {
-        // the road as one continuous strip: the two kerb lines run along the path, half the width either side of it along
-        // its normal, and two triangles join each step. (The old flat boxes, each turned to its own chord, left notches
-        // on the outside of every bend, which read as saw-teeth along the road.)
-        {
-          const R = rd.ribbon, pos = [], uv = [], idx = [];
-          for (let i = 0; i < R.length; i++) {
-            const p = R[i], ox = -p.tz * ESTATE_ROAD, oz = p.tx * ESTATE_ROAD;
-            pos.push(p.x + ox, Y + 0.04, p.z + oz, p.x - ox, Y + 0.04, p.z - oz);
-            uv.push(0, i * 0.25, 1, i * 0.25);
-            if (i > 0) { const a = 2 * (i - 1), b = 2 * i; idx.push(a, b, a + 1, a + 1, b, b + 1); }
-          }
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-          geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-          geo.setIndex(idx); geo.computeVertexNormals();
-          ch.geos.push(geo);                                                    // freed with the block
-          add(new THREE.Mesh(geo, asph));
-        }
-        rd.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
-          if (i % 8 === 0 && i > 2 && i < rd.ribbon.length - 4 && plan.inC(p.x, p.z)) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
-        });
-        if (plan.inC(rd.disc.x, rd.disc.z)) add(cyl(rd.disc.r, rd.disc.r, 0.04, 28, asph, rd.disc.x, Y + 0.02, rd.disc.z, false));
-      }
-      for (const h of plan.houses) {
-        const hg = new THREE.Group();
-        hg.position.set(h.x, 0, h.z); hg.rotation.y = Math.atan2(-h.tz, h.tx);   // local +x runs along the road, +z away from it
-        const wc = walls[Math.floor(r(0, walls.length))], rc = roofs[Math.floor(r(0, roofs.length))];
-        hg.add(box(h.w, h.h, h.d, mat(wc), 0, h.h / 2 + 0.25, 0));
-        const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(h.w * 1.15, 3.2, h.d * 1.15); roof.position.set(0, h.h + 0.25 + 1.6, 0); roof.castShadow = true; hg.add(roof);
-        const front = -h.k * (h.d / 2);                                   // the front faces the road
-        hg.add(box(1.2, 2.1, 0.12, mat(0x5a3a22), 0, 1.3, front - h.k * 0.05, false));
-        for (const sx of [-1, 1]) hg.add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), sx * h.w * 0.28, h.h * 0.58, front - h.k * 0.04, false));
-        add(hg);
-        solid(h.x, h.z, h.hxA, h.hzA, 'building');
-        yards.push({ x: h.x, z: h.z, hw: h.hxA, hd: h.hzA });
-      }
-      for (const t of plan.trees) tree(t.x, t.z);
-      ch.estate = {
-        side: nbPlan ? -1 : plan.side, nb: nbPlan ? [nbRX, nbRZ] : null, roadY: Y,
-        entrance: [plan.roads[0].ribbon[0].x, plan.roads[0].ribbon[0].z],
-        roads: plan.roads.map(rd => ({ ribbon: rd.ribbon.map(p => [p.x, p.z]), disc: rd.disc })),
-        houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
-        bounds: { lo_x, hi_x, lo_z, hi_z },
-      };
-    }
-    if (!plan) {
-    // The house grid fits within the effective block bounds. On at-grade sides the grid shifts
-    // and shrinks so no house wall or jitter lands in the carriageway.
-    const houseSpanX = Math.max(0, padW - 18.66), houseSpanZ = Math.max(0, padD - 18.66);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-      const lx = lo_x + 9.33 + (houseSpanX > 0 ? i * houseSpanX / 2 : 0);
-      const lz = lo_z + 9.33 + (houseSpanZ > 0 ? j * houseSpanZ / 2 : 0);
-      const w = r(8, 10), d = r(7, 9), h = r(4.5, 6), ox = r(-1, 1), oz = r(-1, 1), hx = lx + ox, hz = lz + oz;
-      // Skip houses that would extend into the at-grade lane (with jitter and half-extent margin)
-      if (hx - w/2 < lo_x || hx + w/2 > hi_x || hz - d/2 < lo_z || hz + d/2 > hi_z) continue;
-      const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
-      // some houses are brick (a brownstone-style front) with a stone stoop up to the door
-      const brick = rng() < 0.45, brickC = HOUSE_BRICK[Math.floor(rng() * HOUSE_BRICK.length)];
-      if (brick) {
-        const bg = makeBuildingGeo(w, h, d, 6), bm = new THREE.Mesh(bg, facadeMat(brickC, false));
-        bm.position.set(hx, h / 2 + 0.25, hz); add(bm); ch.geos.push(bg);
-        if (hz + d / 2 + 1.5 <= hi_z) {
-          const stone = mat(0xcfc8bb);
-          for (let k = 0; k < 3; k++) { const sh = 0.6 - 0.2 * k; add(box(2.4, sh, 0.42, stone, hx, 0.25 + sh / 2, hz + d / 2 + 0.21 + 0.42 * k)); }
-        }
-      } else add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
-      const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
-      add(box(1.2, 2.1, 0.12, mat(0x5a3a22), hx, 1.3, hz + d / 2 + 0.05, false));
-      for (const sx of [-1, 1]) { add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz + d / 2 + 0.04, false)); add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz - d / 2 - 0.04, false)); }
-      add(box(1.1, 2.2, 1.1, mat(0x8a5a44), hx + w * 0.3, h + 1.3, hz - d * 0.2));
-      solid(hx, hz, w / 2, d / 2, 'building');
-      yards.push({ x: hx, z: hz, hw: w / 2, hd: d / 2 });
-      const cs = rng() < 0.5 ? 1 : -1, cs2 = rng() < 0.5 ? 1 : -1;
-      tree(lx + cs * 7.6, lz + cs2 * 7.6);
-      if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
-    }
-    for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) {
-      if (rng() > 0.25) {
-        const fx = bx + x + padOx, fz = bz + side * (padD/2 - 0.4) + padOz;
-        if (!yardGap(fx, fz, false)) prop('fence', fx, fz, 0, 0.2);      // the fence also opens at each house's entrance
+    } else if (h > 30) { add(box(w * 0.5, 5, d * 0.5, wm === ASSET.windowMats[0] ? mat(0xcfd4da) : mat(0xd9cbbd), clx, h + 2.65, clz)); add(cyl(0.12, 0.12, 7, 6, mat(0xdd3b3b), clx, h + 8.6, clz)); }
+    else add(box(3.5, 1.8, 3.5, mat(0xaab0b8), clx + r(-4, 4), h + 1.05, clz + r(-4, 4)));
+    // Occasional construction scaffolding against a tall building — 4 distinct styles, randomized size, with
+    // reflective warning cones placed along the sidewalk line in front of it. Every downtown building has its
+    // shopfront on the face that looks at the street, so the scaffolding goes on one of the other three faces,
+    // and only where its whole footprint stays inside the block's building line and clear of every other solid.
+    if (h > 20 && rng() < 0.3) {
+      const shopSide = alongX ? (faceAxis > 0 ? 0 : 1) : (faceAxis > 0 ? 2 : 3);
+      let sideS = Math.floor(rng() * 3); if (sideS >= shopSide) sideS++;
+      const faceLen = (sideS === 0 || sideS === 1) ? d : w;
+      const sw = Math.max(4, Math.min(15, faceLen * r(0.5, 0.85)));
+      const sh = Math.max(6, Math.min(h - 1.5, h * r(0.55, 0.92)));
+      const sd = r(1.5, 2.2), bays = Math.max(2, Math.round(sw / r(1.8, 2.4))), levels = Math.max(3, Math.min(6, Math.round(sh / 2.6)));
+      const style = Math.floor(rng() * 4);
+      const o = { w: sw, d: sd, h: sh, bays, levels, style, frame: FRAME_COLORS[Math.floor(rng() * FRAME_COLORS.length)], net: NET_COLORS[Math.floor(rng() * NET_COLORS.length)], plank: PLANK_COLORS[Math.floor(rng() * PLANK_COLORS.length)], sign: SIGN_COLORS[Math.floor(rng() * SIGN_COLORS.length)] };
+      const dx = sideS === 0 ? w / 2 + sd / 2 + 0.6 : sideS === 1 ? -(w / 2 + sd / 2 + 0.6) : 0;
+      const dz = sideS === 2 ? d / 2 + sd / 2 + 0.6 : sideS === 3 ? -(d / 2 + sd / 2 + 0.6) : 0;
+      const rotS = (sideS === 0 || sideS === 1) ? PI / 2 : 0;
+      const sx = clx + dx, sz = clz + dz;
+      const fhx = rotS === 0 ? sw / 2 + 0.3 : sd / 2 + 0.3, fhz = rotS === 0 ? sd / 2 + 0.3 : sw / 2 + 0.3;
+      if (sx - fhx < loX || sx + fhx > hiX || sz - fhz < loZ || sz + fhz > hiZ) continue;
+      const clash = ch.solids.some(q => !(q.x === clx && q.z === clz && q.kind === 'building') &&
+        sx + fhx > q.x - q.hx - 0.6 && sx - fhx < q.x + q.hx + 0.6 && sz + fhz > q.z - q.hz - 0.6 && sz - fhz < q.z + q.hz + 0.6);
+      if (clash) continue;
+      scaffold(sx, sz, rotS, o);
+      const cdx = sideS === 0 ? 1 : sideS === 1 ? -1 : 0, cdz = sideS === 2 ? 1 : sideS === 3 ? -1 : 0;
+      const coneCount = Math.max(3, Math.round(sw / 1.6)), step = sw / Math.max(1, coneCount - 1);
+      // The cones stand just outside the scaffold's outer face (its footprint is sd/2 + 0.3 deep), not inside its solid:
+      // a cone buried in the scaffolding is one a car can never reach, so it could never be knocked over.
+      const coneOut = sd / 2 + 0.3 + 0.75;
+      for (let k = 0; k < coneCount; k++) {
+        const off = -sw / 2 + k * step;
+        const cx2 = rotS === 0 ? sx + off : sx + cdx * coneOut, cz2 = rotS === 0 ? sz + cdz * coneOut : sz + off;
+        prop('cone', cx2, cz2, rng() * PI, 0);
       }
     }
-    }
-  } else if (type === 'park') {
-    // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
-    const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
-    const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
-    const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
-    const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
-    const padW = hi_x - lo_x, padD = hi_z - lo_z;
-    const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
-    padBox(padW, padD, mat(0x78c46c), padOx, padOz);
-    // Paths along the centerlines of the effective bounds
-    padBox(padW, 3.4, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
-    padBox(3.4, padD, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
-    // Pond positioned within the valid bounds
-    const pw = r(10, 15), pd = r(8, 11);
-    const px = (lo_x + hi_x) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(14, padW/2 - pw/2 - 2));
-    const pz = (lo_z + hi_z) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(16, padD/2 - pd/2 - 2));
-    add(box(pw, 0.06, pd, mat(0x58b6e8), px, 0.27, pz, false));
-    ch.keepouts.push({ x: px, z: pz, hx: pw / 2, hz: pd / 2 });
-    const placed = [];
-    for (let a = 0, n = 0; a < 70 && n < 16; a++) {
-      const x = (lo_x + hi_x) / 2 + r(-padW/2 + 2, padW/2 - 2);
-      const z = (lo_z + hi_z) / 2 + r(-padD/2 + 2, padD/2 - 2);
-      // Keep trees away from the center path and pond
-      if (Math.abs(x - (lo_x + hi_x) / 2) < 2.5 || Math.abs(z - (lo_z + hi_z) / 2) < 2.5) continue;
-      if (Math.abs(x - px) < pw / 2 + 2 && Math.abs(z - pz) < pd / 2 + 2) continue;
-      if (placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 49)) continue;
-      placed.push([x, z]); tree(x, z); n++;
-    }
-    // Benches along the paths, within valid bounds
-    const cx_p = (lo_x + hi_x) / 2, cz_p = (lo_z + hi_z) / 2;
-    prop('bench', cx_p - 8, cz_p - 2.5, 0, 0.3);
-    prop('bench', cx_p + 9, cz_p + 2.5, PI, 0.3);
-    prop('bench', cx_p - 2.5, cz_p + 10, PI / 2, 0.3);
-    // Flowers scattered within the valid area
-    for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), cx_p + r(-padW/2 + 2, padW/2 - 2), 0.4, cz_p + r(-padD/2 + 2, padD/2 - 2), false));
-  } else if (type === 'commercial') {
-    // The whole mall ensemble — the building, its wing, the lot's painted rows and the bays — stands on the
-    // block's own building line, so on a side that carries a flyover's at-grade lane it steps back with it.
-    const mbx = bxo, mbz = bzo;
-    // A neighborhood shopping center with a glass landmark, retail wing and marked parking rows.
-    const lotSurfaceY = 0.25;
-    const asphalt = mat(0x4b5058), concrete = mat(0xc6c9c8), parkingPaint = mat(0xe9e8df);
-    const aqua = mat(0x19b9ca), mallWhite = mat(0xe5e8e9), mallYellow = mat(0xf4c928);
-    padBox(58, 58, asphalt, bxo - bx, bzo - bz);
-    // Raised pedestrian walkways frame the lot and connect the entrance to the parking area.
-    const walkY = lotSurfaceY + 0.07;
-    padBox(58, 1.5, concrete, bxo - bx, -28.25 + (bzo - bz), walkY, 0.12);
-    padBox(58, 1.5, concrete, bxo - bx, 28.25 + (bzo - bz), walkY, 0.12);
-    padBox(1.5, 58, concrete, -28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
-    padBox(1.5, 58, concrete, 28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
-
-    const mallZ = mbz - 7, baseW = 29, baseD = 22, baseH = 4.8;
-    const frontZ = mallZ + baseD / 2;
-    add(box(baseW, baseH, baseD, mallWhite, mbx, lotSurfaceY + baseH / 2, mallZ));
-    // Bright retail frontage, broad glass storefront and a projecting entrance canopy.
-    add(box(baseW + 0.12, 0.85, 0.22, aqua, mbx, lotSurfaceY + 0.95, frontZ + 0.12, false));
-    add(box(17, 2, 0.14, mat(0x263e4a), mbx, 3.3, frontZ + 0.14, false));
-    add(box(4.2, 2.8, 0.18, mat(0x172a35), mbx, 1.65, frontZ + 0.2, false));
-    add(box(14, 0.38, 2.8, aqua, mbx, lotSurfaceY + baseH + 0.18, frontZ + 1.15, false));
-    for (const side of [-1, 1]) add(box(0.5, 4.75, 0.5, mat(0xdce1e2), mbx + side * 6.2, lotSurfaceY + baseH / 2, frontZ + 2.05, false));
-
-    // Upper glazed floors, pale roof cap and the yellow crown visible in the reference.
-    const towerW = 21.5, towerD = 17.5, towerH = 14.2;
-    const towerGeo = makeBuildingGeo(towerW, towerH, towerD), glassMat = ASSET.windowMats[2];
-    const tower = new THREE.Mesh(towerGeo, [glassMat, glassMat, ASSET.roofMat, ASSET.roofMat, glassMat, glassMat]);
-    tower.position.set(mbx, lotSurfaceY + baseH + towerH / 2, mallZ);
-    tower.castShadow = true; tower.receiveShadow = true; group.add(tower); ch.geos.push(towerGeo);
-    for (let floor = 1; floor < 4; floor++) {
-      add(box(towerW + 0.22, 0.18, towerD + 0.22, mat(0xb9c2c7), mbx, lotSurfaceY + baseH + floor * 3.45, mallZ, false));
-    }
-    const towerTop = lotSurfaceY + baseH + towerH;
-    add(box(towerW + 1.1, 0.45, towerD + 1.1, mat(0xf1f2ee), mbx, towerTop + 0.225, mallZ, false));
-    add(box(towerW + 1.25, 0.24, 0.28, mallYellow, mbx, towerTop + 0.36, mallZ + towerD / 2 + 0.62, false));
-    add(box(0.28, 0.24, towerD + 1.25, mallYellow, mbx + towerW / 2 + 0.62, towerTop + 0.36, mallZ, false));
-    add(box(3.4, 1.1, 2.6, mat(0x969da1), mbx - 4, towerTop + 0.95, mallZ - 1, false));
-    add(box(2.2, 0.8, 2.1, mat(0xaeb4b7), mbx + 5, towerTop + 0.8, mallZ + 2, false));
-    solid(mbx, mallZ, baseW / 2, baseD / 2, 'building');
-
-    // Low supermarket wing to one side gives the center a stepped, multi-building silhouette.
-    const wingW = 10.5, wingD = 20.5, wingH = 4.1, wingX = mbx + 19.5, wingZ = mallZ + 0.3;
-    const wingFrontZ = wingZ + wingD / 2;
-    add(box(wingW, wingH, wingD, mat(0xd8dcdd), wingX, lotSurfaceY + wingH / 2, wingZ));
-    add(box(wingW + 0.4, 0.34, wingD + 0.4, mat(0xf3f2ed), wingX, lotSurfaceY + wingH + 0.17, wingZ, false));
-    add(box(wingW + 0.1, 0.68, 0.2, aqua, wingX, 1.05, wingFrontZ + 0.11, false));
-    add(box(7.5, 1.8, 0.14, mat(0x243d49), wingX, 2.35, wingFrontZ + 0.13, false));
-    add(box(wingW + 0.2, 0.24, 0.18, mallYellow, wingX, 3.65, wingFrontZ + 0.12, false));
-    solid(wingX, wingZ, wingW / 2, wingD / 2, 'building');
-
-    // Pedestrian approaches and small planted islands at the front corners.
-    add(box(36, 0.08, 3.2, concrete, mbx, lotSurfaceY + 0.06, mbz + 7.8, false));
-    add(box(34, 0.08, 2, concrete, mbx, lotSurfaceY + 0.06, mbz - 20, false));
-    for (const side of [-1, 1]) {
-      const px = mbx + side * 25, pz = mbz + 8.5;
-      add(box(3.8, 0.1, 3.8, mat(0x79b86d), px, lotSurfaceY + 0.05, pz, false));
-      tree(px, pz, lotSurfaceY);
-    }
-
-    // Painted bays on three sides; cars use the same destructible parked-car system as curbside vehicles.
-    const stallCount = 6, stallW = 8.8, startX = mbx - stallCount * stallW / 2;
-    const parkingRows = [
-      { z: mbz + 15.2, rotY: PI },
-      { z: mbz + 24.2, rotY: 0 },
-      { z: mbz - 24.3, rotY: 0 },
-    ];
-    const parkedColors = PARKED_COLORS, parkedKinds = PARKED_KINDS;
-    // ---- Occupancy ----
-    // Occupancy follows the shared day/night rule (see lotCars): a 2-3 car floor at night, the middle of the
-    // day the busiest, never more than 20% of the lot. At night the cars that stay are the ones nearest the
-    // entrance, so the rows empty out naturally instead of clearing from one end.
-    const totalStalls = parkingRows.length * stallCount + 3;      // 18 painted bays + 3 along the west side
-    const occupancy = lotCars(totalStalls, 0, env.phase);
-    const freeStalls = [];
-    for (let row = 0; row < parkingRows.length; row++) for (let i = 0; i < stallCount; i++) freeStalls.push({ row, i });
-    const westStalls = [0, 1, 2].map(i => ({ row: -1, i }));
-    // At night (occupancy 2) the cars left in the lot are the ones parked nearest the entrance.
-    if (occupancy <= 4) freeStalls.sort((a, b) => Math.abs(b.i - (stallCount - 1) / 2) - Math.abs(a.i - (stallCount - 1) / 2));
-    const taken = new Set();
-    const occupied = new Set();
-    for (let n = 0; n < occupancy; n++) {
-      const pool = freeStalls.length ? freeStalls : westStalls;
-      if (!pool.length) break;
-      taken.add(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-    }
-    for (let row = 0; row < parkingRows.length; row++) {
-      const { z, rotY } = parkingRows[row];
-      for (let i = 0; i <= stallCount; i++) {
-        add(box(0.12, 0.035, 6.2, parkingPaint, startX + i * stallW, lotSurfaceY + 0.0275, z, false));
-      }
-      // Stalls left empty at generation time stay on record, so traffic.js can fill the lot at night.
-      for (let i = 0; i < stallCount; i++) {
-        if (occupied.has(row + ':' + i)) continue;
-        ch.parking.push({ x: startX + (i + 0.5) * stallW, z, rotY, y: lotSurfaceY - 0.05, hx: 1.15, hz: 2.35 });
-      }
-    }
-    for (const { row, i } of taken) occupied.add(row + ':' + i);
-    ch.parkingTotal = totalStalls;                            // lot size, for tooling and tests
-    for (const { row, i } of taken) {
-      if (row < 0) continue;
-      const x = startX + (i + 0.5) * stallW, z = parkingRows[row].z, rotY = parkingRows[row].rotY;
-      const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
-      const color = parkedColors[Math.floor(rng() * parkedColors.length)];
-      const car = parkedCar(x, z, 1.15, 2.35, rotY, kind, color, lotSurfaceY - 0.05);
-      ch.lotStanding.push({ car, slot: { x, z, rotY, y: lotSurfaceY - 0.05, hx: 1.15, hz: 2.35 } });
-    }
-    // Extra perpendicular bays along the open west side of the mall.
-    const sideParkingX = mbx - 23.5, sideStartZ = mbz - 16;
-    for (let i = 0; i <= 3; i++) {
-      add(box(5.8, 0.035, 0.12, parkingPaint, sideParkingX, lotSurfaceY + 0.0275, sideStartZ + i * 8, false));
-    }
-    for (const { row, i } of taken) {
-      if (row >= 0) continue;
-      const z = sideStartZ + (i + 0.5) * 8;
-      const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
-      const color = parkedColors[Math.floor(rng() * parkedColors.length)];
-      const car = parkedCar(sideParkingX, z, 2.35, 1.15, PI / 2, kind, color, lotSurfaceY - 0.05);
-      ch.lotStanding.push({ car, slot: { x: sideParkingX, z, rotY: PI / 2, y: lotSurfaceY - 0.05, hx: 2.35, hz: 1.15 } });
-    }
-  } else if (type === 'hospital') {
-    // A hospital campus with its own car park. The ambulance bays are occupied for good, the ordinary bays
-    // follow the day/night curve exactly like the mall lots do.
-    const lotSurfaceY = 0.25;
-    padBox(54, 58, mat(0x4b5058), bxo - bx, bzo - bz);
-    const H = buildHospitalMesh(bxo, bzo, rng);
-    H.group.position.set(bxo, 0, bzo);
-    bake(ch, H.group);                       // merged with the rest of the block, in slices
-    // Rotors merge on their own so each one can turn about its own mast. The builder works in block-local
-    // coordinates, so the chunk-level rotor meshes have to be lifted to world space by the block origin.
-    const bladesMain = mergeStandalone(H.heliMain);
-    bladesMain.position.set(bxo + H.heliMast[0], H.heliMast[1], bzo + H.heliMast[2]); group.add(bladesMain);
-    const bladesTail = mergeStandalone(H.heliTail);
-    bladesTail.position.set(bxo + H.heliTailPos[0], H.heliTailPos[1], bzo + H.heliTailPos[2]); group.add(bladesTail);
-    for (const m of [...bladesMain.children, ...bladesTail.children]) ch.geos.push(m.geometry);   // freed with the chunk
-    ch.heli = { rotor: bladesMain, tail: bladesTail, beacons: H.heliBeacons, padR: H.padR, rotorR: H.rotorR, padX: bxo + H.padX, padZ: bzo + H.padZ, padY: H.padY, x: bxo + H.heliPos[0], y: H.heliPos[1], z: bzo + H.heliPos[2],
-      volumes: H.volumes.map(v => ({ ...v, x: bxo + v.x, z: bzo + v.z })) };
-    for (const sv of H.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
-    for (const pt of H.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
-    const ambulanceSlots = [];
-    for (const b of H.bays) {
-      const slot = { kind: 'ambulance', color: 0xffffff, x: b.x, z: b.z, rotY: b.rotY, y: lotSurfaceY - 0.05, hx: b.hx, hz: b.hz, apron: !!b.apron, car: null };
-      if (b.ambulance) ambulanceSlots.push(slot);
-      else ch.parking.push(slot);                                 // ordinary bays, filled by the day/night curve
-    }
-    // Two ambulances are standing in the lot from the first frame (the apron unit and one of the marked
-    // bays). The third marked bay is the night unit: traffic.js keeps the lot at its time-of-day target of
-    // two by day and three at night. Wrecked units are never replaced — their burnt hulk is left in place.
-    ch.ambulanceSlots = ambulanceSlots;
-    let ambulances = 0;
-    for (const slot of ambulanceSlots) {
-      if (ambulances >= 2) break;
-      parkedCar(slot.x, slot.z, slot.hx, slot.hz, slot.rotY, 'ambulance', 0xffffff, slot.y);
-      slot.car = ch.solids[ch.solids.length - 1].parked;
-      slot.car.fade = 1;                                          // on scene from the start, no fade-in
-      ambulances++;
-    }
-    ch.parkingTotal = H.bays.length;
-    ch.parkingFixed = ambulanceSlots.length;                      // cap space reserved for all three units
-    ch.parkingFloor = 3;                                          // a few ordinary cars, day and night, so the lot never looks abandoned
-    const present = lotCars(ch.parkingTotal, ambulances, env.phase, ch.parkingFloor);
-    for (let i = 0; i < present && ch.parking.length; i++) {
-      const b = ch.parking.splice(Math.floor(rng() * ch.parking.length), 1)[0];
-      const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
-      ch.lotStanding.push({ car, slot: b });
-    }
-    // Low planting and benches along the car-park edge.
-    for (const sx of [-1, 1]) { tree(bxo + sx * 21, bzo + 24.5, lotSurfaceY + 0.02); prop('bench', bxo + sx * 8, bzo + 24, PI, lotSurfaceY + 0.15); }
-  } else if (type === 'fire') {
-    // Fire station with its appliance apron. The fleet stands on the apron from the first frame and is
-    // never replaced: a run that wrecks an appliance leaves the burnt hulk in its bay.
-    const lotSurfaceY = 0.25;
-    padBox(50, 46, mat(0x5a6068), bxo - bx, bzo - bz);
-    const F = buildFireStationMesh(bxo, bzo, rng);
-    F.group.position.set(bxo, 0, bzo);
-    bake(ch, F.group);
-    for (const sv of F.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
-    ch.fireSlots = F.bays;
-    ch.fireDoors = F.doors;
-    ch.fireTotal = F.bays.length;
-    for (const b of F.bays) {
-      parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, b.kind, b.color, b.y);
-      b.car = ch.solids[ch.solids.length - 1].parked;
-      b.car.fade = 1;                                            // on station from the first frame
-    }
-    for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 20.5, lotSurfaceY + 0.02);
-    prop('bench', bxo - 6, bzo + 19.5, 0, lotSurfaceY + 0.15);
-  } else if (type === 'bank') {
-    // A bank on its own block: a neoclassical hall with a six-column portico and a gold BANK pediment, a blue-grey
-    // wing, a stepped forecourt with planters and lamps. Its front is the same face the other campuses use.
-    const lotSurfaceY = 0.25;
-    padBox(56, 42, mat(0xb9bec5), bxo - bx, bzo - bz);                     // forecourt pad
-    const K = buildBankMesh(bxo, bzo, rng);
-    K.group.position.set(bxo, 0, bzo);
-    bake(ch, K.group);
-    for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
-    for (const sx of [-1, 1]) tree(bxo + sx * 21, bzo + 14, lotSurfaceY + 0.02);
-    prop('bench', bxo - 9, bzo + 16, 0, lotSurfaceY + 0.15);
-  } else if (STORE_KINDS.includes(type)) {
-    // A standalone shop or service building on its own apron. Display cars stand in the showroom bays, which
-    // are destructible like any parked car.
-    const lotSurfaceY = 0.25, S = STORE_DEFS[type];
-    padBox(S.pad[0], S.pad[1], mat(0xb9bec5), bxo - bx, bzo - bz);
-    const K = buildStoreMesh(type, bxo, bzo, rng);
-    K.group.position.set(bxo, 0, bzo);
-    bake(ch, K.group);
-    for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
-    for (const b of K.bays) parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
-    for (const sx of [-1, 1]) tree(bxo + sx * (S.pad[0] / 2 - 3), bzo + S.pad[1] / 2 - 4, lotSurfaceY + 0.02);
-    prop('bench', bxo - S.pad[0] / 2 + 4, bzo + S.pad[1] / 2 - 4, 0, lotSurfaceY + 0.15);
-  } else if (SPORT_KINDS.includes(type)) {
-    // A fenced ground with its own markings: the fences and hoops or goals are solids, so a car stops at them.
-    const lotSurfaceY = 0.25, S = SPORT_DEFS[type], sc = sportScale(type), PW = S.pad[0] * sc, PD = S.pad[1] * sc;
-    padBox(PW, PD, mat(S.ground), bxo - bx, bzo - bz);
-    const K = buildSportMesh(type, bxo, bzo, rng);
-    K.group.position.set(bxo, 0, bzo);
-    bake(ch, K.group);
-    for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
-    // The fence panels are handed over one by one, like the schoolyard fence (see the school branch): each is its
-    // own solid and its own mesh, so a hard hit takes panels down and they tumble off the pad.
-    for (const pc of K.fencePieces) {
-      const pm = own(ch, mergeStandalone(pc.group));
-      pm.position.set(pc.x, 0, pc.z);
-      group.add(pm);
-      pc.mesh = pm;
-      solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
-      const sEntry = ch.solids[ch.solids.length - 1];
-      sEntry.fence = true;
-      sEntry.fencePiece = pc;
-      pc.solid = sEntry;
-      ch.fencePanels.push(pc);
-    }
-    // The elements of the ground (hoops, goals, ramps, rails and the play equipment) are breakable pieces: each is its
-    // own mesh and solid, and a hard hit knocks it off its base (breakPlayPiece in js/collisions.js).
-    for (const pc of K.breakable) {
-      const pm = own(ch, mergeStandalone(pc.group));
-      pm.position.set(bxo, 0, bzo);
-      group.add(pm);
-      pc.mesh = pm;
-      solid(pc.x, pc.z, pc.hx, pc.hz, pc.kind);
-      const sEntry = ch.solids[ch.solids.length - 1];
-      if (pc.obox) sEntry.box = { x: pc.x, z: pc.z, ...pc.obox };
-      sEntry.playPiece = pc;
-      pc.solid = sEntry;
-    }
-    prop('bench', bxo + PW / 2 - 4, bzo - PD / 2 + 3, 0, lotSurfaceY + 0.15);
-  } else if (type === 'school') {
-    // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
-    // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.
-    const lotSurfaceY = 0.25;
-    padBox(56, 28, mat(0x4b5058), bxo - bx, 13.7 + (bzo - bz));    // the bus and staff lot
-    padBox(56, 20, mat(0x7bc96f), bxo - bx, -10 + (bzo - bz));     // the fenced yard: grass
-    const S = buildSchoolMesh(bxo, bzo, rng);
-    S.group.position.set(bxo, 0, bzo);
-    bake(ch, S.group);
-    // The schoolyard fence is handed over panel by panel: every panel is its own solid, so a hit takes down the
-    // panel it lands on and leaves the rest of the line standing, and every panel is a stand-alone mesh that can
-    // leave the block and tumble off on its own (breakFence() in js/collisions.js). Nothing of it is baked into
-    // the block — a baked panel could never be torn off.
-    for (const fr of S.fenceRuns) for (const pc of fr.pieces) {
-      const pm = own(ch, mergeStandalone(pc.group));
-      pm.position.set(pc.x, 0, pc.z);
-      group.add(pm);
-      pc.mesh = pm;
-      pc.broken = false;
-      solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
-      const sEntry = ch.solids[ch.solids.length - 1];
-      sEntry.fence = true;                                            // the yard fence, for the checks and for the map
-      sEntry.fencePiece = pc;
-      pc.solid = sEntry;
-      ch.fencePanels.push(pc);
-    }
-    for (const sv of S.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
-    for (const pt of S.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
-    ch.schoolYard = S.yard;
-    ch.schoolPlayground = S.playground;
-    ch.schoolFence = S.fence;
-    ch.schoolPaint = S.paint;                      // bay markings and court lines, for the map and the checks
-    const busSlots = [];
-    for (const b of S.bays) {
-      const slot = { kind: b.bus ? 'schoolbus' : null, color: 0xf7b500, x: b.x, z: b.z, rotY: b.rotY, y: lotSurfaceY - 0.05, hx: b.hx, hz: b.hz, bus: !!b.bus, car: null };
-      if (b.bus) busSlots.push(slot); else ch.parking.push(slot);
-    }
-    // The bus stand is occupied from the first frame and never refilled once wrecked: a run that wrecks a bus
-    // leaves the burnt hulk in its bay, exactly like the hospital's ambulances and the fire fleet.
-    ch.busSlots = busSlots;
-    for (const slot of busSlots) {
-      parkedCar(slot.x, slot.z, slot.hx, slot.hz, slot.rotY, 'schoolbus', 0xf7b500, slot.y);
-      slot.car = ch.solids[ch.solids.length - 1].parked;
-      slot.car.fade = 1;
-    }
-    ch.parkingTotal = S.bays.length;
-    ch.parkingFixed = busSlots.length;                     // room reserved for the buses, counted in the ceiling
-    ch.parkingFloor = 2;                                   // a couple of staff cars, day and night
-    const present = lotCars(ch.parkingTotal, busSlots.length, env.phase, ch.parkingFloor);
-    for (let i = 0; i < present && ch.parking.length; i++) {
-      const b = ch.parking.splice(Math.floor(rng() * ch.parking.length), 1)[0];
-      const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
-      ch.lotStanding.push({ car, slot: b });
-    }
-    for (const sx of [-1, 1]) tree(bxo + sx * 25.5, bzo + 26.5, lotSurfaceY + 0.02);
-    prop('bench', bxo + 4, bzo + 1.6, PI, lotSurfaceY + 0.15);
-    prop('bench', bxo - 12, bzo + 1.6, PI, lotSurfaceY + 0.15);
-  } else if (type === 'fuel') {
-    // A filling station: lit canopy, two pump islands, convenience store and a price pylon on the kerb.
-    // The four dispensers are registered one by one as their own destructible solids (ch.pumps), so a hit
-    // knocks a pump off its island and the spill burns.
-    const fuelY = 0.25;
-    padBox(52, 48, mat(0x60666d), bxo - bx, bzo - bz);                      // forecourt pad
-    padBox(50, 46, mat(0x74797f), bxo - bx, bzo - bz, 0.27, 0.04);          // lighter topping
-    const FS = buildFuelStationMesh(bxo, bzo, rng);
-    FS.group.position.set(bxo, 0, bzo);
-    bake(ch, FS.group);
-    for (const sv of FS.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
-    for (const p of FS.pumps) {
-      const pm = own(ch, mergeStandalone(p.group));
-      pm.position.set(bxo + p.x, p.y, bzo + p.z); pm.rotation.y = p.rotY; group.add(pm);
-      const x = bxo + p.x, z = bzo + p.z;
-      solid(x, z, 0.6, 0.52, 'pump');                       // the body, hoses and nozzles included
-      const sEntry = ch.solids[ch.solids.length - 1];
-      sEntry.pump = { mesh: pm, x, z, broken: false, solid: sEntry };
-      ch.pumps.push(sEntry.pump);
-    }
-    ch.fuelBrand = FS.brand.name; ch.fuelCanopy = FS.canopy;
-    // Bays: two cars can fuel at each island, four park along the side of the store, four more nose in off
-    // the street. The day/night curve keeps two of them busy at every hour (ch.parkingFloor).
-    const bays = [];
-    for (const sx of [-1, 1]) for (const sz of [-1, 1])
-      bays.push({ x: bxo + sx * 7.8, z: bzo + FS.canopy.z + sz * 3.4, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
-    for (const sx of [-1, 1]) for (const dz of [-2.5, 2.5])
-      bays.push({ x: bxo + sx * 14.2, z: bzo + FS.store.z + dz, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
-    for (const dx of [-18, -12, -6, 0, 6, 12, 18])
-      bays.push({ x: bxo + dx, z: bzo + 21, rotY: PI / 2, y: fuelY - 0.05, hx: 2.45, hz: 1.25 });
-    ch.parkingTotal = bays.length;
-    ch.parkingFloor = 2;
-    const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
-    for (let i = 0; i < bays.length; i++) {
-      const b = bays[i];
-      if (i < present) {                                                      // busy at generation time too
-        const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
-        const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
-        ch.lotStanding.push({ car, slot: b });
-      } else ch.parking.push(b);                                              // kept free for later arrivals
-    }
-    for (const sx of [-1, 1]) prop('trashcan', bxo + sx * 9.8, bzo + 15.6);
-  } else if (type === 'shops') {
-    // The parades stand on the block's own building line, so on a side that carries a flyover's at-grade lane the
-    // whole shopping street steps back with it (a parade's awning projects ~2.5 m from the wall behind it).
-    const sbx = bxo, sbz = bzo;
-    // A shopping street: two parades of shops facing each other across a parking court, with a little green
-    // square in the middle. Each parade carries five different businesses, so a drive down the block passes
-    // ten shopfronts with their own names, colours, awnings and window displays.
-    const lotY = 0.25;
-    const asphalt = mat(0x4b5058), concrete = mat(0xc9ccca), grass = mat(0x5aa04a), parkingPaint = mat(0xe9e8df);
-    padBox(54, 54, asphalt, bxo - bx, bzo - bz);                                         // the court
-    for (const sx of [-1, 1]) add(box(3.6, 0.14, 54, concrete, sbx + sx * 18, lotY, sbz, false));   // aprons in front of the shops
-    padBox(54, 3.6, concrete, bxo - bx, -18 + (bzo - bz), lotY, 0.14);
-    padBox(54, 3.6, concrete, bxo - bx, 18 + (bzo - bz), lotY, 0.14);
-    const title = PARADE_TITLES[Math.floor(rng() * PARADE_TITLES.length)];
-    const faces = [sbx - 18, sbx + 18];                                                   // west and east parade fronts
-    const ordered = SHOP_TYPES.slice().sort(() => rng() - 0.5);                          // shuffled once per block
-    for (let side = 0; side < 2; side++) {
-      const shops = ordered.slice(side * nShop, side * nShop + nShop);
-      const rotY = side === 0 ? PI / 2 : -PI / 2;                                       // fronts face the court
-      const P = buildShopParadeMesh(shops, rng, { title, shopW, h: 4.4, depth: 8.5, wall: side ? 0xd2cfc6 : 0xc9c6bd });
-      P.group.position.set(faces[side], lotY, sbz); P.group.rotation.y = rotY;
-      bake(ch, P.group);                          // the parade merges with the block, not in a pass of its own
-      // The parade is built with its front at local +z, so after the rotation a shop sitting at local x
-      // lands at sbz - x on the west side and sbz + x on the east side. The mesh and its collision box must
-      // use that same mapping or the windows would never break where they look like they are.
-      solid(faces[side] + (side === 0 ? -4.8 : 4.8), sbz, 3.7, P.len / 2 + 4.3, 'building');
-      for (const gl of P.glasses) {
-        const x = faces[side], z = side === 0 ? sbz - gl.x : sbz + gl.x;   // matches the mesh's own rotation
-        solid(x, z, 0.24, gl.w / 2, 'shopfront');
-        const sEntry = ch.solids[ch.solids.length - 1];
-        const gm = own(ch, mergeStandalone(gl.group));
-        gm.position.set(x, lotY, z); gm.rotation.y = rotY; group.add(gm);
-        sEntry.shop = { mesh: gm, x, z, w: gl.w, name: gl.name, kind: gl.kind, broken: false, solid: sEntry };
-        ch.shops.push(sEntry.shop);
-      }
-      ch.parades.push({ x: faces[side], z: sbz, rotY, title, shops: P.shops.map(o => o.name), len: P.len });
-    }
-    // the court: eighteen perpendicular bays in two rows, plus the green square with market stalls
-    const bays = [];
-    for (const sx of [-1, 1]) for (let i = 0; i < 9; i++)
-      bays.push({ x: sbx + sx * 12.5, z: sbz - 20 + i * 5, rotY: PI / 2, y: lotY - 0.05, hx: 2.45, hz: 1.25 });
-    add(box(9.4, 0.16, 9.4, grass, sbx, lotY + 0.02, sbz, false));                        // the little square
-    add(box(9.8, 0.26, 9.8, mat(0x9aa0a6), sbx, lotY, sbz, false));
-    add(box(9.4, 0.14, 9.4, grass, sbx, lotY + 0.1, sbz, false));
-    tree(sbx - 3.1, sbz - 3.1, lotY); tree(sbx + 3.1, sbz + 3.1, lotY); tree(sbx + 3.1, sbz - 3.1, lotY); tree(sbx - 3.1, sbz + 3.1, lotY);
-    for (const [kx, kz] of [[sbx - 6.6, sbz], [sbx + 6.6, sbz]]) {                          // two market stalls
-      add(box(3.4, 0.9, 2.2, mat(0x9a7a52), kx, lotY + 0.45, kz));
-      add(box(4.0, 1.5, 2.6, mat(0xd8452f), kx, lotY + 1.6, kz, false));
-      add(box(4.2, 0.2, 2.8, mat(0xf2e9d8), kx, lotY + 2.35, kz, false));
-      add(box(3.0, 0.1, 1.8, mat(0xf4f1e6), kx, lotY + 0.95, kz, false));
-    }
-    prop('bench', sbx - 4.4, sbz + 5.2, PI); prop('bench', sbx + 4.4, sbz - 5.2, 0);
-    prop('trashcan', sbx + 5.4, sbz + 3.2); prop('trashcan', sbx - 5.4, sbz - 3.2);
-    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) prop('streetlight', sbx + sx * 14.5, sbz - 16 + i * 10.5);
-    ch.parkingTotal = bays.length;
-    ch.parkingFloor = 2;
-    const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
-    for (let i = 0; i < bays.length; i++) {
-      const b = bays[i];
-      if (i < present) {
-        const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
-        const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
-        ch.lotStanding.push({ car, slot: b });
-      } else ch.parking.push(b);
-    }
-    for (const sx of [-1, 1]) for (let i = 0; i < 6; i++)
-      add(box(4.6, 0.03, 0.14, parkingPaint, sbx + sx * 12.5, lotY + 0.03, sbz - 20 + i * 5 - 2.5, false));
-  } else if (type === 'factory') {
-    // An industrial plant on a block of its own (see buildFactoryMesh in js/factory.js): one of four layouts from the
-    // reference art, picked at random per block. Its solids come back in world coordinates.
-    const lotSurfaceY = 0.25;
-    padBox(52, 46, mat(0x6f747c), bxo - bx, bzo - bz);
-    const kind = FACTORY_KINDS[Math.floor(rng() * FACTORY_KINDS.length)];
-    const P = buildFactoryMesh(bxo, bzo, rng, kind);
-    ch.factory = kind; ch.factorySolids = P.solids;       // the layout, and its solids (for the checks)
-    ch.stacks = P.stacks;                                 // chimney tops: smoke comes out of them (js/chimneySmoke.js)
-    P.group.position.set(bxo, 0, bzo);
-    bake(ch, P.group);                                    // merged with the rest of the block, in slices
-    for (const sv of P.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
-    for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 21, lotSurfaceY + 0.02);
-  } else { // industrial
-    padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
-    const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];
-    for (let i = 0; i < 2; i++) {
-      const x = bx0 + 15 + i * 27 + (bxo - bx), z = bz0 + 17 + (bzo - bz), h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
-      add(box(26, h, 30, mat(col), x, h / 2 + 0.25, z)); add(box(26.6, 0.8, 30.6, mat(0x5a5f68), x, h + 0.65, z));
-      for (let k = -1; k <= 1; k++) add(box(6, 4.2, 0.2, mat(0x30343b), x + k * 8, 2.35, z + 15.1, false));
-      add(cyl(0.6, 0.6, 3, 8, mat(0x888d96), x + r(-8, 8), h + 2.4, z + r(-8, 8)));
-      solid(x, z, 13, 15, 'building');
-    }
-    const cc = [0xd9534f, 0x3b82c4, 0xf2b134, 0x4caf50, 0xe8e8e8];
-    for (let row = 0; row < 2; row++) for (let c = 0; c < 3; c++) {
-      if (rng() < 0.2) continue;
-      const x = bx0 + 9 + c * 19 + r(-2, 2) + (bxo - bx), z = bz0 + (row ? 52 : 39.5) + (bzo - bz);
-      add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x, 1.55, z));
-      if (rng() < 0.4) add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x + r(-1, 1), 4.15, z));
-      solid(x, z, 6, 1.25, 'container');
-    }
-    for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
-    if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
   }
-  // Utility poles. A line of poles stands on a pavement 20 m either side of the block's middle, 29.5 m out from its
-  // centre (the paving band is 27.4 to 31.5 m). Two kinds of line:
-  //  - a utility neighbourhood (utilityNbhd) has a line on all four of its sides, and it ends at the neighbourhood's edge;
-  //  - the avenue (x = 0) and the cross street (z = 0) carry a line on the pavement facing them, in every block beside
-  //    them, so the line runs on through the whole city along each main road.
-  // Wires run between poles 40 m apart: inside the block, and across the boundary on to the next block's first pole.
-  const nbLines = !!nbPlan && utilityNbhd(nbRX, nbRZ);
-  const avS = cx === 0 ? -1 : cx === -1 ? 1 : 0;    // the side of this block that faces the avenue (x = 0)
-  const crS = cz === 0 ? -1 : cz === -1 ? 1 : 0;    // the side that faces the cross street (z = 0)
-  const zSides = nbLines ? [-1, 1] : avS ? [avS] : [];   // x-side pavements: their line runs along z
-  const xSides = nbLines ? [-1, 1] : crS ? [crS] : [];   // z-side pavements: their line runs along x
-  const utility = zSides.length > 0 || xSides.length > 0;
+  // Iron fire escapes on the walk-ups: one landing per floor on a side wall (never the shopfront face). Each one
+  // stays inside the block's building line and clear of every other solid, so it can never reach a road.
+  for (const u of walkUps) {
+    if (rng() < 0.3) continue;
+    const s = rng() < 0.5 ? -1 : 1, along = rng() < 0.5 ? -1 : 1, p = 1.0, tw = 2.2;
+    const sideZ = u.alongX;                                   // the shop is on an x face, so this wall is a z face
+    const face = sideZ ? u.clz + s * u.d / 2 : u.clx + s * u.w / 2;
+    const span = sideZ ? u.w : u.d;
+    const cen = (sideZ ? u.clx : u.clz) + along * (span / 2 - 1.6);      // tangent coordinate of the escape
+    const nLo = Math.min(face, face + s * (p + 0.1)), nHi = Math.max(face, face + s * (p + 0.1));
+    const tLo = cen - tw / 2 - 0.1, tHi = cen + tw / 2 + 0.1;
+    const ex = sideZ ? [tLo, tHi] : [nLo, nHi], ez = sideZ ? [nLo, nHi] : [tLo, tHi];
+    if (ex[0] < loX || ex[1] > hiX || ez[0] < loZ || ez[1] > hiZ) continue;
+    const clash = ch.solids.some(q => !(q.x === u.clx && q.z === u.clz && q.kind === 'building') &&
+      ex[1] > q.x - q.hx - 0.6 && ex[0] < q.x + q.hx + 0.6 && ez[1] > q.z - q.hz - 0.6 && ez[0] < q.z + q.hz + 0.6);
+    if (clash) continue;
+    const iron = mat(IRON), floors = Math.floor((u.h - 1) / 3.5);
+    // a piece: `nC` is its coordinate across the wall, `tC` along it; `nSize` its depth out from the wall
+    const piece = (nC, tC, hgt, yC, nSize, tSize) => add(sideZ
+      ? box(tSize, hgt, nSize, iron, tC, yC, nC, false) : box(nSize, hgt, tSize, iron, nC, yC, tC, false));
+    for (let f = 1; f < floors; f++) {
+      const y = 0.15 + f * 3.5;
+      piece(face + s * p / 2, cen, 0.12, y + 0.06, p, tw);                          // landing
+      piece(face + s * (p - 0.05), cen, 0.05, y + 0.52, 0.08, tw);                  // top rail
+      piece(face + s * (p - 0.05), cen, 0.05, y + 0.25, 0.08, tw);                  // mid rail
+    }
+    // two rails of the ladder that climbs the wall at one end of the landings
+    const top = 0.15 + floors * 3.5;
+    for (const k of [-1, 1]) piece(face + s * p * 0.6, cen + k * (tw / 2 - 0.08), top - 0.15, (top + 0.15) / 2, 0.12, 0.1);
+  }
+}
+
+function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, padBox, prop, r, rng, solid, tree, x0, yardGap, yards, z0 }) {
+  // Effective block bounds: on at-grade sides the building line steps back by FLY.frontage,
+  // so the valid building area shrinks. The padBox and house grid must fit within these bounds.
+  const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+  const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+  const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const padW = hi_x - lo_x, padD = hi_z - lo_z;
+  const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+  padBox(padW, padD, mat(0x7bc96f), padOx, padOz);
+  const roofs = [0xc0503a, 0x8a4b38, 0x4f6d8a, 0x6b5b95, 0x9b5d3a], walls = [0xf2e4c9, 0xf7d7d0, 0xd5e8d4, 0xcfe0f0, 0xfdf0b8];
+  // ---- estate (see planEstate): a curved road, its houses on both sides and a cul-de-sac, instead of the grid ----
+  let plan = null;
+  if (nbPlan) plan = nbhdClip(nbPlan, cx, cz);
+  else if (estateNow) {
+    // A block's estate plan is a pure function of the block, so it is kept for the next time the block streams in
+    // (a bounded memo). A cached plan replays the same number of random draws, so the rest of the block is unchanged.
+    const key = cx + ',' + cz;
+    const hit = estatePlanMemo.get(key);
+    if (hit) {
+      for (let k = 0; k < hit.draws; k++) rng();
+      plan = hit.plan;
+    } else {
+      let draws = 0;
+      const rc = (a, b) => { draws++; return r(a, b); };
+      const sides = [0, 1, 2, 3].filter(si => !atGradeSide(cx, cz, si));
+      if (sides.length) plan = planEstate(lo_x, hi_x, lo_z, hi_z, sides[Math.floor(rc(0, sides.length))], rc);
+      estatePlanMemo.set(key, { plan, draws });
+      if (estatePlanMemo.size > ESTATE_MEMO_MAX) estatePlanMemo.delete(estatePlanMemo.keys().next().value);
+    }
+    if (plan) plan.inC = () => true;
+  }
+  if (plan) {
+    const asph = mat(0x4b5058), paint = mat(0xf2f2ee), Y = 0.33;      // the road sits 3 cm above the pad (its top is 0.30)
+    for (const rd of plan.roads) {
+      // the road as one continuous strip: the two kerb lines run along the path, half the width either side of it along
+      // its normal, and two triangles join each step. (The old flat boxes, each turned to its own chord, left notches
+      // on the outside of every bend, which read as saw-teeth along the road.)
+      {
+        const R = rd.ribbon, pos = [], uv = [], idx = [];
+        for (let i = 0; i < R.length; i++) {
+          const p = R[i], ox = -p.tz * ESTATE_ROAD, oz = p.tx * ESTATE_ROAD;
+          pos.push(p.x + ox, Y + 0.04, p.z + oz, p.x - ox, Y + 0.04, p.z - oz);
+          uv.push(0, i * 0.25, 1, i * 0.25);
+          if (i > 0) { const a = 2 * (i - 1), b = 2 * i; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        geo.setIndex(idx); geo.computeVertexNormals();
+        ch.geos.push(geo);                                                    // freed with the block
+        add(new THREE.Mesh(geo, asph));
+      }
+      rd.ribbon.forEach((p, i) => {                                       // a dashed centre line every 4 m
+        if (i % 8 === 0 && i > 2 && i < rd.ribbon.length - 4 && plan.inC(p.x, p.z)) { const dm = box(2.2, 0.03, 0.14, paint, p.x, Y + 0.02, p.z, false); dm.rotation.y = Math.atan2(-p.tz, p.tx); add(dm); }
+      });
+      if (plan.inC(rd.disc.x, rd.disc.z)) add(cyl(rd.disc.r, rd.disc.r, 0.04, 28, asph, rd.disc.x, Y + 0.02, rd.disc.z, false));
+    }
+    for (const h of plan.houses) {
+      const hg = new THREE.Group();
+      hg.position.set(h.x, 0, h.z); hg.rotation.y = Math.atan2(-h.tz, h.tx);   // local +x runs along the road, +z away from it
+      const wc = walls[Math.floor(r(0, walls.length))], rc = roofs[Math.floor(r(0, roofs.length))];
+      hg.add(box(h.w, h.h, h.d, mat(wc), 0, h.h / 2 + 0.25, 0));
+      const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(h.w * 1.15, 3.2, h.d * 1.15); roof.position.set(0, h.h + 0.25 + 1.6, 0); roof.castShadow = true; hg.add(roof);
+      const front = -h.k * (h.d / 2);                                   // the front faces the road
+      hg.add(box(1.2, 2.1, 0.12, mat(0x5a3a22), 0, 1.3, front - h.k * 0.05, false));
+      for (const sx of [-1, 1]) hg.add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), sx * h.w * 0.28, h.h * 0.58, front - h.k * 0.04, false));
+      add(hg);
+      solid(h.x, h.z, h.hxA, h.hzA, 'building');
+      yards.push({ x: h.x, z: h.z, hw: h.hxA, hd: h.hzA });
+    }
+    for (const t of plan.trees) tree(t.x, t.z);
+    ch.estate = {
+      side: nbPlan ? -1 : plan.side, nb: nbPlan ? [nbRX, nbRZ] : null, roadY: Y,
+      entrance: [plan.roads[0].ribbon[0].x, plan.roads[0].ribbon[0].z],
+      roads: plan.roads.map(rd => ({ ribbon: rd.ribbon.map(p => [p.x, p.z]), disc: rd.disc })),
+      houses: plan.houses.map(h => ({ x: h.x, z: h.z, w: h.w, d: h.d, tx: h.tx, tz: h.tz, k: h.k, hxA: h.hxA, hzA: h.hzA })),
+      bounds: { lo_x, hi_x, lo_z, hi_z },
+    };
+  }
+  if (!plan) {
+  // The house grid fits within the effective block bounds. On at-grade sides the grid shifts
+  // and shrinks so no house wall or jitter lands in the carriageway.
+  const houseSpanX = Math.max(0, padW - 18.66), houseSpanZ = Math.max(0, padD - 18.66);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    const lx = lo_x + 9.33 + (houseSpanX > 0 ? i * houseSpanX / 2 : 0);
+    const lz = lo_z + 9.33 + (houseSpanZ > 0 ? j * houseSpanZ / 2 : 0);
+    const w = r(8, 10), d = r(7, 9), h = r(4.5, 6), ox = r(-1, 1), oz = r(-1, 1), hx = lx + ox, hz = lz + oz;
+    // Skip houses that would extend into the at-grade lane (with jitter and half-extent margin)
+    if (hx - w/2 < lo_x || hx + w/2 > hi_x || hz - d/2 < lo_z || hz + d/2 > hi_z) continue;
+    const wc = walls[Math.floor(rng() * walls.length)], rc = roofs[Math.floor(rng() * roofs.length)];
+    // some houses are brick (a brownstone-style front) with a stone stoop up to the door
+    const brick = rng() < 0.45, brickC = HOUSE_BRICK[Math.floor(rng() * HOUSE_BRICK.length)];
+    if (brick) {
+      const bg = makeBuildingGeo(w, h, d, 6), bm = new THREE.Mesh(bg, facadeMat(brickC, false));
+      bm.position.set(hx, h / 2 + 0.25, hz); add(bm); ch.geos.push(bg);
+      if (hz + d / 2 + 1.5 <= hi_z) {
+        const stone = mat(0xcfc8bb);
+        for (let k = 0; k < 3; k++) { const sh = 0.6 - 0.2 * k; add(box(2.4, sh, 0.42, stone, hx, 0.25 + sh / 2, hz + d / 2 + 0.21 + 0.42 * k)); }
+      }
+    } else add(box(w, h, d, mat(wc), hx, h / 2 + 0.25, hz));
+    const roof = new THREE.Mesh(ASSET.roofGeo, mat(rc)); roof.scale.set(w * 1.15, 3.2, d * 1.15); roof.position.set(hx, h + 0.25 + 1.6, hz); roof.castShadow = true; add(roof);
+    add(box(1.2, 2.1, 0.12, mat(0x5a3a22), hx, 1.3, hz + d / 2 + 0.05, false));
+    for (const sx of [-1, 1]) { add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz + d / 2 + 0.04, false)); add(box(1.5, 1.4, 0.1, mat(0x4f7fb5), hx + sx * w * 0.28, h * 0.58, hz - d / 2 - 0.04, false)); }
+    add(box(1.1, 2.2, 1.1, mat(0x8a5a44), hx + w * 0.3, h + 1.3, hz - d * 0.2));
+    solid(hx, hz, w / 2, d / 2, 'building');
+    yards.push({ x: hx, z: hz, hw: w / 2, hd: d / 2 });
+    const cs = rng() < 0.5 ? 1 : -1, cs2 = rng() < 0.5 ? 1 : -1;
+    tree(lx + cs * 7.6, lz + cs2 * 7.6);
+    if (rng() < 0.4) tree(lx - cs * 7.6, lz + cs2 * 7.6);
+  }
+  for (const side of [-1, 1]) for (let x = -padW/2 + 1; x <= padW/2; x += 4.2) {
+    if (rng() > 0.25) {
+      const fx = bx + x + padOx, fz = bz + side * (padD/2 - 0.4) + padOz;
+      if (!yardGap(fx, fz, false)) prop('fence', fx, fz, 0, 0.2);      // the fence also opens at each house's entrance
+    }
+  }
+  }
+}
+
+function parkBlock({ add, bx, bz, ch, cx, cz, p, padBox, prop, r, rng, tree, x0, z0 }) {
+  // Effective block bounds for park: same logic as suburb, shrink on at-grade sides
+  const lo_x = x0 + PAD_IN + (atGradeSide(cx, cz, 0) ? FLY.frontage : 0);
+  const hi_x = x0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 1) ? FLY.frontage : 0);
+  const lo_z = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
+  const hi_z = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
+  const padW = hi_x - lo_x, padD = hi_z - lo_z;
+  const padOx = (lo_x + hi_x) / 2 - bx, padOz = (lo_z + hi_z) / 2 - bz;
+  padBox(padW, padD, mat(0x78c46c), padOx, padOz);
+  // Paths along the centerlines of the effective bounds
+  padBox(padW, 3.4, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+  padBox(3.4, padD, mat(0xe3d6b0), padOx, padOz, 0.27, 0.04);
+  // Pond positioned within the valid bounds
+  const pw = r(10, 15), pd = r(8, 11);
+  const px = (lo_x + hi_x) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(14, padW/2 - pw/2 - 2));
+  const pz = (lo_z + hi_z) / 2 + (rng() < 0.5 ? -1 : 1) * r(5, Math.min(16, padD/2 - pd/2 - 2));
+  add(box(pw, 0.06, pd, mat(0x58b6e8), px, 0.27, pz, false));
+  ch.keepouts.push({ x: px, z: pz, hx: pw / 2, hz: pd / 2 });
+  const placed = [];
+  for (let a = 0, n = 0; a < 70 && n < 16; a++) {
+    const x = (lo_x + hi_x) / 2 + r(-padW/2 + 2, padW/2 - 2);
+    const z = (lo_z + hi_z) / 2 + r(-padD/2 + 2, padD/2 - 2);
+    // Keep trees away from the center path and pond
+    if (Math.abs(x - (lo_x + hi_x) / 2) < 2.5 || Math.abs(z - (lo_z + hi_z) / 2) < 2.5) continue;
+    if (Math.abs(x - px) < pw / 2 + 2 && Math.abs(z - pz) < pd / 2 + 2) continue;
+    if (placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 49)) continue;
+    placed.push([x, z]); tree(x, z); n++;
+  }
+  // Benches along the paths, within valid bounds
+  const cx_p = (lo_x + hi_x) / 2, cz_p = (lo_z + hi_z) / 2;
+  prop('bench', cx_p - 8, cz_p - 2.5, 0, 0.3);
+  prop('bench', cx_p + 9, cz_p + 2.5, PI, 0.3);
+  prop('bench', cx_p - 2.5, cz_p + 10, PI / 2, 0.3);
+  // Flowers scattered within the valid area
+  for (let i = 0; i < 10; i++) add(box(0.4, 0.3, 0.4, mat([0xff6fa5, 0xffd23b, 0xffffff, 0xb07cff][i % 4]), cx_p + r(-padW/2 + 2, padW/2 - 2), 0.4, cz_p + r(-padD/2 + 2, padD/2 - 2), false));
+}
+
+function commercialBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, rng, solid, tree }) {
+  // The whole mall ensemble — the building, its wing, the lot's painted rows and the bays — stands on the
+  // block's own building line, so on a side that carries a flyover's at-grade lane it steps back with it.
+  const mbx = bxo, mbz = bzo;
+  // A neighborhood shopping center with a glass landmark, retail wing and marked parking rows.
+  const lotSurfaceY = 0.25;
+  const asphalt = mat(0x4b5058), concrete = mat(0xc6c9c8), parkingPaint = mat(0xe9e8df);
+  const aqua = mat(0x19b9ca), mallWhite = mat(0xe5e8e9), mallYellow = mat(0xf4c928);
+  padBox(58, 58, asphalt, bxo - bx, bzo - bz);
+  // Raised pedestrian walkways frame the lot and connect the entrance to the parking area.
+  const walkY = lotSurfaceY + 0.07;
+  padBox(58, 1.5, concrete, bxo - bx, -28.25 + (bzo - bz), walkY, 0.12);
+  padBox(58, 1.5, concrete, bxo - bx, 28.25 + (bzo - bz), walkY, 0.12);
+  padBox(1.5, 58, concrete, -28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
+  padBox(1.5, 58, concrete, 28.25 + (bxo - bx), bzo - bz, walkY, 0.12);
+
+  const mallZ = mbz - 7, baseW = 29, baseD = 22, baseH = 4.8;
+  const frontZ = mallZ + baseD / 2;
+  add(box(baseW, baseH, baseD, mallWhite, mbx, lotSurfaceY + baseH / 2, mallZ));
+  // Bright retail frontage, broad glass storefront and a projecting entrance canopy.
+  add(box(baseW + 0.12, 0.85, 0.22, aqua, mbx, lotSurfaceY + 0.95, frontZ + 0.12, false));
+  add(box(17, 2, 0.14, mat(0x263e4a), mbx, 3.3, frontZ + 0.14, false));
+  add(box(4.2, 2.8, 0.18, mat(0x172a35), mbx, 1.65, frontZ + 0.2, false));
+  add(box(14, 0.38, 2.8, aqua, mbx, lotSurfaceY + baseH + 0.18, frontZ + 1.15, false));
+  for (const side of [-1, 1]) add(box(0.5, 4.75, 0.5, mat(0xdce1e2), mbx + side * 6.2, lotSurfaceY + baseH / 2, frontZ + 2.05, false));
+
+  // Upper glazed floors, pale roof cap and the yellow crown visible in the reference.
+  const towerW = 21.5, towerD = 17.5, towerH = 14.2;
+  const towerGeo = makeBuildingGeo(towerW, towerH, towerD), glassMat = ASSET.windowMats[2];
+  const tower = new THREE.Mesh(towerGeo, [glassMat, glassMat, ASSET.roofMat, ASSET.roofMat, glassMat, glassMat]);
+  tower.position.set(mbx, lotSurfaceY + baseH + towerH / 2, mallZ);
+  tower.castShadow = true; tower.receiveShadow = true; group.add(tower); ch.geos.push(towerGeo);
+  for (let floor = 1; floor < 4; floor++) {
+    add(box(towerW + 0.22, 0.18, towerD + 0.22, mat(0xb9c2c7), mbx, lotSurfaceY + baseH + floor * 3.45, mallZ, false));
+  }
+  const towerTop = lotSurfaceY + baseH + towerH;
+  add(box(towerW + 1.1, 0.45, towerD + 1.1, mat(0xf1f2ee), mbx, towerTop + 0.225, mallZ, false));
+  add(box(towerW + 1.25, 0.24, 0.28, mallYellow, mbx, towerTop + 0.36, mallZ + towerD / 2 + 0.62, false));
+  add(box(0.28, 0.24, towerD + 1.25, mallYellow, mbx + towerW / 2 + 0.62, towerTop + 0.36, mallZ, false));
+  add(box(3.4, 1.1, 2.6, mat(0x969da1), mbx - 4, towerTop + 0.95, mallZ - 1, false));
+  add(box(2.2, 0.8, 2.1, mat(0xaeb4b7), mbx + 5, towerTop + 0.8, mallZ + 2, false));
+  solid(mbx, mallZ, baseW / 2, baseD / 2, 'building');
+
+  // Low supermarket wing to one side gives the center a stepped, multi-building silhouette.
+  const wingW = 10.5, wingD = 20.5, wingH = 4.1, wingX = mbx + 19.5, wingZ = mallZ + 0.3;
+  const wingFrontZ = wingZ + wingD / 2;
+  add(box(wingW, wingH, wingD, mat(0xd8dcdd), wingX, lotSurfaceY + wingH / 2, wingZ));
+  add(box(wingW + 0.4, 0.34, wingD + 0.4, mat(0xf3f2ed), wingX, lotSurfaceY + wingH + 0.17, wingZ, false));
+  add(box(wingW + 0.1, 0.68, 0.2, aqua, wingX, 1.05, wingFrontZ + 0.11, false));
+  add(box(7.5, 1.8, 0.14, mat(0x243d49), wingX, 2.35, wingFrontZ + 0.13, false));
+  add(box(wingW + 0.2, 0.24, 0.18, mallYellow, wingX, 3.65, wingFrontZ + 0.12, false));
+  solid(wingX, wingZ, wingW / 2, wingD / 2, 'building');
+
+  // Pedestrian approaches and small planted islands at the front corners.
+  add(box(36, 0.08, 3.2, concrete, mbx, lotSurfaceY + 0.06, mbz + 7.8, false));
+  add(box(34, 0.08, 2, concrete, mbx, lotSurfaceY + 0.06, mbz - 20, false));
+  for (const side of [-1, 1]) {
+    const px = mbx + side * 25, pz = mbz + 8.5;
+    add(box(3.8, 0.1, 3.8, mat(0x79b86d), px, lotSurfaceY + 0.05, pz, false));
+    tree(px, pz, lotSurfaceY);
+  }
+
+  // Painted bays on three sides; cars use the same destructible parked-car system as curbside vehicles.
+  const stallCount = 6, stallW = 8.8, startX = mbx - stallCount * stallW / 2;
+  const parkingRows = [
+    { z: mbz + 15.2, rotY: PI },
+    { z: mbz + 24.2, rotY: 0 },
+    { z: mbz - 24.3, rotY: 0 },
+  ];
+  const parkedColors = PARKED_COLORS, parkedKinds = PARKED_KINDS;
+  // ---- Occupancy ----
+  // Occupancy follows the shared day/night rule (see lotCars): a 2-3 car floor at night, the middle of the
+  // day the busiest, never more than 20% of the lot. At night the cars that stay are the ones nearest the
+  // entrance, so the rows empty out naturally instead of clearing from one end.
+  const totalStalls = parkingRows.length * stallCount + 3;      // 18 painted bays + 3 along the west side
+  const occupancy = lotCars(totalStalls, 0, env.phase);
+  const freeStalls = [];
+  for (let row = 0; row < parkingRows.length; row++) for (let i = 0; i < stallCount; i++) freeStalls.push({ row, i });
+  const westStalls = [0, 1, 2].map(i => ({ row: -1, i }));
+  // At night (occupancy 2) the cars left in the lot are the ones parked nearest the entrance.
+  if (occupancy <= 4) freeStalls.sort((a, b) => Math.abs(b.i - (stallCount - 1) / 2) - Math.abs(a.i - (stallCount - 1) / 2));
+  const taken = new Set();
+  const occupied = new Set();
+  for (let n = 0; n < occupancy; n++) {
+    const pool = freeStalls.length ? freeStalls : westStalls;
+    if (!pool.length) break;
+    taken.add(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+  }
+  for (let row = 0; row < parkingRows.length; row++) {
+    const { z, rotY } = parkingRows[row];
+    for (let i = 0; i <= stallCount; i++) {
+      add(box(0.12, 0.035, 6.2, parkingPaint, startX + i * stallW, lotSurfaceY + 0.0275, z, false));
+    }
+    // Stalls left empty at generation time stay on record, so traffic.js can fill the lot at night.
+    for (let i = 0; i < stallCount; i++) {
+      if (occupied.has(row + ':' + i)) continue;
+      ch.parking.push({ x: startX + (i + 0.5) * stallW, z, rotY, y: lotSurfaceY - 0.05, hx: 1.15, hz: 2.35 });
+    }
+  }
+  for (const { row, i } of taken) occupied.add(row + ':' + i);
+  ch.parkingTotal = totalStalls;                            // lot size, for tooling and tests
+  for (const { row, i } of taken) {
+    if (row < 0) continue;
+    const x = startX + (i + 0.5) * stallW, z = parkingRows[row].z, rotY = parkingRows[row].rotY;
+    const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
+    const color = parkedColors[Math.floor(rng() * parkedColors.length)];
+    const car = parkedCar(x, z, 1.15, 2.35, rotY, kind, color, lotSurfaceY - 0.05);
+    ch.lotStanding.push({ car, slot: { x, z, rotY, y: lotSurfaceY - 0.05, hx: 1.15, hz: 2.35 } });
+  }
+  // Extra perpendicular bays along the open west side of the mall.
+  const sideParkingX = mbx - 23.5, sideStartZ = mbz - 16;
+  for (let i = 0; i <= 3; i++) {
+    add(box(5.8, 0.035, 0.12, parkingPaint, sideParkingX, lotSurfaceY + 0.0275, sideStartZ + i * 8, false));
+  }
+  for (const { row, i } of taken) {
+    if (row >= 0) continue;
+    const z = sideStartZ + (i + 0.5) * 8;
+    const kind = parkedKinds[Math.floor(rng() * parkedKinds.length)];
+    const color = parkedColors[Math.floor(rng() * parkedColors.length)];
+    const car = parkedCar(sideParkingX, z, 2.35, 1.15, PI / 2, kind, color, lotSurfaceY - 0.05);
+    ch.lotStanding.push({ car, slot: { x: sideParkingX, z, rotY: PI / 2, y: lotSurfaceY - 0.05, hx: 2.35, hz: 1.15 } });
+  }
+}
+
+function hospitalBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid, tree }) {
+  // A hospital campus with its own car park. The ambulance bays are occupied for good, the ordinary bays
+  // follow the day/night curve exactly like the mall lots do.
+  const lotSurfaceY = 0.25;
+  padBox(54, 58, mat(0x4b5058), bxo - bx, bzo - bz);
+  const H = buildHospitalMesh(bxo, bzo, rng);
+  H.group.position.set(bxo, 0, bzo);
+  bake(ch, H.group);                       // merged with the rest of the block, in slices
+  // Rotors merge on their own so each one can turn about its own mast. The builder works in block-local
+  // coordinates, so the chunk-level rotor meshes have to be lifted to world space by the block origin.
+  const bladesMain = mergeStandalone(H.heliMain);
+  bladesMain.position.set(bxo + H.heliMast[0], H.heliMast[1], bzo + H.heliMast[2]); group.add(bladesMain);
+  const bladesTail = mergeStandalone(H.heliTail);
+  bladesTail.position.set(bxo + H.heliTailPos[0], H.heliTailPos[1], bzo + H.heliTailPos[2]); group.add(bladesTail);
+  for (const m of [...bladesMain.children, ...bladesTail.children]) ch.geos.push(m.geometry);   // freed with the chunk
+  ch.heli = { rotor: bladesMain, tail: bladesTail, beacons: H.heliBeacons, padR: H.padR, rotorR: H.rotorR, padX: bxo + H.padX, padZ: bzo + H.padZ, padY: H.padY, x: bxo + H.heliPos[0], y: H.heliPos[1], z: bzo + H.heliPos[2],
+    volumes: H.volumes.map(v => ({ ...v, x: bxo + v.x, z: bzo + v.z })) };
+  for (const sv of H.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+  for (const pt of H.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
+  const ambulanceSlots = [];
+  for (const b of H.bays) {
+    const slot = { kind: 'ambulance', color: 0xffffff, x: b.x, z: b.z, rotY: b.rotY, y: lotSurfaceY - 0.05, hx: b.hx, hz: b.hz, apron: !!b.apron, car: null };
+    if (b.ambulance) ambulanceSlots.push(slot);
+    else ch.parking.push(slot);                                 // ordinary bays, filled by the day/night curve
+  }
+  // Two ambulances are standing in the lot from the first frame (the apron unit and one of the marked
+  // bays). The third marked bay is the night unit: traffic.js keeps the lot at its time-of-day target of
+  // two by day and three at night. Wrecked units are never replaced — their burnt hulk is left in place.
+  ch.ambulanceSlots = ambulanceSlots;
+  let ambulances = 0;
+  for (const slot of ambulanceSlots) {
+    if (ambulances >= 2) break;
+    parkedCar(slot.x, slot.z, slot.hx, slot.hz, slot.rotY, 'ambulance', 0xffffff, slot.y);
+    slot.car = ch.solids[ch.solids.length - 1].parked;
+    slot.car.fade = 1;                                          // on scene from the start, no fade-in
+    ambulances++;
+  }
+  ch.parkingTotal = H.bays.length;
+  ch.parkingFixed = ambulanceSlots.length;                      // cap space reserved for all three units
+  ch.parkingFloor = 3;                                          // a few ordinary cars, day and night, so the lot never looks abandoned
+  const present = lotCars(ch.parkingTotal, ambulances, env.phase, ch.parkingFloor);
+  for (let i = 0; i < present && ch.parking.length; i++) {
+    const b = ch.parking.splice(Math.floor(rng() * ch.parking.length), 1)[0];
+    const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+    ch.lotStanding.push({ car, slot: b });
+  }
+  // Low planting and benches along the car-park edge.
+  for (const sx of [-1, 1]) { tree(bxo + sx * 21, bzo + 24.5, lotSurfaceY + 0.02); prop('bench', bxo + sx * 8, bzo + 24, PI, lotSurfaceY + 0.15); }
+}
+
+function fireBlock({ bx, bxo, bz, bzo, ch, padBox, parkedCar, prop, rng, solid, tree }) {
+  // Fire station with its appliance apron. The fleet stands on the apron from the first frame and is
+  // never replaced: a run that wrecks an appliance leaves the burnt hulk in its bay.
+  const lotSurfaceY = 0.25;
+  padBox(50, 46, mat(0x5a6068), bxo - bx, bzo - bz);
+  const F = buildFireStationMesh(bxo, bzo, rng);
+  F.group.position.set(bxo, 0, bzo);
+  bake(ch, F.group);
+  for (const sv of F.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+  ch.fireSlots = F.bays;
+  ch.fireDoors = F.doors;
+  ch.fireTotal = F.bays.length;
+  for (const b of F.bays) {
+    parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, b.kind, b.color, b.y);
+    b.car = ch.solids[ch.solids.length - 1].parked;
+    b.car.fade = 1;                                            // on station from the first frame
+  }
+  for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 20.5, lotSurfaceY + 0.02);
+  prop('bench', bxo - 6, bzo + 19.5, 0, lotSurfaceY + 0.15);
+}
+
+function bankBlock({ bx, bxo, bz, bzo, ch, padBox, prop, rng, solid, tree }) {
+  // A bank on its own block: a neoclassical hall with a six-column portico and a gold BANK pediment, a blue-grey
+  // wing, a stepped forecourt with planters and lamps. Its front is the same face the other campuses use.
+  const lotSurfaceY = 0.25;
+  padBox(56, 42, mat(0xb9bec5), bxo - bx, bzo - bz);                     // forecourt pad
+  const K = buildBankMesh(bxo, bzo, rng);
+  K.group.position.set(bxo, 0, bzo);
+  bake(ch, K.group);
+  for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+  for (const sx of [-1, 1]) tree(bxo + sx * 21, bzo + 14, lotSurfaceY + 0.02);
+  prop('bench', bxo - 9, bzo + 16, 0, lotSurfaceY + 0.15);
+}
+
+function storeBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, padBox, parkedCar, prop, rng, solid, tree, type }) {
+  // A standalone shop or service building on its own apron. Display cars stand in the showroom bays, which
+  // are destructible like any parked car.
+  const lotSurfaceY = 0.25, S = STORE_DEFS[type];
+  padBox(S.pad[0], S.pad[1], mat(0xb9bec5), bxo - bx, bzo - bz);
+  const K = buildStoreMesh(type, bxo, bzo, rng);
+  K.group.position.set(bxo, 0, bzo);
+  bake(ch, K.group);
+  for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
+  for (const b of K.bays) parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+  for (const sx of [-1, 1]) tree(bxo + sx * (S.pad[0] / 2 - 3), bzo + S.pad[1] / 2 - 4, lotSurfaceY + 0.02);
+  prop('bench', bxo - S.pad[0] / 2 + 4, bzo + S.pad[1] / 2 - 4, 0, lotSurfaceY + 0.15);
+}
+
+function sportBlock({ bx, bxo, bz, bzo, ch, group, padBox, prop, rng, solid, type }) {
+  // A fenced ground with its own markings: the fences and hoops or goals are solids, so a car stops at them.
+  const lotSurfaceY = 0.25, S = SPORT_DEFS[type], sc = sportScale(type), PW = S.pad[0] * sc, PD = S.pad[1] * sc;
+  padBox(PW, PD, mat(S.ground), bxo - bx, bzo - bz);
+  const K = buildSportMesh(type, bxo, bzo, rng);
+  K.group.position.set(bxo, 0, bzo);
+  bake(ch, K.group);
+  for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+  // The fence panels are handed over one by one, like the schoolyard fence (see the school branch): each is its
+  // own solid and its own mesh, so a hard hit takes panels down and they tumble off the pad.
+  for (const pc of K.fencePieces) {
+    const pm = own(ch, mergeStandalone(pc.group));
+    pm.position.set(pc.x, 0, pc.z);
+    group.add(pm);
+    pc.mesh = pm;
+    solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.fence = true;
+    sEntry.fencePiece = pc;
+    pc.solid = sEntry;
+    ch.fencePanels.push(pc);
+  }
+  // The elements of the ground (hoops, goals, ramps, rails and the play equipment) are breakable pieces: each is its
+  // own mesh and solid, and a hard hit knocks it off its base (breakPlayPiece in js/collisions.js).
+  for (const pc of K.breakable) {
+    const pm = own(ch, mergeStandalone(pc.group));
+    pm.position.set(bxo, 0, bzo);
+    group.add(pm);
+    pc.mesh = pm;
+    solid(pc.x, pc.z, pc.hx, pc.hz, pc.kind);
+    const sEntry = ch.solids[ch.solids.length - 1];
+    if (pc.obox) sEntry.box = { x: pc.x, z: pc.z, ...pc.obox };
+    sEntry.playPiece = pc;
+    pc.solid = sEntry;
+  }
+  prop('bench', bxo + PW / 2 - 4, bzo - PD / 2 + 3, 0, lotSurfaceY + 0.15);
+}
+
+function schoolBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid, tree }) {
+  // A school on its own block: classroom wing and gym at the back, a fenced grass yard with a playground and
+  // a basketball court in the middle, and a lot out front where the yellow school buses stand along the kerb.
+  const lotSurfaceY = 0.25;
+  padBox(56, 28, mat(0x4b5058), bxo - bx, 13.7 + (bzo - bz));    // the bus and staff lot
+  padBox(56, 20, mat(0x7bc96f), bxo - bx, -10 + (bzo - bz));     // the fenced yard: grass
+  const S = buildSchoolMesh(bxo, bzo, rng);
+  S.group.position.set(bxo, 0, bzo);
+  bake(ch, S.group);
+  // The schoolyard fence is handed over panel by panel: every panel is its own solid, so a hit takes down the
+  // panel it lands on and leaves the rest of the line standing, and every panel is a stand-alone mesh that can
+  // leave the block and tumble off on its own (breakFence() in js/collisions.js). Nothing of it is baked into
+  // the block — a baked panel could never be torn off.
+  for (const fr of S.fenceRuns) for (const pc of fr.pieces) {
+    const pm = own(ch, mergeStandalone(pc.group));
+    pm.position.set(pc.x, 0, pc.z);
+    group.add(pm);
+    pc.mesh = pm;
+    pc.broken = false;
+    solid(pc.x, pc.z, pc.hx, pc.hz, 'fence');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.fence = true;                                            // the yard fence, for the checks and for the map
+    sEntry.fencePiece = pc;
+    pc.solid = sEntry;
+    ch.fencePanels.push(pc);
+  }
+  for (const sv of S.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+  for (const pt of S.paint) add(box(pt.w, 0.035, pt.d, pt.m, pt.x, lotSurfaceY + 0.028, pt.z, false));
+  ch.schoolYard = S.yard;
+  ch.schoolPlayground = S.playground;
+  ch.schoolFence = S.fence;
+  ch.schoolPaint = S.paint;                      // bay markings and court lines, for the map and the checks
+  const busSlots = [];
+  for (const b of S.bays) {
+    const slot = { kind: b.bus ? 'schoolbus' : null, color: 0xf7b500, x: b.x, z: b.z, rotY: b.rotY, y: lotSurfaceY - 0.05, hx: b.hx, hz: b.hz, bus: !!b.bus, car: null };
+    if (b.bus) busSlots.push(slot); else ch.parking.push(slot);
+  }
+  // The bus stand is occupied from the first frame and never refilled once wrecked: a run that wrecks a bus
+  // leaves the burnt hulk in its bay, exactly like the hospital's ambulances and the fire fleet.
+  ch.busSlots = busSlots;
+  for (const slot of busSlots) {
+    parkedCar(slot.x, slot.z, slot.hx, slot.hz, slot.rotY, 'schoolbus', 0xf7b500, slot.y);
+    slot.car = ch.solids[ch.solids.length - 1].parked;
+    slot.car.fade = 1;
+  }
+  ch.parkingTotal = S.bays.length;
+  ch.parkingFixed = busSlots.length;                     // room reserved for the buses, counted in the ceiling
+  ch.parkingFloor = 2;                                   // a couple of staff cars, day and night
+  const present = lotCars(ch.parkingTotal, busSlots.length, env.phase, ch.parkingFloor);
+  for (let i = 0; i < present && ch.parking.length; i++) {
+    const b = ch.parking.splice(Math.floor(rng() * ch.parking.length), 1)[0];
+    const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)], PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+    ch.lotStanding.push({ car, slot: b });
+  }
+  for (const sx of [-1, 1]) tree(bxo + sx * 25.5, bzo + 26.5, lotSurfaceY + 0.02);
+  prop('bench', bxo + 4, bzo + 1.6, PI, lotSurfaceY + 0.15);
+  prop('bench', bxo - 12, bzo + 1.6, PI, lotSurfaceY + 0.15);
+}
+
+function fuelBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid }) {
+  // A filling station: lit canopy, two pump islands, convenience store and a price pylon on the kerb.
+  // The four dispensers are registered one by one as their own destructible solids (ch.pumps), so a hit
+  // knocks a pump off its island and the spill burns.
+  const fuelY = 0.25;
+  padBox(52, 48, mat(0x60666d), bxo - bx, bzo - bz);                      // forecourt pad
+  padBox(50, 46, mat(0x74797f), bxo - bx, bzo - bz, 0.27, 0.04);          // lighter topping
+  const FS = buildFuelStationMesh(bxo, bzo, rng);
+  FS.group.position.set(bxo, 0, bzo);
+  bake(ch, FS.group);
+  for (const sv of FS.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+  for (const p of FS.pumps) {
+    const pm = own(ch, mergeStandalone(p.group));
+    pm.position.set(bxo + p.x, p.y, bzo + p.z); pm.rotation.y = p.rotY; group.add(pm);
+    const x = bxo + p.x, z = bzo + p.z;
+    solid(x, z, 0.6, 0.52, 'pump');                       // the body, hoses and nozzles included
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.pump = { mesh: pm, x, z, broken: false, solid: sEntry };
+    ch.pumps.push(sEntry.pump);
+  }
+  ch.fuelBrand = FS.brand.name; ch.fuelCanopy = FS.canopy;
+  // Bays: two cars can fuel at each island, four park along the side of the store, four more nose in off
+  // the street. The day/night curve keeps two of them busy at every hour (ch.parkingFloor).
+  const bays = [];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    bays.push({ x: bxo + sx * 7.8, z: bzo + FS.canopy.z + sz * 3.4, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+  for (const sx of [-1, 1]) for (const dz of [-2.5, 2.5])
+    bays.push({ x: bxo + sx * 14.2, z: bzo + FS.store.z + dz, rotY: 0, y: fuelY - 0.05, hx: 1.25, hz: 2.45 });
+  for (const dx of [-18, -12, -6, 0, 6, 12, 18])
+    bays.push({ x: bxo + dx, z: bzo + 21, rotY: PI / 2, y: fuelY - 0.05, hx: 2.45, hz: 1.25 });
+  ch.parkingTotal = bays.length;
+  ch.parkingFloor = 2;
+  const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
+  for (let i = 0; i < bays.length; i++) {
+    const b = bays[i];
+    if (i < present) {                                                      // busy at generation time too
+      const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
+      const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+      ch.lotStanding.push({ car, slot: b });
+    } else ch.parking.push(b);                                              // kept free for later arrivals
+  }
+  for (const sx of [-1, 1]) prop('trashcan', bxo + sx * 9.8, bzo + 15.6);
+}
+
+function shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree }) {
+  // The parades stand on the block's own building line, so on a side that carries a flyover's at-grade lane the
+  // whole shopping street steps back with it (a parade's awning projects ~2.5 m from the wall behind it).
+  const sbx = bxo, sbz = bzo;
+  // A shopping street: two parades of shops facing each other across a parking court, with a little green
+  // square in the middle. Each parade carries five different businesses, so a drive down the block passes
+  // ten shopfronts with their own names, colours, awnings and window displays.
+  const lotY = 0.25;
+  const asphalt = mat(0x4b5058), concrete = mat(0xc9ccca), grass = mat(0x5aa04a), parkingPaint = mat(0xe9e8df);
+  padBox(54, 54, asphalt, bxo - bx, bzo - bz);                                         // the court
+  for (const sx of [-1, 1]) add(box(3.6, 0.14, 54, concrete, sbx + sx * 18, lotY, sbz, false));   // aprons in front of the shops
+  padBox(54, 3.6, concrete, bxo - bx, -18 + (bzo - bz), lotY, 0.14);
+  padBox(54, 3.6, concrete, bxo - bx, 18 + (bzo - bz), lotY, 0.14);
+  const title = PARADE_TITLES[Math.floor(rng() * PARADE_TITLES.length)];
+  const faces = [sbx - 18, sbx + 18];                                                   // west and east parade fronts
+  const ordered = SHOP_TYPES.slice().sort(() => rng() - 0.5);                          // shuffled once per block
+  for (let side = 0; side < 2; side++) {
+    const shops = ordered.slice(side * nShop, side * nShop + nShop);
+    const rotY = side === 0 ? PI / 2 : -PI / 2;                                       // fronts face the court
+    const P = buildShopParadeMesh(shops, rng, { title, shopW, h: 4.4, depth: 8.5, wall: side ? 0xd2cfc6 : 0xc9c6bd });
+    P.group.position.set(faces[side], lotY, sbz); P.group.rotation.y = rotY;
+    bake(ch, P.group);                          // the parade merges with the block, not in a pass of its own
+    // The parade is built with its front at local +z, so after the rotation a shop sitting at local x
+    // lands at sbz - x on the west side and sbz + x on the east side. The mesh and its collision box must
+    // use that same mapping or the windows would never break where they look like they are.
+    solid(faces[side] + (side === 0 ? -4.8 : 4.8), sbz, 3.7, P.len / 2 + 4.3, 'building');
+    for (const gl of P.glasses) {
+      const x = faces[side], z = side === 0 ? sbz - gl.x : sbz + gl.x;   // matches the mesh's own rotation
+      solid(x, z, 0.24, gl.w / 2, 'shopfront');
+      const sEntry = ch.solids[ch.solids.length - 1];
+      const gm = own(ch, mergeStandalone(gl.group));
+      gm.position.set(x, lotY, z); gm.rotation.y = rotY; group.add(gm);
+      sEntry.shop = { mesh: gm, x, z, w: gl.w, name: gl.name, kind: gl.kind, broken: false, solid: sEntry };
+      ch.shops.push(sEntry.shop);
+    }
+    ch.parades.push({ x: faces[side], z: sbz, rotY, title, shops: P.shops.map(o => o.name), len: P.len });
+  }
+  // the court: eighteen perpendicular bays in two rows, plus the green square with market stalls
+  const bays = [];
+  for (const sx of [-1, 1]) for (let i = 0; i < 9; i++)
+    bays.push({ x: sbx + sx * 12.5, z: sbz - 20 + i * 5, rotY: PI / 2, y: lotY - 0.05, hx: 2.45, hz: 1.25 });
+  add(box(9.4, 0.16, 9.4, grass, sbx, lotY + 0.02, sbz, false));                        // the little square
+  add(box(9.8, 0.26, 9.8, mat(0x9aa0a6), sbx, lotY, sbz, false));
+  add(box(9.4, 0.14, 9.4, grass, sbx, lotY + 0.1, sbz, false));
+  tree(sbx - 3.1, sbz - 3.1, lotY); tree(sbx + 3.1, sbz + 3.1, lotY); tree(sbx + 3.1, sbz - 3.1, lotY); tree(sbx - 3.1, sbz + 3.1, lotY);
+  for (const [kx, kz] of [[sbx - 6.6, sbz], [sbx + 6.6, sbz]]) {                          // two market stalls
+    add(box(3.4, 0.9, 2.2, mat(0x9a7a52), kx, lotY + 0.45, kz));
+    add(box(4.0, 1.5, 2.6, mat(0xd8452f), kx, lotY + 1.6, kz, false));
+    add(box(4.2, 0.2, 2.8, mat(0xf2e9d8), kx, lotY + 2.35, kz, false));
+    add(box(3.0, 0.1, 1.8, mat(0xf4f1e6), kx, lotY + 0.95, kz, false));
+  }
+  prop('bench', sbx - 4.4, sbz + 5.2, PI); prop('bench', sbx + 4.4, sbz - 5.2, 0);
+  prop('trashcan', sbx + 5.4, sbz + 3.2); prop('trashcan', sbx - 5.4, sbz - 3.2);
+  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) prop('streetlight', sbx + sx * 14.5, sbz - 16 + i * 10.5);
+  ch.parkingTotal = bays.length;
+  ch.parkingFloor = 2;
+  const present = lotCars(bays.length, 0, env.phase, ch.parkingFloor);
+  for (let i = 0; i < bays.length; i++) {
+    const b = bays[i];
+    if (i < present) {
+      const kind = PARKED_KINDS[Math.floor(rng() * PARKED_KINDS.length)];
+      const car = parkedCar(b.x, b.z, b.hx, b.hz, b.rotY, kind, PARKED_COLORS[Math.floor(rng() * PARKED_COLORS.length)], b.y);
+      ch.lotStanding.push({ car, slot: b });
+    } else ch.parking.push(b);
+  }
+  for (const sx of [-1, 1]) for (let i = 0; i < 6; i++)
+    add(box(4.6, 0.03, 0.14, parkingPaint, sbx + sx * 12.5, lotY + 0.03, sbz - 20 + i * 5 - 2.5, false));
+}
+
+function factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree }) {
+  // An industrial plant on a block of its own (see buildFactoryMesh in js/factory.js): one of four layouts from the
+  // reference art, picked at random per block. Its solids come back in world coordinates.
+  const lotSurfaceY = 0.25;
+  padBox(52, 46, mat(0x6f747c), bxo - bx, bzo - bz);
+  const kind = FACTORY_KINDS[Math.floor(rng() * FACTORY_KINDS.length)];
+  const P = buildFactoryMesh(bxo, bzo, rng, kind);
+  ch.factory = kind; ch.factorySolids = P.solids;       // the layout, and its solids (for the checks)
+  ch.stacks = P.stacks;                                 // chimney tops: smoke comes out of them (js/chimneySmoke.js)
+  P.group.position.set(bxo, 0, bzo);
+  bake(ch, P.group);                                    // merged with the rest of the block, in slices
+  for (const sv of P.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
+  for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 21, lotSurfaceY + 0.02);
+}
+
+function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ramp, rng, solid }) {
+  padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
+  const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];
+  for (let i = 0; i < 2; i++) {
+    const x = bx0 + 15 + i * 27 + (bxo - bx), z = bz0 + 17 + (bzo - bz), h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
+    add(box(26, h, 30, mat(col), x, h / 2 + 0.25, z)); add(box(26.6, 0.8, 30.6, mat(0x5a5f68), x, h + 0.65, z));
+    for (let k = -1; k <= 1; k++) add(box(6, 4.2, 0.2, mat(0x30343b), x + k * 8, 2.35, z + 15.1, false));
+    add(cyl(0.6, 0.6, 3, 8, mat(0x888d96), x + r(-8, 8), h + 2.4, z + r(-8, 8)));
+    solid(x, z, 13, 15, 'building');
+  }
+  const cc = [0xd9534f, 0x3b82c4, 0xf2b134, 0x4caf50, 0xe8e8e8];
+  for (let row = 0; row < 2; row++) for (let c = 0; c < 3; c++) {
+    if (rng() < 0.2) continue;
+    const x = bx0 + 9 + c * 19 + r(-2, 2) + (bxo - bx), z = bz0 + (row ? 52 : 39.5) + (bzo - bz);
+    add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x, 1.55, z));
+    if (rng() < 0.4) add(box(12, 2.6, 2.5, mat(cc[Math.floor(rng() * cc.length)]), x + r(-1, 1), 4.15, z));
+    solid(x, z, 6, 1.25, 'container');
+  }
+  for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
+  if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
+}
+
+function utilityPoles({ add, bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, t, utility, x0, xSides, z0, zSides }) {
   if (utility) {
     const ix = cx - nbRX * NB_BLOCKS, iz = cz - nbRZ * NB_BLOCKS;
     const zCross = nbLines ? iz + 1 < NB_BLOCKS : true;   // the avenue runs on through every block; a neighbourhood does not
@@ -1672,6 +1583,9 @@ function generateChunk(cx, cz, defer = false) {
       if (xCross) utilityLine([bx + 20, pz], [bx + 60, pz], 'x');
     }
   }
+}
+
+function streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng }) {
   // Streetlights
   for (const s of [-1, 1]) for (const o of [-16, 16]) {
     const kx = kerbIn(s < 0 ? 0 : 1), kz = kerbIn(s < 0 ? 2 : 3);      // the kerb on the side the prop is on
@@ -1684,6 +1598,9 @@ function generateChunk(cx, cz, defer = false) {
     if (rng() < 0.45 && !closed[s < 0 ? 0 : 1] && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
     if (rng() < 0.45 && !closed[s < 0 ? 2 : 3] && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
   }
+}
+
+function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 }) {
   if (!safe) {
     // Bus stops — occasional, on the sidewalk; reserves a clear zone so no car parks in front of it
     const busReserved = [];
@@ -1810,6 +1727,157 @@ function generateChunk(cx, cz, defer = false) {
       }
     }
   }
+}
+
+function generateChunk(cx, cz, defer = false) {
+  const rng = mulberry32(hash2(cx, cz) ^ 0x51ED);
+  const r = (a = 0, b = 1) => a + (b - a) * rng();
+  const nShop = 5, shopW = 9;                                  // five businesses per parade, 9 m each
+  const x0 = cx * CHUNK, z0 = cz * CHUNK, bx = x0 + 40, bz = z0 + 40, bx0 = x0 + 12, bz0 = z0 + 12;
+  const group = new THREE.Group();
+  const ch = { cx, cz, group, solids: [], props: [], pickups: [], ramps: [], busStops: [], pumps: [], fencePanels: [], shops: [], parades: [], roadworks: [], geos: [], owned: [], bakeList: [], trees: [], insts: [], keepouts: [], parking: [], pads: [], spill: [], lotStanding: [], signalPoles: [], plazas: [] };
+  const safe = (cx === 0 || cx === -1) && (cz === 0 || cz === -1);
+  const add = o => bake(ch, o);
+  // The footprint of every suburban house in this block (grid or estate). A house's yard needs a way in from the street,
+  // so the hedge and fence lines in front of it get a gap (see yardGap).
+  const yards = [];
+  const yardGap = (x, z, alongZ) => yards.some(y => alongZ
+    ? Math.abs(z - y.z) < 2 + y.hd && Math.abs(x - y.x) < 14 + y.hw
+    : Math.abs(x - y.x) < 2 + y.hw && Math.abs(z - y.z) < 14 + y.hd);
+  // `maxY` marks a solid that only exists for what is below it — the interchange's embankment walls are real
+  // for a car at grade under the bridge and gone for a car standing on the deck above them.
+  const solid = (x, z, hx, hz, kind, maxY) => ch.solids.push({ x, z, hx, hz, kind, maxY, box: { x, z, ux: 1, uz: 0, vx: 0, vz: 1, e1: hx, e2: hz } });
+  // Sidewalk ring occupies these distances from the block centre (kerb stone up to the inner kerb).
+  const WALK_LO = CHUNK / 2 - PAVE_OUT, WALK_HI = CHUNK / 2 - PAVE_IN;
+  const onWalk = (x, z) => {
+    const dx = Math.abs(x - bx), dz = Math.abs(z - bz);
+    const inBand = a => a >= WALK_LO && a <= WALK_HI;
+    return (inBand(dx) && dz <= WALK_HI) || (inBand(dz) && dx <= WALK_HI);
+  };
+  const prop = (kind, x, z, rotY = 0, y = 0.15) => {
+    if (onAtGradeLane(x, z, 0.7)) return;                      // that strip is carriageway now, not pavement
+    const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
+    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
+  };
+  const tree = (x, z, y = 0.2) => {
+    if (onAtGradeLane(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
+    const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
+    solid(x, z, 0.65, 0.65, 'tree');
+    const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
+    t.solid.tree = t; ch.trees.push(t);
+  };
+  // Parked cars are registered as solids and linked to a destructible record (s.parked).
+  // Light taps behave like a static obstacle; a hard enough hit wrecks one (see collisions.js breakParkedCar).
+  const PARKED_KINDS = ['sedan', 'hatchback', 'suv', 'oldclassic'];
+  const PARKED_COLORS = [0xe34a4a, 0x3a7bd5, 0x39b36b, 0xf2a93b, 0xeeeeee, 0x8e5bd9, 0x2f3340];
+  const parkedCar = (x, z, hx, hz, rotY, kind, color, y = 0.1) => {
+    const dims = CAR_DIMS[kind] || CAR_DIMS.civ;
+    const m = buildCar(kind, color, false);
+    m.position.set(x, y, z); m.rotation.y = rotY; group.add(m);
+    solid(x, z, hx, hz, 'parkedcar');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.base = { hx, hz };                                     // so a car that leaves can hand its bay back
+    const rec = { mesh: m, x, z, kind, mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
+    sEntry.parked = rec;
+    return rec;
+  };
+  // Bus stop shelter on the sidewalk — a real solid (destructible), and a navigation target for AI buses (see civilians.js).
+  const busStop = (side, alongLocal) => {
+    const axisIsZ = side < 2;
+    const roadCoord = side === 0 ? x0 : side === 1 ? x0 + CHUNK : side === 2 ? z0 : z0 + CHUNK;
+    const curb = side === 0 ? x0 + 9.6 : side === 1 ? x0 + CHUNK - 9.6 : side === 2 ? z0 + 9.6 : z0 + CHUNK - 9.6;
+    const x = axisIsZ ? curb : x0 + alongLocal, z = axisIsZ ? z0 + alongLocal : curb;
+    const halfW = BUSSTOP_W / 2 + 0.3, halfD = BUSSTOP_D / 2 + 0.3;
+    const hx = axisIsZ ? halfD : halfW, hz = axisIsZ ? halfW : halfD;
+    // The flyover's at-grade lane runs through there: test the whole shelter, not just its centre, since its ends
+    // are 2.5 m from it and the shelter is a solid.
+    for (let ax = -hx; ax <= hx + 1e-9; ax += 0.4) for (let az = -hz; az <= hz + 1e-9; az += 0.4) if (onAtGradeLane(x + ax, z + az, 0.3)) return;
+    const rotY = side === 0 ? -PI / 2 : side === 1 ? PI / 2 : side === 2 ? PI : 0;
+    const variant = BUS_LIVERIES[Math.floor(rng() * BUS_LIVERIES.length)];
+    const g = own(ch, mergeStandalone(buildBusStopMesh(variant))); g.position.set(x, WALK_Y, z); g.rotation.y = rotY; group.add(g);
+    solid(x, z, hx, hz, 'busstop');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    const rec = { mesh: g, x, z, axis: axisIsZ ? 'z' : 'x', road: roadCoord, along: axisIsZ ? z : x, broken: false, solid: sEntry };
+    sEntry.busstop = rec; ch.busStops.push(rec);
+  };
+  // Construction scaffolding against a building — a real destructible solid, randomized size/style per instance.
+  const scaffold = (x, z, rotY, o) => {
+    const g = own(ch, mergeStandalone(buildScaffoldMesh(o))); g.position.set(x, 0, z); g.rotation.y = rotY; group.add(g);
+    const swap = Math.abs(Math.cos(rotY)) < 0.5;
+    const hx = swap ? o.d / 2 + 0.3 : o.w / 2 + 0.3, hz = swap ? o.w / 2 + 0.3 : o.d / 2 + 0.3;
+    solid(x, z, hx, hz, 'scaffold');
+    const sEntry = ch.solids[ch.solids.length - 1];
+    sEntry.scaffold = { mesh: g, x, z, broken: false, solid: sEntry };
+  };
+  const ramp = (x, z, tilt) => { const m = box(6.5, .7, 12, mat(0xae7438), x, .52, z, false); m.rotation.x = tilt; add(m); ch.ramps.push({ x, z, r: 6.5, last: -99 }); };
+  // The block's own ground cover: the lot asphalt, the grass of a suburb or a park, a forecourt's concrete. Every
+  // one of them stops at the building line, and on a side that carries an interchange's at-grade lane that line
+  // stands `FLY.frontage` further out: without this the pad would lie over the pavement behind the lane (and, on
+  // the wider lots, poke into the lane itself) — which is exactly the strip the lane's widening is not allowed to
+  // eat. A pad that does not reach the line is left exactly where it was, so only the lane sides change.
+  const padBox = (w, d, m, ox = 0, oz = 0, y = 0.2, h = 0.1) => {
+    const lo = si => (si < 2 ? x0 : z0) + PAD_IN + (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const hi = si => (si < 2 ? x0 : z0) + CHUNK - PAD_IN - (atGradeSide(cx, cz, si) ? FLY.frontage : 0);
+    const a = Math.max(bx + ox - w / 2, lo(0)), b = Math.min(bx + ox + w / 2, hi(1));
+    const c = Math.max(bz + oz - d / 2, lo(2)), e = Math.min(bz + oz + d / 2, hi(3));
+    if (b - a < 0.2 || e - c < 0.2) return;
+    ch.pads.push({ x: (a + b) / 2, z: (c + e) / 2, w: b - a, d: e - c });      // for the suite: where a block's ground stops
+    add(box(b - a, h, e - c, m, (a + b) / 2, y, (c + e) / 2, false));
+  };
+  const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
+  const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
+  let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
+  let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
+  interchanges({ ch, p, add, ramp, group, r, cx, cz });
+  let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
+  // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
+  const swStyle = pickSidewalkStyle(type, rng);
+  const sw = sidewalkPieces(cx, cz, swStyle, filled);
+  const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
+  if (type === 'downtown') {
+    downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng, scaffold, solid, tree, x0, z0 });
+  } else if (type === 'suburb') {
+    suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, nbPlan, nbRX, nbRZ, padBox, prop, r, rng, solid, tree, x0, yardGap, yards, z0 });
+  } else if (type === 'park') {
+    parkBlock({ add, bx, bz, ch, cx, cz, p, padBox, prop, r, rng, tree, x0, z0 });
+  } else if (type === 'commercial') {
+    commercialBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, rng, solid, tree });
+  } else if (type === 'hospital') {
+    hospitalBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid, tree });
+  } else if (type === 'fire') {
+    fireBlock({ bx, bxo, bz, bzo, ch, padBox, parkedCar, prop, rng, solid, tree });
+  } else if (type === 'bank') {
+    bankBlock({ bx, bxo, bz, bzo, ch, padBox, prop, rng, solid, tree });
+  } else if (STORE_KINDS.includes(type)) {
+    storeBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, padBox, parkedCar, prop, rng, solid, tree, type });
+  } else if (SPORT_KINDS.includes(type)) {
+    sportBlock({ bx, bxo, bz, bzo, ch, group, padBox, prop, rng, solid, type });
+  } else if (type === 'school') {
+    schoolBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid, tree });
+  } else if (type === 'fuel') {
+    fuelBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid });
+  } else if (type === 'shops') {
+    shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree });
+  } else if (type === 'factory') {
+    factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree });
+  } else { // industrial
+    industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ramp, rng, solid });
+  }
+  // Utility poles. A line of poles stands on a pavement 20 m either side of the block's middle, 29.5 m out from its
+  // centre (the paving band is 27.4 to 31.5 m). Two kinds of line:
+  //  - a utility neighbourhood (utilityNbhd) has a line on all four of its sides, and it ends at the neighbourhood's edge;
+  //  - the avenue (x = 0) and the cross street (z = 0) carry a line on the pavement facing them, in every block beside
+  //    them, so the line runs on through the whole city along each main road.
+  // Wires run between poles 40 m apart: inside the block, and across the boundary on to the next block's first pole.
+  const nbLines = !!nbPlan && utilityNbhd(nbRX, nbRZ);
+  const avS = cx === 0 ? -1 : cx === -1 ? 1 : 0;    // the side of this block that faces the avenue (x = 0)
+  const crS = cz === 0 ? -1 : cz === -1 ? 1 : 0;    // the side that faces the cross street (z = 0)
+  const zSides = nbLines ? [-1, 1] : avS ? [avS] : [];   // x-side pavements: their line runs along z
+  const xSides = nbLines ? [-1, 1] : crS ? [crS] : [];   // z-side pavements: their line runs along x
+  const utility = zSides.length > 0 || xSides.length > 0;
+  utilityPoles({ add, bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, t, utility, x0, xSides, z0, zSides });
+  streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng });
+  safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
     || ch.keepouts.some(k => Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad)
     || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad);

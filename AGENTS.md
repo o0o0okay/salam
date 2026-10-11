@@ -33,10 +33,12 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
   interchange and estate placement), chunk streaming (`updateChunks`) and disposal (`disposeChunk`), bus stops.
   Every block is an 80 m square chunk. The top of the file documents the chunk record (`ch`), its solids and
   the geometry lifecycle. It re-exports the names the other modules used before the split (see below).
-  `generateChunk` hands ten of its sections to top-level helpers (`closedStreets`, `constructionSite`,
-  `interchanges`, `typeSelection`, `furniture`, `dumpsters`, `hedges`, `streetTrees`, `sidewalkSurfaces`,
-  `crossings`). Each takes one inputs object and returns the locals later code needs. The calls stay in their
-  original order, because the shared RNG is drawn in sequence: moving one changes every chunk after it.
+  `generateChunk` is a sequence of calls to top-level section helpers. Each takes one inputs object. The
+  block-type branch (`downtownBlock` … `industrialBlock`, one per `type`) and the sections around it
+  (`closedStreets`, `constructionSite`, `interchanges`, `typeSelection`, `utilityPoles`, `streetlights`,
+  `safeBlock`, `furniture`, `dumpsters`, `hedges`, `streetTrees`, `sidewalkSurfaces`, `crossings`) are all in
+  the order they were in the function. The order matters: the RNG is drawn in sequence, so moving one call
+  changes every chunk after it. Check any change with the per-chunk geometry fingerprint.
 - The chunk modules split out of `js/world.js` (world.js imports them; the test harness stitches them in front of it):
   - `js/chunkBake.js` — `bake`, `own`, `mergeStandalone`, `flushChunk` (the merged-geometry slices, and the
     `NO_MERGE` hook in tools/sidewalk-checks/hooks.mjs swaps out `flushChunk` here).
