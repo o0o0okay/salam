@@ -1088,8 +1088,14 @@ function generateChunk(cx, cz, defer = false) {
       const ac = n === 1 ? 0 : (i === 0 ? -1.9 : 1.9), al = 31;
       const px = axis === 'z' ? acr + ac : alc + al, pz = axis === 'z' ? alc + al : acr + ac;
       const m = own(ch, mergeStandalone(g)); m.position.set(px, 0, pz); m.rotation.y = axis === 'z' ? 0 : PI / 2; group.add(m);
-      solid(px, pz, axis === 'z' ? W / 2 : L / 2, axis === 'z' ? L / 2 : W / 2, 'building');
-      ch.solids[ch.solids.length - 1].machine = kind;
+      const hx = axis === 'z' ? W / 2 : L / 2, hz = axis === 'z' ? L / 2 : W / 2;
+      // A machine is a parked heavy vehicle, destructible like the ambulance: it takes rams (hitParkedHeavy), its
+      // hp runs out after a few hard hits (wreckParkedHeavy), and the burnt hulk stays where it died.
+      solid(px, pz, hx, hz, 'parkedcar');
+      const sEntry = ch.solids[ch.solids.length - 1];
+      const dims = CAR_DIMS.ambulance;
+      const rec = { mesh: m, x: px, z: pz, kind: 'ambulance', mass: dims.mass, hp: dims.hp, len: dims.e1, wid: dims.e2, color: MACH_Y, broken: false, wrecked: false, lastHit: -99, solid: sEntry };
+      sEntry.base = { hx, hz }; sEntry.parked = rec; sEntry.machine = kind;
     });
   };
   const siteOn = (axis, acr, alc, crane, seed) => {
