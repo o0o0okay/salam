@@ -15,35 +15,40 @@ canvas { display:block; }
 .bar { height:16px; border-radius:9px; background:rgba(0,0,0,.45); border:2px solid rgba(255,255,255,.85); overflow:hidden; box-shadow:0 3px 0 rgba(0,0,0,.25); }
 .bar > div { height:100%; width:100%; transition:width .12s linear; }
 #hpFill { background:linear-gradient(#7dff7a,#27c93f); }
-/* nitro: a vertical tube to the left of the dial, filled from the bottom (height set from ui.js) */
-#nitroFill { position:absolute; left:0; right:0; bottom:0; height:0%; transition:height .12s linear; background:linear-gradient(#2a8bff,#7fe9ff); }
-#nitroFill.on { background:linear-gradient(#ff7a1a,#ffe14a); }
-#nitroFill.lock { background:linear-gradient(#666,#999); }
 #pinWrap { margin-top:8px; opacity:0; transition:opacity .15s; }
 #pinWrap.on { opacity:1; }
 #pinFill { width:0%; background:linear-gradient(90deg,#ff3b3b,#3b7bff); }
 #flatWarn { margin-top:6px; color:#ff9a4a; opacity:0; transition:opacity .15s; font-size:13px; letter-spacing:.1em; }
 #heat { margin-top:6px; font-size:18px; letter-spacing:.1em; color:#ffd23b; }
 #radar { width:190px; height:190px; border-radius:50%; border:3px solid rgba(255,255,255,.85); box-shadow:0 4px 0 rgba(0,0,0,.3); background:#222; display:block; }
-/* bottom corners: the map (left) and the speed dial with nitro (right), as in the reference layout */
+/* bottom corners: the map (left) and the speed dial with the nitro arc (right), as in the reference layout */
 #mapBox { bottom:16px; left:16px; width:190px; text-align:center; }
 /* the alert line sits under the map, in the same panel, so it moves with the map on touch screens */
 #alertLine { margin-top:8px; font-size:11px; letter-spacing:.08em; white-space:nowrap; }
 /* the vehicle health bar sits under the WANTED stars, right-aligned like the rest of that panel */
 .hpLbl { margin-top:8px; }
 .hpBar { width:min(240px, 26vw); margin:4px 0 0 auto; }
-#gauge { bottom:12px; right:14px; display:flex; align-items:flex-end; gap:12px; }
-.nitroCol { display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:26px; }
-.nitroTube { position:relative; width:16px; height:120px; border-radius:8px; background:rgba(0,0,0,.45); border:2px solid rgba(255,255,255,.85); overflow:hidden; }
-.nitroKey { opacity:.7; font-size:10px; }
+#gauge { bottom:12px; right:14px; }
 .dial { position:relative; width:200px; height:200px; }
 .dialSvg { width:100%; height:100%; display:block; overflow:visible; }
-.dialTrack { fill:none; stroke:rgba(0,0,0,.45); stroke-width:14; stroke-linecap:round; }
-.dialFill { fill:none; stroke:url(#gaugeGrad); stroke-width:14; stroke-linecap:round; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
-.dialTick { stroke:rgba(255,255,255,.85); stroke-width:2.5; }
-.dialText { position:absolute; left:0; right:0; top:46%; transform:translateY(-50%); text-align:center; line-height:1; }
-.dialText #speed { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:46px; }
-.dialText small { display:block; font-size:12px; letter-spacing:.15em; opacity:.85; margin-top:4px; }
+.dialTrack { fill:none; stroke:rgba(0,0,0,.5); stroke-width:7; }
+.nitroFill { fill:none; stroke:url(#nitroGrad); stroke-width:7; stroke-dasharray:0 100; transition:stroke-dasharray .12s linear; }
+.nitroFill.on { stroke:url(#nitroOn); }
+.nitroFill.lock { stroke:#8a9099; }
+.dialRed { fill:none; stroke:#ff3b3b; stroke-width:5; }
+.dialNum { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:12px; fill:#fff; text-anchor:middle; dominant-baseline:central; }
+.nitroLbl { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:9px; fill:#fff; text-anchor:middle; dominant-baseline:central; }
+.needleBody { stroke:#fff; stroke-width:2.5; stroke-linecap:round; }
+.needleTail { stroke:#c9d1da; stroke-width:3; stroke-linecap:round; }
+.hub { fill:#1d2127; stroke:#e8edf2; stroke-width:2.5; }
+
+.dialTick { stroke:rgba(255,255,255,.9); stroke-width:2.5; }
+.dialTickMinor { stroke:rgba(255,255,255,.55); stroke-width:1.5; }
+.dialText { position:absolute; left:44%; right:0; top:62%; text-align:center; line-height:1; }   /* right of centre, clear of the 0 and 1 numbers, as in the reference */
+.gearRow { position:absolute; left:calc(50% + 14px); top:50%; margin-top:2px; display:flex; align-items:center; gap:5px; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:15px; line-height:1; }
+.gearTri { width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:10px solid #39e05a; filter:drop-shadow(0 0 3px rgba(57,224,90,.8)); }
+.dialText #speed { font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:40px; }
+.dialText small { display:block; font-family:'Bungee', 'Arial Black', Impact, sans-serif; font-size:11px; letter-spacing:.12em; font-style:italic; opacity:.9; margin-top:4px; }
 /* touch screens: the on-screen buttons sit in the bottom 150 px, so the two panels move up above them */
 @media (pointer:coarse) { #mapBox, #gauge { bottom:150px; } }
 #toasts { position:absolute; top:26%; left:50%; transform:translateX(-50%); text-align:center; }
@@ -96,7 +101,7 @@ canvas { display:block; }
 #pauseScreen { background:rgba(0,0,0,.4); }
 #muteHint { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); color:#fff; opacity:.6; font-size:11px; z-index:5; pointer-events:none; text-shadow:0 1px 0 #000; }
 @media (max-width:640px) { .big{font-size:26px} .mid{font-size:17px} #radar{width:120px;height:120px}
-  .dial{width:150px;height:150px} .dialText #speed{font-size:34px} .nitroTube{height:90px} }
+  .dial{width:150px;height:150px} .dialText #speed{font-size:30px} .gearRow{font-size:12px} }
 
 /* debug overlay, only created with ?debug (see js/perf.js) */
 #perf { position: fixed; left: 8px; bottom: 8px; z-index: 99; margin: 0; padding: 6px 8px; border-radius: 4px; background: rgba(0,0,0,.62); color: #9ff09f; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; white-space: pre; pointer-events: none; }

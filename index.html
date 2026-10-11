@@ -41,23 +41,30 @@
     <div id="alertLine" class="lbl display"></div>
   </div>
   <div class="panel" id="gauge">
-    <div class="nitroCol">
-      <div class="lbl">NITRO</div>
-      <div class="nitroTube"><div id="nitroFill"></div></div>
-      <div class="lbl nitroKey">SHIFT</div>
-    </div>
     <div class="dial">
       <svg viewBox="0 0 200 200" class="dialSvg" aria-hidden="true">
         <defs>
-          <linearGradient id="gaugeGrad" x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0" stop-color="#2a8bff"/><stop offset="0.6" stop-color="#7fe9ff"/><stop offset="1" stop-color="#ffe14a"/>
+          <radialGradient id="faceGrad" cx="50%" cy="36%" r="66%">
+            <stop offset="0" stop-color="#3b434d" stop-opacity=".96"/><stop offset="0.65" stop-color="#15181d" stop-opacity=".96"/><stop offset="1" stop-color="#040506" stop-opacity=".98"/>
+          </radialGradient>
+          <linearGradient id="nitroGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#1c9cff"/><stop offset="1" stop-color="#a6f6ff"/>
+          </linearGradient>
+          <linearGradient id="nitroOn" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#ff6a1a"/><stop offset="1" stop-color="#ffe14a"/>
           </linearGradient>
         </defs>
-        <path class="dialTrack" d="M 43.43 156.57 A 80 80 0 1 1 156.57 156.57"/>
-        <path id="gaugeFill" class="dialFill" pathLength="100" d="M 43.43 156.57 A 80 80 0 1 1 156.57 156.57"/>
+        <circle cx="100" cy="100" r="99" fill="url(#faceGrad)" stroke="rgba(255,255,255,.18)" stroke-width="1.5"/>
         <g id="gaugeTicks"></g>
+        <path id="nitroFill" class="nitroFill" pathLength="100" d=""/>
+        <g id="needle">
+          <line class="needleTail" x1="100" y1="100" x2="100" y2="122"/>
+          <line class="needleBody" x1="100" y1="100" x2="100" y2="34"/>
+          <circle class="hub" cx="100" cy="100" r="7"/>
+        </g>
       </svg>
-      <div class="dialText"><span id="speed">0</span><small>km/h</small></div>
+      <div class="gearRow"><span class="gearTri"></span><span id="gear">1</span></div>
+      <div class="dialText"><span id="speed">0</span><small>KM/H</small></div>
     </div>
   </div>
   <div id="toasts"></div>
