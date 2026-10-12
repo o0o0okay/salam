@@ -66,7 +66,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -148,12 +148,30 @@ function buildBusStopMesh(v) {
   g.add(box(0.5, 0.28, 0.08, mat(0x101418, { emissive: 0x113355, emissiveIntensity: 0.3 }), 0.6, postH - 0.5, D / 2 + 0.07, false));
   return g;
 }
-function closedStreets({ prop, add, tree, x0, z0, cx, cz }) {
+function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
   // ---- closed streets (three-way junctions, see segClosed in flyover.js) ----
   // A street closed for this block: its half of the carriageway (the side of the block's own kerb) is grass, and a
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
   // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
+  // The river (see riverSeg in flyover.js): a closed street on the river row is water, with banks and bridges. It is not
+  // grass, and it has no barrier and no construction site.
+  const river = [false, false, closed[2] && riverSeg('x', cx, cz), closed[3] && riverSeg('x', cx, cz + 1)];
+  const WATER = 0x2d6f8c;
+  const riverSide = side => {
+    const s2 = side === 2;
+    const zc = s2 ? z0 + 4 : z0 + 76, bankZ = s2 ? z0 + 8.25 : z0 + 71.75;
+    add(box(CHUNK, 0.04, 8, mat(WATER), x0 + 40, 0.04, zc, false));                 // the water, the full block width (under the decks too)
+    add(box(63.4, 0.9, 0.5, mat(0x8e8a80), x0 + 40, 0.45, bankZ, false));            // the bank wall, on the kerb line
+    solid(x0 + 40, bankZ, 31.7, 0.25, 'building');
+    for (const px of [x0 - 8.25, x0 + 8.25]) {                                       // the bridge parapets at this block's west junction
+      add(box(0.5, 1.0, 8, mat(0xd3d0c8), px, 0.5, zc, false));
+      solid(px, zc, 0.25, 4, 'flyover', 2.0);
+    }
+    add(box(16, 0.06, 8, mat(0x4b5058), x0, 0.05, zc, false));                       // the bridge deck over the water
+  };
+  if (river[2]) riverSide(2);
+  if (river[3]) riverSide(3);
   // the mouth of a barred street: three striped road-works barricades across it (soft and breakable, like the road
   // barriers), so a hard hit breaks through and a bump does not
   const closedBarrier = (x, z, hx, hz) => {
@@ -182,8 +200,8 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz }) {
   const site = [
     closed[0] && !filled[0] && siteFree([cx, cz], [cx, cz + 1]),
     closed[1] && !filled[1] && siteFree([cx + 1, cz], [cx + 1, cz + 1]),
-    closed[2] && !filled[2] && siteFree([cx, cz], [cx + 1, cz]),
-    closed[3] && !filled[3] && siteFree([cx, cz + 1], [cx + 1, cz + 1]),
+    closed[2] && !filled[2] && !river[2] && siteFree([cx, cz], [cx + 1, cz]),
+    closed[3] && !filled[3] && !river[3] && siteFree([cx, cz + 1], [cx + 1, cz + 1]),
   ];
   const EARTH = 0xa98b64, GRASS = 0x7bc96f;
   // A neighbourhood's centre junction is inside it: the streets that meet there have no barrier at that end, and its
@@ -192,8 +210,8 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz }) {
   const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz) && !nbhdEntryAt(jx, jz)) closedBarrier(x, z, hx, hz); };
   if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40, site[0] ? EARTH : GRASS); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
   if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40, site[1] ? EARTH : GRASS); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
-  if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
-  if (closed[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76, site[3] ? EARTH : GRASS); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
+  if (closed[2] && !river[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
+  if (closed[3] && !river[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76, site[3] ? EARTH : GRASS); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
     if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
@@ -2099,12 +2117,14 @@ function generateChunk(cx, cz, defer = false) {
     return Math.abs(along - g.t) < g.clear + rad && across > g.r0 - rad && across < g.r1 + rad;
   };
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
+    if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // the river's water and banks: nothing stands in it
     if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;   // that strip is carriageway now, not pavement
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
     const rec = { mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft };
     ch.props.push(rec); return rec;
   };
   const tree = (x, z, y = 0.2) => {
+    if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // nothing is planted in the river
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
     const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
     solid(x, z, 0.65, 0.65, 'tree');
@@ -2171,7 +2191,7 @@ function generateChunk(cx, cz, defer = false) {
   };
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
-  let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
+  let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group });
   const tramPoles = [];                                          // the tram poles of this block, for the span wires laid after the props settle
   tramRails({ add, box, mat, prop, poles: tramPoles, x0, z0, cx, cz });   // tram rails on this block's own street segments (not closed, not filled)
   let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });

@@ -422,6 +422,7 @@ function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez
 export const NB_BLOCKS = 3;
 function nbhdBase(RX, RZ) {
   if (RX === 0 || RX === -1 || RZ === 0 || RZ === -1) return false;
+  if (RIVER_ROW >= NB_BLOCKS * RZ && RIVER_ROW <= NB_BLOCKS * RZ + NB_BLOCKS) return false;   // no neighbourhood on the river
   if (districtOfNb(RX, RZ) !== 'suburb') return false;      // estates are a suburb's thing (js/districts.js)
   if ((hash2(RX * 13 + 5, RZ * 7 + 11) & 0xFF) >= 42) return false;
   const x0 = NB_BLOCKS * RX, z0 = NB_BLOCKS * RZ;
@@ -497,6 +498,7 @@ function nbhdInternalSeg(axis, jx, jz) {
 // hash so both blocks that share the street agree. Neighbourhood inner streets are never filled (they keep their
 // barriers at the mouths).
 export function segFilled(axis, jx, jz) {
+  if (riverSeg(axis, jx, jz)) return false;                    // the river is water, never grass
   if (!segClosed(axis, jx, jz)) return false;
   if (nbhdInternalSeg(axis, jx, jz)) return false;
   return ((hash2(jx * 29 + (axis === 'x' ? 11 : 3), jz * 23 + (axis === 'x' ? 5 : 17)) >>> 9) & 1) === 1;
@@ -512,7 +514,12 @@ function segCandidate(axis, jx, jz) {
   }
   return (segHashOf(axis, jx, jz) & 0xFF) < 18;
 }
+// The river: one east-west line of street segments at junction row RIVER_ROW carries water, not traffic. Each north-south
+// street that crosses it is a bridge (js/world.js, closedStreets). No neighbourhood or plaza may sit on the river row.
+export const RIVER_ROW = 8;
+export function riverSeg(axis, jx, jz) { return axis === 'x' && jz === RIVER_ROW; }
 export function segClosed(axis, jx, jz) {
+  if (riverSeg(axis, jx, jz)) return true;
   const key = axis + jx + ',' + jz;
   let v = closedCache.get(key);
   if (v !== undefined) return v;
@@ -566,6 +573,7 @@ export function nearClosedStreet(x, z, margin) {
 const plazaCache = new Map();
 const plazaPrio = (jx, jz) => hash2(jx * 5 + 1, jz * 5 + 2) >>> 0;
 function plazaEligible(jx, jz) {
+  if (jz === RIVER_ROW) return false;                           // the river runs along this row
   if (nbhdJunction(jx, jz)) return false;                        // a neighbourhood has no island
   if (jx === 0 || jz === 0) return false;                       // main roads carry flyovers: keep plazas off them
   if (besideFlyover(jx, jz)) return false;                      // the cut corner would swallow the island
