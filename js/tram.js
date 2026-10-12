@@ -39,7 +39,7 @@ let spawnT = 6, nextId = 1;
 
 // Which lines carry rails: a column or row index k. The main roads (0) never do.
 export function isTramLine(axis, k) {
-  return k !== 0 && hash2(k, axis === 'z' ? 77 : 91) % 6 === 0;
+  return k !== 0 && hash2(k, axis === 'z' ? 77 : 91) % 3 === 0;
 }
 // Whether the street segment from junction (jx, jz) to its next one along the axis may carry rails.
 export function tramSegment(axis, jx, jz) {
@@ -98,8 +98,8 @@ export function tramRails({ add, box, mat, prop, x0, z0, cx, cz }) {
   const rail = mat(0xa9afb5), sleeper = mat(0x5e4b38), wire = mat(0x2b2b2b);
   const mid = CHUNK / 2;
   if (tramLaid('z', cx, cz)) {
-    add(box(0.12, 0.14, CHUNK, rail, x0 - GAUGE, 0.09, z0 + mid, false));
-    add(box(0.12, 0.14, CHUNK, rail, x0 + GAUGE, 0.09, z0 + mid, false));
+    add(box(0.14, 0.2, CHUNK, rail, x0 - GAUGE, 0.12, z0 + mid, false));
+    add(box(0.14, 0.2, CHUNK, rail, x0 + GAUGE, 0.12, z0 + mid, false));
     for (let t = 1.1; t < CHUNK; t += 2.2) add(box(2.6, 0.12, 0.26, sleeper, x0, 0.06, z0 + t, false));
     add(box(0.06, 0.06, CHUNK, wire, x0, WIRE_H, z0 + mid, false));                       // contact wire along the track
     add(box(2 * MAST_X, 0.05, 0.05, wire, x0, WIRE_H, z0 + mid, false));                  // span wire across it
@@ -107,8 +107,8 @@ export function tramRails({ add, box, mat, prop, x0, z0, cx, cz }) {
     prop('tramMast', x0 + MAST_X, z0 + mid, 0);
   }
   if (tramLaid('x', cx, cz)) {
-    add(box(CHUNK, 0.14, 0.12, rail, x0 + mid, 0.09, z0 - GAUGE, false));
-    add(box(CHUNK, 0.14, 0.12, rail, x0 + mid, 0.09, z0 + GAUGE, false));
+    add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 - GAUGE, false));
+    add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 + GAUGE, false));
     for (let t = 1.1; t < CHUNK; t += 2.2) add(box(0.26, 0.12, 2.6, sleeper, x0 + t, 0.06, z0, false));
     add(box(CHUNK, 0.06, 0.06, wire, x0 + mid, WIRE_H, z0, false));
     add(box(0.05, 0.05, 2 * MAST_X, wire, x0 + mid, WIRE_H, z0, false));

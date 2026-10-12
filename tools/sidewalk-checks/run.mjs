@@ -1262,9 +1262,12 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
         masts++;
         const mx = axis === 'z' ? i * CHUNK + off : i * CHUNK + CHUNK / 2, mz = axis === 'z' ? j * CHUNK + CHUNK / 2 : j * CHUNK + off;
         // the mast is a prop of its chunk, a breakable one; a tree may stand by it (trees are placed at random on the verge)
-        const pr = [...chunks.values()].flatMap(ch => ch.props).find(q => q.kind === 'tramMast' && Math.hypot(q.x - mx, q.z - mz) < 0.5);
-        if (pr) mastFound++;
-        const hits = world.solidsNear(mx, mz, 0.3).filter(so => so.kind !== 'tree' && Math.abs(mx - so.x) < so.hx + 0.3 && Math.abs(mz - so.z) < so.hz + 0.3);
+        // the prop may have been moved off a buried spot by freeStreetProps, so the test is at its own position
+        const pr = [...chunks.values()].flatMap(ch => ch.props).filter(q => q.kind === 'tramMast' && !q.broken)
+          .sort((a, b) => Math.hypot(a.x - mx, a.z - mz) - Math.hypot(b.x - mx, b.z - mz))[0];
+        if (!pr || Math.hypot(pr.x - mx, pr.z - mz) > 9) continue;
+        mastFound++;
+        const hits = world.solidsNear(pr.x, pr.z, 0.3).filter(so => so.kind !== 'tree' && Math.abs(pr.x - so.x) < so.hx + 0.3 && Math.abs(pr.z - so.z) < so.hz + 0.3);
         if (hits.length) mastUnder++;
       }
     }
