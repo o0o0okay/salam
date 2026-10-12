@@ -66,6 +66,63 @@ function navWaypoint(p, tx, tz) {
   else { if (Math.abs(p.x - rx) < Math.abs(p.z - rz)) { wx = rx; wz = p.z; } else { wx = p.x; wz = rz; } }
   p.navX = wx; p.navZ = wz;
 }
+// ---------- ROUTE THROUGH THE GAPS ----------
+// navWaypoint only knows the road grid. When the straight line to the player is blocked and he is in a gap the grid
+// does not reach (a passage between buildings, a car lot, a service lane), the pursuer searches the ground itself: a
+// breadth-first search over 0.6 m cells that are free for its own half width at its own height, within ROUTE.R metres
+// of it. The route is then cut to the furthest point on it that the pursuer can see straight to, and that point is
+// the aim until the next search (a few tenths of a second later).
+const ROUTE = { cell: 0.6, R: 18, reach: 1.5, fit: 1.0, far: 80 };   // fit: the share of the half width the search keeps clear of walls (the collision is an exact box test, not a square)
+const RN = Math.round(2 * ROUTE.R / ROUTE.cell) + 1;               // grid side in cells (61)
+const RN2 = RN * RN;
+const _rSt = new Uint8Array(RN2), _rPar = new Int32Array(RN2), _rQ = new Int32Array(RN2);   // 0 unseen, 1 free, 2 blocked
+const _rNb = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+// Can the pursuer see straight to (x, z) with its half width between it and the point?
+function clearTo(p, x, z, m) {
+  const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(d / ROUTE.cell));
+  for (let i = 1; i < n; i++) { const t = i / n; if (solidAt(p.x + dx * t, p.z + dz * t, m, p.y)) return false; }
+  return true;
+}
+// The aim for a pursuer that cannot see the player: the furthest point of a route to him that it can see straight to,
+// or null when there is no route inside the search square (or the player is already within reach).
+function findRoute(p, tx, tz) {
+  const m = p.box.e2 * ROUTE.fit, h = ROUTE.cell, ox = p.x - ROUTE.R, oz = p.z - ROUTE.R, mid = (RN - 1) / 2;
+  _rSt.fill(0);
+  let head = 0, tail = 0, found = -1, best = -1, bestD = Infinity;
+  const s0 = mid * RN + mid;
+  _rQ[tail++] = s0; _rSt[s0] = 1; _rPar[s0] = -1;
+  while (head < tail) {
+    const c = _rQ[head++], i = c % RN, j = (c - i) / RN;
+    const dG = Math.hypot(ox + i * h - tx, oz + j * h - tz);
+    if (dG <= ROUTE.reach) { found = c; break; }
+    if (dG < bestD) { bestD = dG; best = c; }
+    for (const [di, dj] of _rNb) {
+      const ni = i + di, nj = j + dj;
+      if (ni < 0 || nj < 0 || ni >= RN || nj >= RN) continue;
+      const nc = nj * RN + ni;
+      if (_rSt[nc]) continue;
+      if (solidAt(ox + ni * h, oz + nj * h, m, p.y)) { _rSt[nc] = 2; continue; }
+      _rSt[nc] = 1; _rPar[nc] = c; _rQ[tail++] = nc;
+    }
+  }
+  if (found < 0) {
+    // The player is beyond the square: head for the reachable cell nearest him, when that is clearly closer than the
+    // pursuer is now. Used within ROUTE.far only; beyond it the road grid (navWaypoint) owns the aim.
+    if (best < 0 || best === s0 || Math.hypot(p.x - tx, p.z - tz) > ROUTE.far || bestD > Math.hypot(p.x - tx, p.z - tz) - 3) return null;
+    found = best;
+  }
+  if (found === s0) return null;
+  const pts = [];
+  for (let c = found; c >= 0; c = _rPar[c]) { const i = c % RN, j = (c - i) / RN; pts.push({ x: ox + i * h, z: oz + j * h }); }
+  // pts runs from the player's end back to the pursuer. The aim is the point nearest the player's end that the pursuer
+  // can see straight to, within 25 m (its own cell is always visible, so the search must not start from the pursuer's end)
+  for (let k = 0; k < pts.length; k++) {
+    if (Math.hypot(pts[k].x - p.x, pts[k].z - p.z) > 25) continue;
+    if (clearTo(p, pts[k].x, pts[k].z, m)) return pts[k];
+  }
+  return null;
+}
+
 const _ramp = { x: 0, z: 0 }, _lane = { x: 0, z: 0 };
 // ---------- BRIDGE TRAP ----------
 // A player who stays up on a flyover's deck, and stays slow there, is trapped. Once HOLD_DWELL seconds have passed, the
@@ -227,10 +284,25 @@ export function policeAI(p, dt) {
   p.navT -= dt;
   if (p.navT <= 0) {
     p.navT = 0.25 + Math.random() * 0.14;
-    p.navOn = !ramming && Math.hypot(tx - p.x, tz - p.z) > 20 && losBlocked(p, tx, tz);
+    const dN = Math.hypot(tx - p.x, tz - p.z);
+    p.navOn = !ramming && dN > 20 && losBlocked(p, tx, tz);
     if (p.navOn) navWaypoint(p, tx, tz);
+    // A route through the gaps, at any range: the straight line is blocked, and neither the pursuer nor the player is
+    // on the structure (there the bridge rules below own the aim).
+    p.routed = false;
+    const plStruct = structureLevel(player.x, player.y, player.z);
+    if (!ramming && dN > 3 && losBlocked(p, tx, tz) && p.y < 1.2 && !structureLevel(p.x, p.y, p.z) &&
+        !(plStruct && plStruct.level === 'deck')) {
+      const wp = findRoute(p, tx, tz);
+      if (wp) { p.routed = true; p.navOn = true; p.navX = wp.x; p.navZ = wp.z; }
+    }
   }
-  if (p.navOn) { tx = p.navX; tz = p.navZ; if (Math.hypot(tx - p.x, tz - p.z) < 9) p.navT = 0; }
+  if (p.navOn) {
+    tx = p.navX; tz = p.navZ;
+    const dW = Math.hypot(tx - p.x, tz - p.z);
+    if (p.routed) { if (dW < 3) p.navT = Math.min(p.navT, 0.1); }     // a route point reached: search again soon
+    else if (dW < 9) p.navT = 0;
+  }
   // ---------- THE BRIDGE ----------
   // A player who gets up on a flyover used to be untouchable: every pursuer at grade drove under the deck and
   // milled about below it, because the embankment read as a wall on every probe the AI could make. Two things

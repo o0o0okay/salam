@@ -269,5 +269,24 @@ for (const [name, player, cops, limit] of cases) {
   else ok('the player in the junction box beneath the deck was never trapped (no unit took a trap role)');
 }
 
+// ---- narrow gaps: a pursuer finds its own way into a gap the road grid does not reach ----
+// Two gaps off the grid (a shop front on one side, a parked car on the other, about 2.8 m between them). The player
+// fits through; the old pursuit stalled against the walls and reached him in 9 of 16 runs. Eight random streams for
+// each gap, 26 s each: at least 10 of the 16 must reach him (the route search reaches 12).
+{
+  const gaps = [{ x: -123, z: -63 }, { x: 103, z: 99 }];
+  const keep = process.env.CHASE_SEED;
+  let reached = 0, total = 0;
+  for (const g of gaps) for (let sd = 1; sd <= 8; sd++) {
+    process.env.CHASE_SEED = String(1000 * sd + 7);
+    const tr = chase({ x: g.x, z: g.z, h: Math.PI / 2, y: 0 }, [{ x: g.x - 30, z: g.z, h: Math.PI / 2, tier: 1, role: 'chaser' }], 26)[0];
+    total++;
+    if (tr.some(p => p.d < 4)) reached++;
+  }
+  if (keep === undefined) delete process.env.CHASE_SEED; else process.env.CHASE_SEED = keep;
+  if (reached >= 10) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+}
+
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);
