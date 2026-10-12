@@ -57,7 +57,7 @@ export function districtOf(cx, cz) {
 
 // The block-type mix of each district: [type, upper limit of t] in order. The last entry takes whatever is left.
 const MIX = {
-  old:        [['downtown', 0.6], ['shops', 0.75], ['bank', 0.8], ['park', 0.87], ['commercial', 1]],
+  old:        [['downtown', 0.45], ['bazaar', 0.6], ['shops', 0.75], ['bank', 0.8], ['park', 0.87], ['commercial', 1]],
   industrial: [['factory', 0.45], ['industrial', 0.75], ['fuel', 0.85], ['fire', 0.9], ['shops', 0.95], ['park', 1]],
   centre:     [['downtown', 0.42], ['commercial', 0.62], ['bank', 0.72], ['shops', 0.8], ['park', 0.87], ['hospital', 0.91], ['downtown', 1]],
   suburb:     [['suburb', 0.62], ['park', 0.8], ['school', 0.87], ['shops', 0.94], ['fuel', 1]],

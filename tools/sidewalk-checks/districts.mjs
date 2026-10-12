@@ -50,7 +50,7 @@ for (const d of DISTRICTS) {
 
 // 3. the block mix: only the declared types, in the declared shares (a fine grid of rolls).
 const want = {
-  old: { downtown: 0.6, shops: 0.15, bank: 0.05, park: 0.07, commercial: 0.13 },
+  old: { downtown: 0.45, bazaar: 0.15, shops: 0.15, bank: 0.05, park: 0.07, commercial: 0.13 },
   industrial: { factory: 0.45, industrial: 0.3, fuel: 0.1, fire: 0.05, shops: 0.05, park: 0.05 },
   centre: { downtown: 0.51, commercial: 0.2, bank: 0.1, shops: 0.08, park: 0.07, hospital: 0.04 },
   suburb: { suburb: 0.62, park: 0.18, school: 0.07, shops: 0.07, fuel: 0.06 },

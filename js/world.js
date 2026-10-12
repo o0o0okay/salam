@@ -1645,6 +1645,45 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ram
   }
 }
 
+// The covered bazaar of the old town (js/districts.js, 'bazaar'): a long brick hall with a glazed roof on a paved court,
+// a row of stall counters with striped canopies down each side and an open aisle between them. The hall is a building
+// (solid long walls, solid counters) and stays on the block's own paving, inside the same pad as the shopping street.
+function bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
+  const HALF_L = 25, HALF_W = 10, WALL_H = 9, RISE = 4;
+  padBox(56, 56, mat(0xd8cbb2), bxo - bx, bzo - bz);                               // the paving under the hall
+  const wallC = OLD_TOWN_WALLS[Math.floor(rng() * OLD_TOWN_WALLS.length)];
+  const wallM = facadeMat(wallC), roofM = mat(0x9fbfc8, { transparent: true, opacity: 0.6 }), dark = mat(0x3c434b);
+  const L = HALF_L * 2;
+  for (const side of [-1, 1]) {
+    add(box(L, WALL_H, 0.8, wallM, bxo, WALL_H / 2, bzo + side * HALF_W));          // a long wall
+    for (let x = -HALF_L; x <= HALF_L + 0.01; x += 6) add(box(0.9, WALL_H + 0.4, 0.9, wallM, bxo + x, (WALL_H + 0.4) / 2, bzo + side * HALF_W));
+    solid(bxo, bzo + side * HALF_W, HALF_L, 0.4, 'building');
+  }
+  // the glazed roof: two slopes meeting at a ridge, the eaves on the long walls
+  const ang = Math.atan2(RISE, HALF_W), slopeLen = Math.hypot(HALF_W, RISE) + 0.3;
+  for (const side of [-1, 1]) {
+    const sl = box(L + 0.6, 0.3, slopeLen, roofM, bxo, WALL_H + RISE / 2 + 0.1, bzo + side * HALF_W / 2);
+    sl.rotation.x = side * ang;
+    add(sl);
+  }
+  add(box(L + 0.6, 0.4, 0.5, dark, bxo, WALL_H + RISE + 0.1, bzo, false));           // the ridge
+  // the stalls: counters with goods on them, and a striped canopy over each
+  const canopy = [0xc0392b, 0x2e86ab, 0xe0a526, 0x3f8f5a, 0x8e5a9e, 0xf0ece0];
+  const goods = [0xd9534f, 0x3b82c4, 0xf2b134, 0x4caf50, 0xe8e8e8, 0x8b5a2b];
+  for (const side of [-1, 1]) {
+    const z = bzo + side * (HALF_W - 3.2);
+    for (let x = -HALF_L + 3; x <= HALF_L - 3; x += 4.4) {
+      if (rng() < 0.15) continue;                                                    // a gap now and then
+      const ox = bxo + x;
+      add(box(2.2, 1.0, 1.0, dark, ox, 0.5, z, false));                             // the counter
+      add(box(1.8, 0.25, 0.7, mat(goods[Math.floor(rng() * goods.length)]), ox, 1.12, z, false));
+      solid(ox, z, 1.1, 0.5, 'container');
+      add(box(2.5, 0.12, 1.6, mat(canopy[Math.floor(rng() * canopy.length)]), ox, 2.7, z + side * 0.2, false));
+      for (const sx of [-1, 1]) add(cyl(0.04, 0.04, 2.7, 5, dark, ox + sx * 1.15, 1.35, z + side * 0.7, false));
+    }
+  }
+}
+
 // The power poles and the wire runs between them. The runs are only planned here: they are drawn by powerLines once the
 // poles are relocated (freeStreetProps), so the wires meet the poles where they really stand.
 function utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides }) {
@@ -2105,6 +2144,8 @@ function generateChunk(cx, cz, defer = false) {
     fuelBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid });
   } else if (type === 'shops') {
     shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree });
+  } else if (type === 'bazaar') {
+    bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
   } else if (type === 'factory') {
     factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree });
   } else { // industrial
