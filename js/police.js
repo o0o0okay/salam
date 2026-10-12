@@ -14,7 +14,7 @@ function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
     : { x: x + rnd(-spread, spread), z: Math.round((z + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3) };
 }
 function losBlocked(p, tx, tz, y = 1.2) {
-  const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(14, Math.ceil(Math.min(d, 90) / 6));
+  const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(90, Math.ceil(Math.min(d, 90)));   // a sample each metre: a corner between two samples 6 m apart let a pursuer drive straight into it
   for (let i = 1; i <= n; i++) { const t = (i / n) * Math.min(1, 90 / d); if (solidAt(p.x + dx * t, p.z + dz * t, 1.2, y)) return true; }
   return false;
 }
@@ -409,6 +409,10 @@ export function policeAI(p, dt) {
   if (bridgeTurn && Math.abs(diff) > 0.65 && vf > 12) throttle = -1;
   if (holdBrake && vf > 3) throttle = -1;
   if (blockerHold) throttle = vf > 2 ? -1 : 0;
+  // Close to the player and not yet pointing at him: brake. A fast car that passes him at 6 m has to swing back wide and
+  // comes to rest against the wall of the alley it has just passed.
+  // Not beside a flyover: the bridge rules above and below own the speed there.
+  if (!ramming && p.role === 'chaser' && p.y <= 1.2 && d < 12 && Math.abs(diff) > 0.5 && vf > 8 && !pf && !flyoverNear(p.x, p.z, roadEdge() + 16)) throttle = -1;
   if (d > 14) {
     const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);

@@ -288,5 +288,54 @@ for (const [name, player, cops, limit] of cases) {
   else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
 }
 
+// ---- alley mouths: a pursuer on the avenue finds the way into a narrow street where the player hides ----
+// Thirty fixed scenes (a scan of the city's street canyons, 5-14 m wide between solids): the player sits in the street, two
+// pursuers start 22-30 m away on open ground with the line of sight blocked. The old pursuit drove into the street mouth and
+// stalled against its corners. [player x, z, street axis (1 = along x), pursuer x, z]. Each pursuer counts; at least 45 of the
+// 60 must reach him within 30 s (the committed pursuit reached 42 of 60).
+{
+  const scenes = [
+    [-150, -106, 0, -150, -84],
+    [-148, 144, 1, -142, 165],
+    [-142, -56, 1, -136, -35],
+    [-142, -10, 1, -142, -32],
+    [-138, 44, 0, -138, 22],
+    [-122, 106, 1, -106, 122],
+    [-116, -138, 0, -116, -116],
+    [-108, 12, 0, -87, 6],
+    [-102, -94, 1, -86, -78],
+    [-96, -30, 1, -85, -11],
+    [-96, 62, 0, -96, 84],
+    [-68, 124, 1, -90, 124],
+    [-60, 32, 0, -60, 54],
+    [-50, -68, 0, -50, -46],
+    [12, 14, 1, 34, 14],
+    [14, 102, 1, 14, 124],
+    [24, -120, 0, 24, -98],
+    [28, 140, 0, 28, 162],
+    [32, -40, 1, 11, -46],
+    [44, 46, 0, 21, 40],
+    [56, 110, 0, 56, 132],
+    [62, -148, 0, 81, -137],
+    [62, -96, 0, 83, -102],
+    [68, -20, 1, 89, -26],
+    [104, -40, 0, 120, -56],
+    [106, -132, 0, 122, -116],
+    [110, 12, 0, 121, -7],
+    [132, -94, 0, 132, -72],
+    [146, -36, 1, 152, -15],
+    [146, 30, 1, 152, 51]
+  ];
+  let reached = 0, runs = 0;
+  for (const [px, pz, ax, qx, qz] of scenes) {
+    const h = ax ? Math.PI / 2 : 0, hc = Math.atan2(px - qx, pz - qz);
+    const cops = [{ x: qx, z: qz, h: hc, tier: 2, role: 'chaser' }, { x: qx + 3 * Math.cos(hc), z: qz - 3 * Math.sin(hc), h: hc, tier: 2, role: 'chaser' }];
+    const tr = chase({ x: px, z: pz, h, y: 0 }, cops, 30);
+    for (const t of tr) { runs++; if (t.some(p => p.d < 4)) reached++; }
+  }
+  if (reached >= 45) ok(`a pursuer reached the player in ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
+}
+
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
 process.exit(fails ? 1 : 0);
