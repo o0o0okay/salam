@@ -44,6 +44,11 @@ export function build() {
     part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
     src = part + '\n' + src;
   }
+  // ... and the trams: generateChunk lays their rails through tramRails(), so the rail rules are stitched in too.
+  // Only the rail rules run here; the tram itself (scene, player, cars) is never touched by the chunk checks.
+  let tramSrc = fs.readFileSync(path.join(repo, 'js/tram.js'), 'utf8');
+  tramSrc = tramSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = tramSrc + '\n' + src;
 
   const stubs = `
 // geom counts merged pieces, geosCreated/geosDisposed count BufferGeometry objects: one block must not leave
@@ -129,7 +134,7 @@ const ck=(cx,cz)=>cx*100003+cz;
   src = src.replace('  bakeRing(sw.curb', '  swCapture.set(ch, sw);\n  bakeRing(sw.curb');
   const out = stubs + '\n' + src +
     '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, solidsNear, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, bridgeHeight, surfaceAt, structureLevel, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, nbhdPlan, nbhdOf, nbhdInterior, nbhdJunction, siteSpots };\n' +
-    'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\n';
+    'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\nexport { tramSegment, isTramLine, ck as chunkKey };\n';
   const file = path.join(os.tmpdir(), 'salam-world.test.mjs');
   fs.writeFileSync(file, out);
   return file;

@@ -12,7 +12,7 @@ import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { updateChunkSmoke } from './chimneySmoke.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
+import { collideSolids, collideTrams, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
@@ -21,6 +21,7 @@ import { civAI, spawnCiv, CIV_MAX, CIV_MAX_MENU } from './civilians.js';
 import { updateTrafficLights } from './trafficLights.js';
 import { updateWanted, nearMissAward } from './rules.js';
 import { updateHiding } from './hide.js';
+import { updateTrams } from './tram.js';
 import { updateParking, updateRooftops } from './traffic.js';
 import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
@@ -39,7 +40,7 @@ export function update(dt) {
   game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
-  if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
+  if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); updateTrams(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
   /* --- player --- */
   if (!player.dead) {
     let inp;
@@ -167,7 +168,7 @@ export function update(dt) {
     if (f.life <= 0) fires.splice(i, 1);
   }
   /* --- collisions --- */
-  for (const c of cars) { if (c.dead) continue; collideSolids(c); collideFlyover(c); collideProps(c); }
+  for (const c of cars) { if (c.dead) continue; collideSolids(c); collideTrams(c); collideFlyover(c); collideProps(c); }
   tickPumpFuses(sdt);                                          // dispensers that caught the fire
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const A = cars[i], B = cars[j]; if (A.dead || B.dead) continue;

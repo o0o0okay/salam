@@ -4,7 +4,7 @@ import { modulePath } from './harness.mjs';
 import { heliModulePath } from './heli-harness.mjs';
 
 const world = await import(modulePath);
-const { __merge, __checked, textBlocks, generateChunk, disposeChunk, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
+const { __merge, __checked, textBlocks, generateChunk, disposeChunk, chunkKey, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
 // every vehicle kind the game can build (js/carModels.js); a bay asking for anything else is a bug
 const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'semi', 'semibox', 'flatbed', 'lowboy', 'logtruck', 'taxi', 'pickup', 'bus', 'schoolbus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
 
@@ -1224,6 +1224,41 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (!ends) bad('no power wires in the sample: the check would be empty');
     if (astray) bad(`${astray} power wire end(s) do not meet a pole in the finished world`);
     if (ends && !astray) console.log(`power wires meet their poles: ${ends} wire ends in the sample, all on a standing pole (${outside} run into blocks outside it)`);
+  }
+  // ---- 2d-12) trams: the rails lie on the centre line of the street segments that carry them. A rail on a closed or
+  // filled street, or one with a solid (a bench, a pole, a parked car) standing on it, is a rail in the wrong place.
+  // The sample must hold rails, or the check would pass for free. (tramSegment, tram.js)
+  {
+    const { segClosed, segFilled } = await import(new URL('../../js/flyover.js', import.meta.url).href);
+    // The rails of a segment belong to its own chunk, and the probes reach into the next chunk along it, so both are generated.
+    const have = new Set([...chunks.values()].map(ch => ch.cx + ',' + ch.cz));
+    // solidAt reads the chunks map, so a chunk made here is put in it for the probes and taken out again after them.
+    const made = new Set(), madeCh = [];
+    const need = (cx, cz) => {
+      const key = cx + ',' + cz;
+      if (have.has(key) || made.has(key)) return;
+      made.add(key); const ch = generateChunk(cx, cz, false); madeCh.push(ch); chunks.set(chunkKey(cx, cz), ch);
+    };
+    let segs = 0, onClosed = 0, probes = 0, under = 0;
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const axis of ['x', 'z']) {
+      if (!world.tramSegment(axis, i, j)) continue;
+      if (segClosed(axis, i, j) || segFilled(axis, i, j)) { onClosed++; continue; }
+      need(i, j); need(axis === 'z' ? i : i + 1, axis === 'z' ? j + 1 : j);
+      segs++;
+      for (let t = 2; t < CHUNK; t += 4) {
+        const x = axis === 'z' ? i * CHUNK : i * CHUNK + t, z = axis === 'z' ? j * CHUNK + t : j * CHUNK;
+        for (const off of [-0.72, 0.72]) {
+          probes++;
+          const px = axis === 'z' ? x + off : x, pz = axis === 'z' ? z : z + off;
+          if (world.solidAt(px, pz, 0.15)) under++;
+        }
+      }
+    }
+    for (const ch of madeCh) { chunks.delete(chunkKey(ch.cx, ch.cz)); disposeChunk(ch); }
+    if (!segs) bad('no tram-eligible street segments in the sample: the check would be empty');
+    if (onClosed) bad(`${onClosed} tram-eligible segment(s) lie on a closed or filled street`);
+    if (under) bad(`${under} rail probe(s) stand inside a solid`);
+    if (segs && !onClosed && !under) console.log(`tram rails: ${segs} rail segments in the sample (${probes} rail probes), none on a closed street, none under a solid`);
   }
   // ---- 2d-11) the radar draws only the streets that run: a closed street (a three-way junction) or a filled one is grass,
   // so no radar strip may cover one, and the sample must hold some, or the check would pass for free. (radarStreets, flyover.js)

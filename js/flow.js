@@ -4,6 +4,7 @@ import { scene } from './renderer.js';
 import { game, cars, spikes, flying, fallingTrees, geysers, fires, player, sight, calcScore } from './state.js';
 import { PLAYER_PARAMS } from './config.js';
 import { createCar, removeCar } from './vehicle.js';
+import { clearTrams } from './tram.js';
 import { chunks, disposeChunk, updateChunks, warmTextCache } from './world.js';
 import { clearParticles, explosion } from './particles.js';
 import { ASSET } from './assets.js';
@@ -18,6 +19,7 @@ export function resetWorld() {
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;
   for (const ch of chunks.values()) disposeChunk(ch); chunks.clear();
+  clearTrams();
   clearParticles(); $('toasts').innerHTML = '';
   Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
     nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, roadblockT: 14, roadblockGroup: null, isNight: false,

@@ -11,6 +11,7 @@ import { nearChunks, solidsNear, isHeavyParked, parkedShove, parkedDamage } from
 import { insideFootprint, parapetPush } from './flyover.js';
 import { flyingFloor } from './flying.js';
 import { carBox, createCar } from './vehicle.js';
+import { trams } from './tram.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
 import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx } from './damage.js';
@@ -120,6 +121,25 @@ export function collideSolids(c) {
     c.lastWall = game.time;
   }
 }
+// A tram is solid for every car: a car is pushed out of it and hurt when it arrives fast. The tram itself is not moved.
+export function collideTrams(c) {
+  const b = carBox(c);
+  for (const t of trams) {
+    if (Math.abs(t.x - c.x) > TRAM_REACH || Math.abs(t.z - c.z) > TRAM_REACH) continue;
+    if (!sat(b, t.box)) continue;
+    const nx = hit.nx, nz = hit.nz, d = hit.depth;
+    c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
+    const vn = c.vx * nx + c.vz * nz;
+    if (vn > 0) {
+      c.vx -= 1.1 * vn * nx; c.vz -= 1.1 * vn * nz;
+      c.vx *= 0.6; c.vz *= 0.6;
+      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer, c.y);
+      if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 6) * 0.9); else hurtCarEnv(c, Math.max(0, vn - 6) * 1.1);
+    }
+    c.lastWall = game.time;
+  }
+}
+const TRAM_REACH = 20;                  // a tram is 30 m long: its half length plus a car's half length, with margin
 // The flyover's parapets, for the cars that are actually up on the structure. A car on the deck is held inside
 // them like a wall (with a scrape, and a small hit if it arrives hard); a car at grade is never touched, so the
 // crossing street keeps passing under the deck and a car under the bridge is not stopped by a parapet up on
