@@ -129,12 +129,14 @@ export function collideTrams(c) {
     if (!sat(b, t.box)) continue;
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
-    const vn = c.vx * nx + c.vz * nz;
-    if (vn > 0) {
-      c.vx -= 1.1 * vn * nx; c.vz -= 1.1 * vn * nz;
-      c.vx *= 0.6; c.vz *= 0.6;
-      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer, c.y);
-      if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 6) * 0.9); else hurtCarEnv(c, Math.max(0, vn - 6) * 1.1);
+    // The tram is far heavier than a car: the car takes the blow, and is carried along the track a little.
+    const fx = t.box.ux, fz = t.box.uz;                   // the tram's box points the way it runs
+    c.vx += fx * t.speed * 0.5; c.vz += fz * t.speed * 0.5;
+    if ((c.tramHitAt ?? -9) < game.time - 0.5) {          // one blow per half second of contact
+      c.tramHitAt = game.time;
+      const amt = 6 + t.speed * 2.2;
+      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, t.speed, nx, nz, c.isPlayer, c.y);
+      if (c.isPlayer) hurtPlayer(amt); else hurtCar(c, amt);
     }
     c.lastWall = game.time;
   }
