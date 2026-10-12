@@ -58,6 +58,8 @@ import { ESTATE_ROAD, ESTATE_DISC, planEstate, utilityNbhd, nbhdPlan, nbhdClip, 
 // Paints of the brick walk-ups (red, brown, cream stone, sage, rose, teal, mustard, slate) and of the brick houses
 // in the suburbs: the palette of the reference street art, where no two neighbouring fronts match.
 const WALKUP_WALLS = [0xa9503a, 0x8c5a40, 0xd9c9a3, 0x7d9c73, 0xd98f9a, 0x4f9c98, 0xd6a846, 0x6f86a6];
+// The old town's walls: fired brick and aged sandstone, no painted render (js/districts.js, 'old').
+const OLD_TOWN_WALLS = [0xa9503a, 0x8c5a40, 0xb0643c, 0x9a4e36, 0xc4875a, 0xd6c7a1, 0xc9a46a];
 const HOUSE_BRICK = [0xa9503a, 0x8c5a40, 0xd6c7a1, 0x9a6a58];
 const IRON = 0x3b3f45;
 import { buildCar, CAR_DIMS } from './carModels.js';
@@ -787,6 +789,7 @@ function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng,
   const loZ = z0 + PAD_IN + (atGradeSide(cx, cz, 2) ? FLY.frontage : 0);
   const hiZ = z0 + CHUNK - PAD_IN - (atGradeSide(cx, cz, 3) ? FLY.frontage : 0);
   const walkUps = [];
+  const oldTown = districtOf(cx, cz) === 'old';          // the old town: low brick walk-ups only, no glass towers
   for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
     // Place buildings within effective bounds: centre each cell of the 2x2 grid, then clamp so the
     // building's half-extent (up to 12.5 m) stays inside [lo, hi].
@@ -797,14 +800,15 @@ function downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng,
       tree(lx - 8, lz - 8, 0.25); tree(lx + 8, lz + 8, 0.25); if (rng() < 0.6) tree(lx + 8, lz - 8, 0.25);
       continue;
     }
-    const w = r(16, 25), d = r(16, 25), h = 14 + Math.pow(rng(), 1.6) * 48;
+    const w = r(16, 25), d = r(16, 25), h = oldTown ? 10 + Math.pow(rng(), 1.6) * 16 : 14 + Math.pow(rng(), 1.6) * 48;
     // Clamp building centre so the whole footprint stays within effective bounds
     const clx = Math.max(loX + w / 2, Math.min(hiX - w / 2, lx));
     const clz = Math.max(loZ + d / 2, Math.min(hiZ - d / 2, lz));
     // A mid-rise under ~32 m is a walk-up in brick (brownstone / shop-house); the taller blocks keep the glass.
-    const walkUp = h <= 32 && rng() < 0.85;
+    const walkUp = oldTown || (h <= 32 && rng() < 0.85);
     const geo = makeBuildingGeo(w, h, d);
-    const wm = walkUp ? facadeMat(WALKUP_WALLS[Math.floor(rng() * WALKUP_WALLS.length)])
+    const walls = oldTown ? OLD_TOWN_WALLS : WALKUP_WALLS;
+    const wm = walkUp ? facadeMat(walls[Math.floor(rng() * walls.length)])
                       : ASSET.windowMats[Math.floor(rng() * ASSET.windowMats.length)];
     const mesh = new THREE.Mesh(geo, [wm, wm, ASSET.roofMat, ASSET.roofMat, wm, wm]);
     mesh.position.set(clx, h / 2 + 0.15, clz); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); ch.geos.push(geo);
@@ -1585,7 +1589,7 @@ function factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree }) {
 
 function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ramp, rng, solid }) {
   padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
-  const wc = [0x6c8ebf, 0xb8b2a7, 0xc98a5e, 0x7fa38a];
+  const wc = [0x7b838c, 0x5f6e66, 0x8f6a4c, 0x6a7f8f];      // the industrial district's sheds: sheet metal in grey, sage, rust and slate
   for (let i = 0; i < 2; i++) {
     const x = bx0 + 15 + i * 27 + (bxo - bx), z = bz0 + 17 + (bzo - bz), h = r(8, 13), col = wc[Math.floor(rng() * wc.length)];
     add(box(26, h, 30, mat(col), x, h / 2 + 0.25, z)); add(box(26.6, 0.8, 30.6, mat(0x5a5f68), x, h + 0.65, z));
@@ -2039,7 +2043,7 @@ function generateChunk(cx, cz, defer = false) {
   interchanges({ ch, p, add, ramp, group, r, cx, cz });
   let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
-  const swStyle = pickSidewalkStyle(type, rng);
+  const swStyle = pickSidewalkStyle(type, rng, districtOf(cx, cz));
   const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;
   if (type === 'downtown') {
     downtownBlock({ add, bx, bx0, bz, bz0, ch, cx, cz, group, prop, r, rng, scaffold, solid, tree, x0, z0 });

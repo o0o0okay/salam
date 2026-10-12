@@ -51,13 +51,13 @@ for (const d of DISTRICTS) {
   }
   if (found) districtVisits.push(found);
 }
-const visitedStyles = new Set(), visitedProps = new Set(), visitedShops = new Set();
+const visitedStyles = new Set(), visitedProps = new Set(), visitedShops = new Set(), districtStyles = {};
 // The spawn district is visited last, so the resident 25-block lattice afterwards is the district the player
 // actually starts in: two shopping centres and the pinned hospital, which the car-park checks below inspect.
 for (const [x, z] of [[80, 0], [0, 80], [-80, -80], [160, -160], [400, 240], [-320, 640], ...districtVisits, [0, 0]]) {
   updateChunks(x, z, 999);
   for (const ch of chunks.values()) {
-    const sw = swCapture.get(ch); if (sw) visitedStyles.add(sw.style);
+    const sw = swCapture.get(ch); if (sw) { visitedStyles.add(sw.style); (districtStyles[districtOf(ch.cx, ch.cz)] ||= []).push(sw.style); }
     for (const pr of ch.props) visitedProps.add(pr.kind);
     if ((ch.shops || []).length) visitedShops.add(ch);
   }
@@ -1445,6 +1445,13 @@ for (const ch of chunks.values()) {
 }
 console.log(`sidewalk styles in the sample: ${[...styles].map(([k, v]) => `${k}=${v}`).join('  ')}`);
 for (const name of ['slab', 'panel', 'brick', 'verge']) if (!visitedStyles.has(name)) bad(`style '${name}' never appeared in the places visited`);
+// The old town is paved in stone (js/sidewalks.js pickSidewalkStyle): most of its visited blocks must be slab or brick.
+{
+  const old = districtStyles.old || [], stone = old.filter(st => st === 'slab' || st === 'brick').length;
+  if (!old.length) bad('no old-town block was visited: the old-town check would be empty');
+  else if (stone / old.length < 0.7) bad(`the old town is not paved in stone: ${stone} of ${old.length} visited blocks are slab or brick`);
+  else console.log(`old town paving: ${stone} of ${old.length} visited blocks in stone or brick`);
+}
 
 // ---- 4) street furniture from the reference photos ----
 const propKinds = visitedProps;

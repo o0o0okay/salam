@@ -54,7 +54,9 @@ export const SW_STYLES = {
   brick: { mat: 'paveBrickMat', tile: 2.4, verge: 0,   bed: true },
   verge: { mat: 'pavePanelMat', tile: 4.8, verge: 1.7, bed: false },
 };
-export function pickSidewalkStyle(type, rng) {
+export function pickSidewalkStyle(type, rng, district) {
+  // The old town is paved in stone: the shops, bank, square and high street all take the pale slab, now and then brick.
+  if (district === 'old' && ['downtown', 'shops', 'bank', 'commercial', 'park'].includes(type)) return rng() < 0.85 ? 'slab' : 'brick';
   if (type === 'suburb') return 'verge';                                  // grass verge, suburban walk
   if (type === 'industrial') return 'panel';                              // big weathered concrete panels
   if (type === 'factory') return 'panel';                                 // a works yard is plain concrete
