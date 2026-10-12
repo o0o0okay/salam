@@ -29,6 +29,7 @@
  * drift apart, and the Node suites can check the surface profile without a browser (see run.mjs section 2c-3).
  */
 import { CHUNK, hash2 } from './utils.js';
+import { districtOfNb } from './districts.js';
 
 export const FLY = {
   span: CHUNK,      // streets sit on multiples of the block size
@@ -421,6 +422,7 @@ function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez
 export const NB_BLOCKS = 3;
 function nbhdBase(RX, RZ) {
   if (RX === 0 || RX === -1 || RZ === 0 || RZ === -1) return false;
+  if (districtOfNb(RX, RZ) !== 'suburb') return false;      // estates are a suburb's thing (js/districts.js)
   if ((hash2(RX * 13 + 5, RZ * 7 + 11) & 0xFF) >= 42) return false;
   const x0 = NB_BLOCKS * RX, z0 = NB_BLOCKS * RZ;
   for (let jx = x0; jx <= x0 + NB_BLOCKS; jx++) for (let jz = z0; jz <= z0 + NB_BLOCKS; jz++) {

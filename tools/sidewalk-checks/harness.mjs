@@ -31,6 +31,11 @@ export function build() {
   let flySrc = fs.readFileSync(path.join(repo, 'js/flyover.js'), 'utf8');
   flySrc = flySrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = flySrc + '\n' + src;
+  // ... and the district map (js/districts.js), which js/flyover.js imports (the neighbourhoods are a suburb's thing), so it goes
+  // in front of the interchange too.
+  let distSrc = fs.readFileSync(path.join(repo, 'js/districts.js'), 'utf8');
+  distSrc = distSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = distSrc + '\n' + src;
   // ... and so do the traffic lights: the placement of a junction's signal poles depends on the lane beside a
   // flyover, so the suite has to run the real thing. A stub here used to hide a pole standing in the at-grade
   // lane (it was only a no-op, so nothing could ever notice).

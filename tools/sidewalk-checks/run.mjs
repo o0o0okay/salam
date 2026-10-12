@@ -2,6 +2,7 @@
    Run:  node tools/sidewalk-checks/run.mjs      (exits non-zero when a check fails) */
 import { modulePath } from './harness.mjs';
 import { heliModulePath } from './heli-harness.mjs';
+import { districtOf, DISTRICTS, DIST_NB } from '../../js/districts.js';
 
 const world = await import(modulePath);
 const { __merge, __checked, textBlocks, generateChunk, disposeChunk, chunkKey, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
@@ -39,10 +40,27 @@ const isNosePost = (ch, p) => (ch.flyover?.guards || []).some(g =>
 
 // ---- 1) generate a lattice of blocks: nothing may throw, and no coordinate may be NaN ----
 let spawnStreetTrees = -1;
+// The coverage checks below (styles and street furniture) read every place visited here, not only the resident blocks,
+// so that a district the spawn does not stand in (the city centre) is still seen. One block of each district is visited
+// too: the one nearest the spawn whose district is that kind.
+const districtVisits = [];
+for (const d of DISTRICTS) {
+  let found = null;
+  for (let r = 0; r < 60 && !found; r++) for (let cx = -r; cx <= r && !found; cx++) for (const cz of [-r, r]) {
+    if (districtOf(cx, cz) === d) { found = [cx * CHUNK, cz * CHUNK]; break; }
+  }
+  if (found) districtVisits.push(found);
+}
+const visitedStyles = new Set(), visitedProps = new Set(), visitedShops = new Set();
 // The spawn district is visited last, so the resident 25-block lattice afterwards is the district the player
 // actually starts in: two shopping centres and the pinned hospital, which the car-park checks below inspect.
-for (const [x, z] of [[80, 0], [0, 80], [-80, -80], [160, -160], [400, 240], [-320, 640], [0, 0]]) {
+for (const [x, z] of [[80, 0], [0, 80], [-80, -80], [160, -160], [400, 240], [-320, 640], ...districtVisits, [0, 0]]) {
   updateChunks(x, z, 999);
+  for (const ch of chunks.values()) {
+    const sw = swCapture.get(ch); if (sw) visitedStyles.add(sw.style);
+    for (const pr of ch.props) visitedProps.add(pr.kind);
+    if ((ch.shops || []).length) visitedShops.add(ch);
+  }
   if (x === 0 && z === 0) {
     const home = [...chunks.values()].find(c => c.cx === 0 && c.cz === 0);
     spawnStreetTrees = home.trees.filter(t => radialOf(t.x, t.z, 0, 0) >= 0).length;
@@ -889,7 +907,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
 
   // ---- 2d-4) shops: a shopping street of ten storefronts, all different, none of them in the road ----
   {
-    const shopChunks = [...chunks.values()].filter(ch => (ch.shops || []).length);
+    // every visited shopping block (a parade is only in a shops block, and the spawn district is the city centre)
+    const shopChunks = [...new Set([...visitedShops, ...chunks.values()])].filter(ch => (ch.shops || []).length);
     const pinned = chunks.get(ck(1, -1));
     if (!pinned || !(pinned.shops || []).length) bad('the shopping street pinned at (1,-1) was not generated');
     if (!shopChunks.length) bad('no shops anywhere in the city');
@@ -1425,13 +1444,12 @@ for (const ch of chunks.values()) {
   if (!sw.curb.length) bad(`chunk ${cx},${cz}: no kerb stone baked`);
 }
 console.log(`sidewalk styles in the sample: ${[...styles].map(([k, v]) => `${k}=${v}`).join('  ')}`);
-for (const name of ['slab', 'panel', 'brick', 'verge']) if (!styles.has(name)) bad(`style '${name}' never appeared in 25 blocks`);
+for (const name of ['slab', 'panel', 'brick', 'verge']) if (!visitedStyles.has(name)) bad(`style '${name}' never appeared in the places visited`);
 
 // ---- 4) street furniture from the reference photos ----
-const propKinds = new Set();
-for (const ch of chunks.values()) for (const pr of ch.props) propKinds.add(pr.kind);
+const propKinds = visitedProps;
 console.log(`street props present: ${[...propKinds].sort().join(', ')}`);
-for (const k of ['mailbox', 'meter', 'sandwich', 'hedge']) if (!propKinds.has(k)) bad(`new prop '${k}' was never placed`);
+for (const k of ['mailbox', 'meter', 'sandwich', 'hedge']) if (!propKinds.has(k)) bad(`new prop '${k}' was never placed in the places visited`);
 
 // ---- 5) ring geometry of a plain block: band edges must line up with the constants ----
 const p = world.sidewalkPieces(0, 0, 'slab');

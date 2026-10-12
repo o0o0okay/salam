@@ -43,6 +43,7 @@ import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
 import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, FUEL_BRANDS, textBlocks } from "./campus.js";
 import { tramRails, tramWires } from './tram.js';
+import { districtOf, pickBlockType } from './districts.js';
 import { buildSportMesh, SPORT_KINDS, SPORT_SLOTS, SPORT_DEFS, sportScale } from "./sports.js";
 import { buildFactoryMesh, FACTORY_KINDS } from "./factory.js";
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
@@ -580,10 +581,7 @@ function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
     : (cx === -1 && cz === 1) ? 'bank'                         // a bank on the block across from the school
     : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
-    : t < FACTORY_SHARE ? 'factory'                                          // an industrial plant on its own block
-    : t < 0.38 ? 'downtown' : t < 0.64 ? 'suburb' : t < 0.78 ? 'park' : t < 0.85 ? 'commercial'
-    : t < 0.872 ? 'fire' : t < 0.894 ? 'fuel' : t < 0.921 ? 'shops' : t < 0.945 ? 'bank' : t < 0.965 ? 'hospital'
-    : t < 0.985 ? 'school' : 'industrial';
+    : pickBlockType(districtOf(cx, cz), t);                                     // the district sets the mix of the other types (js/districts.js)
   // Standalone shops and services (grocery, fast food, pizza, gym, car showroom, pharmacy) take about one commercial or
   // suburban block in ten. The roll comes from the block's own hash, so it is the same every time the block is built.
   // Suburb blocks become estates (see planEstate) unless they are beside a flyover lane or at spawn.
