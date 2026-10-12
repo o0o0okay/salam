@@ -3,7 +3,7 @@
 import { CHUNK } from './utils.js';
 import { mulberry32 } from './utils.js';
 import { hash2 } from './utils.js';
-import { nbhdOf } from './flyover.js';
+import { nbhdOf, nbhdEntrance } from './flyover.js';
 import { NB_BLOCKS } from './flyover.js';
 import { PAD_IN } from './sidewalks.js';
 
@@ -194,19 +194,26 @@ export function buildNbhd(RX, RZ) {
     const last = ribbon[ribbon.length - 1];
     return { ribbon, disc: { x: last.x, z: last.z, r: NB_DISC } };      // every road ends in a cul-de-sac
   };
+  // The entrance (see nbhdEntrance in flyover.js): the road starts on the pad's edge, on the strip of the inner street that
+  // opens to the perimeter street (its centre line 4 m into the block), and heads inward.
+  const e = nbhdEntrance(RX, RZ);
+  const ent = { x: 0, z: 0, a: 0 };
+  if (e.side === 0) { ent.x = e.jx * CHUNK + PAD_IN; ent.z = e.jz * CHUNK + 4; ent.a = 0; }
+  else if (e.side === 1) { ent.x = e.jx * CHUNK - PAD_IN; ent.z = e.jz * CHUNK + 4; ent.a = Math.PI; }
+  else if (e.side === 2) { ent.x = e.jx * CHUNK + 4; ent.z = e.jz * CHUNK + PAD_IN; ent.a = Math.PI / 2; }
+  else { ent.x = e.jx * CHUNK + 4; ent.z = e.jz * CHUNK - PAD_IN; ent.a = -Math.PI / 2; }
   let best = null;
   for (let attempt = 0; attempt < 300; attempt++) {
     const s = r() < 0.5 ? 1 : -1;
-    // the main road starts in the middle of one of the four block pads (the centre of the region is a junction corner)
-    const pad4 = [], pz4 = [];
-    for (let b = 0; b < NB_BLOCKS; b++) { pad4.push(X0 + b * CHUNK + 40); pz4.push(Z0 + b * CHUNK + 40); }
-    const pts1 = makeRoad(pad4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), pz4[Math.floor(r() * NB_BLOCKS)] + rr(-10, 10), r() * Math.PI * 2, true, s);
-    if (!inside(pts1)) continue;
+    // the main road starts at the entrance (nbhdEntrance): it runs in from the pad's edge, past the street, so the first
+    // 30 m (which leave the margin) are not held to the inside test
+    const pts1 = makeRoad(ent.x, ent.z, ent.a, true, s);
+    if (!inside(pts1.slice(60))) continue;
     const roads = [toRoad(pts1)];
     let roadNear = pointGrid(roads[0].ribbon, 10);
     for (let tries = 0, made = 0; tries < 60 && made < 6; tries++) {
       // a spur branches off the road at a random point, heading off to one side
-      const i = 8 + Math.floor(r() * (pts1.length - 16));
+      const i = 60 + Math.floor(r() * (pts1.length - 76));      // off the main road's first 30 m (the entrance)
       const [px, pz] = pts1[i], [qx, qz] = pts1[i + 1];
       const side = r() < 0.5 ? 1 : -1;
       const pts2 = makeRoad(px, pz, Math.atan2(qz - pz, qx - px) + side * Math.PI / 2, false, r() < 0.5 ? 1 : -1);

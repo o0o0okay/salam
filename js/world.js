@@ -66,7 +66,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -188,7 +188,8 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz }) {
   const EARTH = 0xa98b64, GRASS = 0x7bc96f;
   // A neighbourhood's centre junction is inside it: the streets that meet there have no barrier at that end, and its
   // corner squares are grass (see nbhdInterior in flyover.js).
-  const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz)) closedBarrier(x, z, hx, hz); };
+  // (the entrance of a neighbourhood, see nbhdEntrance in flyover.js, is the one perimeter mouth with no barrier)
+  const mouth = (jx, jz, x, z, hx, hz) => { if (!nbhdInterior(jx, jz) && !nbhdEntryAt(jx, jz)) closedBarrier(x, z, hx, hz); };
   if (closed[0]) { if (filled[0]) fillHalf(0, x0 + 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 4, z0 + 40, site[0] ? EARTH : GRASS); mouth(cx, cz, x0 + 4, z0 + 8.2, 4, 0.3); mouth(cx, cz + 1, x0 + 4, z0 + 71.8, 4, 0.3); } }
   if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40, site[1] ? EARTH : GRASS); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
   if (closed[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
@@ -988,8 +989,11 @@ function suburbBlock({ add, bx, bz, ch, cx, cz, estateNow, filled, nbPlan, nbRX,
     // cut open (ch.gate, read by sidewalkPieces). A ramp runs from the pad's edge down to the street's edge, so a car
     // drives from the carriageway on to the estate road. Props, trees and hedges stay out of the corridor. A side whose
     // street is closed and filled with grass (`filled`) has no carriageway to open on to, so it keeps no gate.
-    if (!nbPlan && !filled[plan.side]) {
-      const side = plan.side, e0 = plan.roads[0].ribbon[0];
+    // A neighbourhood gets its gate only on the block its entrance reaches (nbhdEntrance); an estate on its own side.
+    const nbEnt = nbPlan ? nbhdEntrance(nbRX, nbRZ) : null;
+    const gateSide = nbPlan ? (nbEnt.cx === cx && nbEnt.cz === cz ? nbEnt.side : -1) : plan.side;
+    if (gateSide >= 0 && !filled[gateSide]) {
+      const side = gateSide, e0 = plan.roads[0].ribbon[0];
       const ax = side < 2, sgn = side % 2 ? 1 : -1;     // radial axis (x on sides 0-1, z on 2-3) and the outward sign
       const C0 = ax ? bx : bz, E = CHUNK / 2;
       const gt = ax ? e0.z : e0.x;                       // the entrance, along the edge

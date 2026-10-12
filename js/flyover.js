@@ -462,6 +462,26 @@ export function nbhdInterior(jx, jz) {
   const ix = jx - NB_BLOCKS * n[0], iz = jz - NB_BLOCKS * n[1];
   return ix >= 1 && ix <= NB_BLOCKS - 1 && iz >= 1 && iz <= NB_BLOCKS - 1;
 }
+// The entrance of a neighbourhood: one inner street (an inner row or column of its lattice) that opens through the
+// perimeter, so a car can drive in from the street. Its perimeter junction is P (jx, jz); `cx, cz` is the block whose
+// pad edge the entrance road reaches, and `side` is that edge (0 west, 1 east, 2 south, 3 north; as in atGradeSide).
+// Chosen by hash, so every block of the neighbourhood agrees. Inner streets elsewhere stay closed, barred at the mouths.
+export function nbhdEntrance(RX, RZ) {
+  const h = hash2(RX * 71 + 9, RZ * 43 + 3);
+  const side = h & 3, k = 1 + ((h >>> 2) & 1);            // the inner row or column: 1 or 2
+  const ox = NB_BLOCKS * RX, oz = NB_BLOCKS * RZ;
+  if (side === 0) return { side, jx: ox, jz: oz + k, cx: ox, cz: oz + k };
+  if (side === 1) return { side, jx: ox + NB_BLOCKS, jz: oz + k, cx: ox + NB_BLOCKS - 1, cz: oz + k };
+  if (side === 2) return { side, jx: ox + k, jz: oz, cx: ox + k, cz: oz };
+  return { side, jx: ox + k, jz: oz + NB_BLOCKS, cx: ox + k, cz: oz + NB_BLOCKS - 1 };
+}
+// The entrance record if junction (jx, jz) is a neighbourhood's perimeter entrance, else null.
+export function nbhdEntryAt(jx, jz) {
+  const n = nbhdJunction(jx, jz);
+  if (!n || !nbhdOf(n[0], n[1])) return null;
+  const e = nbhdEntrance(n[0], n[1]);
+  return e.jx === jx && e.jz === jz ? e : null;
+}
 // The inner streets of a neighbourhood (closed for good; they are grass under the curved roads). An x-street runs
 // from (jx, jz) to (jx + 1, jz); it is inner when its line is an inner row and it lies in the lattice.
 function nbhdInternalSeg(axis, jx, jz) {
