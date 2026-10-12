@@ -244,7 +244,9 @@ export function policeAI(p, dt) {
     if (d < 18 * DIFF.aggr && p.tier >= 3) ramming = true;
   } else {
     // ---------- SEARCH: last known pos (with motion guess) then patrol nearby roads ----------
-    const age = clamp(game.t - k.t, 0, 5), ex = k.x + k.vx * age * 0.7, ez = k.z + k.vz * age * 0.7;
+    const age = clamp(game.t - k.t, 0, 5);
+    // A hiding car (hide.js): the search goes to where it is, not to where it was last seen.
+    const ex = (game.hideT || 0) > 0 ? player.x : k.x + k.vx * age * 0.7, ez = (game.hideT || 0) > 0 ? player.z : k.z + k.vz * age * 0.7;
     p.searchT -= dt;
     if (!p.search || p.searchT <= 0 || Math.hypot(p.search.x - p.x, p.search.z - p.z) < 14) {
       p.searchT = rnd(4, 7);

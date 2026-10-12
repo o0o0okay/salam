@@ -132,6 +132,7 @@ export function updateHUD() {
   if (heliVis && sight.heliOn) { at = '🚁 AIR UNIT TRACKING YOU'; ac = '#ff5a5a'; }
   else if (live) { at = '👁 SPOTTED'; ac = '#ffd23b'; }
   else if (heliVis) { at = '🚁 AIR UNIT SEARCHING…'; ac = '#ffb347'; }
+  else if (game.hideT > 0) { at = '⚠ HIDING · ' + Math.floor(game.hideT) + 's'; ac = '#ff7a3d'; }
   else { at = '🔍 COPS SEARCHING · ' + Math.floor(game.t - sight.t) + 's'; ac = '#7dff7a'; }
   setText('alertLine', at); $('alertLine').style.color = ac;
 }

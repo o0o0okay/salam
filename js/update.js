@@ -20,6 +20,7 @@ import { updateHelicopter, helicopter } from './helicopter.js';
 import { civAI, spawnCiv } from './civilians.js';
 import { updateTrafficLights } from './trafficLights.js';
 import { updateWanted, nearMissAward } from './rules.js';
+import { updateHiding } from './hide.js';
 import { updateParking, updateRooftops } from './traffic.js';
 import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
@@ -38,7 +39,7 @@ export function update(dt) {
   game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
-  if (playing) { game.time += sdt; updateWanted(); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
+  if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
   /* --- player --- */
   if (!player.dead) {
     let inp;
@@ -113,7 +114,7 @@ export function update(dt) {
       if (p.role !== 'roadblock' && (dp > 210 || (dp > 120 && game.t - Math.max(sight.t, p.tip.t) > 14))) { removeCar(p); i--; }   // lost cop replaced
     }
   }
-  updateHelicopter(sdt, playing && game.wanted >= 5);
+  updateHelicopter(sdt, playing && (game.wanted >= 5 || (game.hideT || 0) >= 20));   // hidden 20 s: the air unit comes whatever the level (hide.js)
   if (playing) { // lost-the-cops toast
     const seenAge = game.t - sight.t;
     if (seenAge > 4 && !sight.lostFlag) { sight.lostFlag = true; toast('LOST THEM — KEEP MOVING'); }

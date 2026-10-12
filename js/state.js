@@ -27,4 +27,5 @@ export const sight = { x: 0, z: 0, vx: 0, vz: 0, t: -99, heliLock: 0, heliOn: fa
 export function reportSighting() { sight.x = player.x; sight.z = player.z; sight.vx = player.vx; sight.vz = player.vz; sight.t = game.t; }
 
 
-export const calcScore = () => Math.floor((Math.floor(game.dist * 0.5) + game.takedowns * 200 + game.cash) * DIFF.score);
+// game.hidePen: points taken off for time spent hidden (hide.js). The score never goes below zero.
+export const calcScore = () => Math.max(0, Math.floor((Math.floor(game.dist * 0.5) + game.takedowns * 200 + game.cash) * DIFF.score) - Math.floor(game.hidePen || 0));
