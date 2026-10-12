@@ -21,7 +21,7 @@ import { civAI, spawnCiv, CIV_MAX, CIV_MAX_MENU } from './civilians.js';
 import { updateTrafficLights } from './trafficLights.js';
 import { updateWanted, nearMissAward } from './rules.js';
 import { updateHiding } from './hide.js';
-import { updateTrams } from './tram.js';
+import { updateTrams, tramTrackAhead } from './tram.js';
 import { updateParking, updateRooftops } from './traffic.js';
 import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
@@ -34,13 +34,23 @@ function spinPickups(t) {
   }
 }
 let hudTick = 0;
+// The player is told when a tram is on his track, or about to cross it. At most one message every 3 s.
+let tramMsgT = 0;
+function warnTram(sdt) {
+  tramMsgT -= sdt;
+  if (tramMsgT > 0 || player.dead) return;
+  const r = tramTrackAhead(player);
+  if (r === Infinity) return;
+  tramMsgT = 3;
+  toast(r < 0 ? 'TRAM ON THE TRACK: GET OFF IT' : 'TRAM COMING: DON\'T CROSS THE RAILS');
+}
 export function update(dt) {
   game.t += dt;
   if (game.paused) return;
   game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
-  if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); updateTrams(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
+  if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); updateTrams(sdt); warnTram(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
   /* --- player --- */
   if (!player.dead) {
     let inp;

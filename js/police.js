@@ -7,6 +7,7 @@ import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt } from './world.js';
 import { overlapsAnything } from './collisions.js';
+import { tramTrackAhead } from './tram.js';
 import { FLY, flyoverNear, structureLevel, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
   return Math.random() < 0.5
@@ -420,6 +421,13 @@ export function policeAI(p, dt) {
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
     if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
     else if (l) { steer = -1; p.avoidDir = 0; } else if (r) { steer = 1; p.avoidDir = 0; } else p.avoidDir = 0;
+  }
+  // Trams: a police car on a live track gets off it; one about to cross a track with a tram coming brakes for it (the same
+  // rule as a civilian car). A car ramming the player does not stop for a tram.
+  if (!ramming) {
+    const rails = tramTrackAhead(p);
+    if (rails < 0) throttle = 1;
+    else if (rails < Infinity && vf > Math.sqrt(2 * 2.5 * Math.max(0, rails - 4))) throttle = -1;
   }
   if (p.recoilT > 0) { p.recoilT -= dt; throttle = -0.7; steer *= 0.4; }
   if (p.reverseT > 0) { p.reverseT -= dt; throttle = -1; steer = -steer; }

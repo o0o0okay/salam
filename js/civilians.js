@@ -294,6 +294,8 @@ function placeCiv(axis, road, dir, off, along, cruise) {
   const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
   const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };
   if (overlapsAnything(tmp, null)) return null;
+  // not on a track a tram is about to use, nor about to cross one: the car would be in the way of the tram from the start
+  if (tramTrackAhead({ x, z, h, box: { e1: dims.e1 + 2, e2: dims.e2 } }) < Infinity) return null;
   const color = civColor(kind);
   const params = civParams(kind);
   const c = createCar(kind, x, z, h, params, color);
