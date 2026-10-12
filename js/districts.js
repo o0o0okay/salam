@@ -1,21 +1,24 @@
 /* Districts: regions of the city a few hundred metres across, so that driving from one into the next changes what the
- * player sees. A district is a kind of ground (old town, industrial, city centre, suburb) and sets the odds of each
- * block type (pickBlockType, used by typeSelection in js/world.js).
+ * player sees. A district is a kind of ground (old town, industrial, city centre, suburb, harbour) and sets the odds of
+ * each block type (pickBlockType, used by typeSelection in js/world.js).
  *
- * THE MAP is a smooth field over the neighbourhood grid: the city is cut into cells of DIST_NB x DIST_NB blocks (the
- * same grid as the neighbourhoods, NB_BLOCKS in js/flyover.js), and each cell gets a value from smooth value noise (hashed
- * lattice values, interpolated). The value is cut into four bands at quantiles, so each district takes its share of the
- * city, and a smooth field gives each band as a few large connected regions instead of a random patchwork. Nothing is
- * stored: every chunk computes the same answer from the cell's index. The map is cut on whole cells, so a neighbourhood
- * (one cell of the grid) is always in one district. The spawn's surroundings are always the city centre.
+ * THE MAP is over the neighbourhood grid: the city is cut into cells of DIST_NB x DIST_NB blocks (the same grid as the
+ * neighbourhoods, NB_BLOCKS in js/flyover.js). Each cell gets a value from smooth value noise (hashed lattice values,
+ * interpolated). The centre is a disc round the spawn, its radius (5 to 7 cells) varied by the same noise, so the city
+ * centre is one region. Outside the disc, the value is cut into four bands at quantiles, one for each of the other
+ * districts, so each takes its share of the city. A smooth field gives each band as a few large connected regions
+ * instead of a random patchwork. Nothing is stored: every chunk computes the same answer from the cell's index. The map is
+ * cut on whole cells, so a neighbourhood (one cell of the grid) is always in one district.
  *
- * No imports except hash2: the test harness stitches this module in front of js/flyover.js, which imports it.
  */
 import { hash2 } from './utils.js';
 
-export const DIST_NB = 3, DIST_L = 12;                    // the cell size in blocks, and the noise's lattice spacing in cells (36 blocks, about 2.9 km)
-export const DISTRICTS = ['old', 'industrial', 'centre', 'suburb'];
-const SHARE = [0.25, 0.2, 0.25, 0.3];                     // the share of the city in each district, in DISTRICTS order (sums to 1)
+export const DIST_NB = 3, DIST_L = 16;                    // the cell size in blocks, and the noise's lattice spacing in cells (48 blocks, about 3.8 km)
+export const DISTRICTS = ['centre', 'old', 'industrial', 'suburb', 'harbour'];
+// The centre is a disc round the spawn, its radius (5 to 7 cells) varied by the field, so it is one region. The other four
+// districts are bands of the field, each its share of the rest of the city (in BANDS order, the shares sum to 1).
+const BANDS = ['old', 'industrial', 'suburb', 'harbour'];
+const SHARE = [0.25, 0.25, 0.25, 0.25];
 
 const lattice = (i, j) => hash2(i * 2654 + 91, j * 1597 + 13) / 4294967296;
 // Smooth value noise in [0, 1) at cell (u, v).
@@ -37,16 +40,19 @@ const EDGES = (() => {
   return edges;
 })();
 
-// The district of cell (u, v).
+// The district of cell (u, v): the centre inside its disc, otherwise the band of the field that the cell falls in.
 const distCache = new Map();
 export function districtOfNb(u, v) {
-  if (Math.abs(u) <= 1 && Math.abs(v) <= 1) return 'centre';   // the spawn and the blocks round it
   const key = u + ',' + v;
   if (distCache.has(key)) return distCache.get(key);
   const f = field(u, v);
-  let k = 0;
-  while (k < EDGES.length && f >= EDGES[k]) k++;
-  const kind = DISTRICTS[k];
+  let kind;
+  if (Math.hypot(u + 0.5, v + 0.5) < 6 + 2 * (f - 0.5)) kind = 'centre';
+  else {
+    let k = 0;
+    while (k < EDGES.length && f >= EDGES[k]) k++;
+    kind = BANDS[k];
+  }
   distCache.set(key, kind);
   return kind;
 }
@@ -61,6 +67,7 @@ const MIX = {
   industrial: [['factory', 0.45], ['industrial', 0.75], ['fuel', 0.85], ['fire', 0.9], ['shops', 0.95], ['park', 1]],
   centre:     [['downtown', 0.42], ['commercial', 0.62], ['bank', 0.72], ['shops', 0.8], ['park', 0.87], ['hospital', 0.91], ['downtown', 1]],
   suburb:     [['suburb', 0.62], ['park', 0.8], ['school', 0.87], ['shops', 0.94], ['fuel', 1]],
+  harbour:    [['harbour', 0.3], ['industrial', 0.6], ['factory', 0.7], ['shops', 0.8], ['park', 0.9], ['downtown', 1]],
 };
 // The block type for a roll t in [0, 1) in a district.
 export function pickBlockType(district, t) {

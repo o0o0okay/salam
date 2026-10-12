@@ -1678,6 +1678,29 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, ch, padBox, prop, r,
   }
 }
 
+// The harbour (js/districts.js, 'harbour'): a basin of water on a stone quay. The basin is 36 m square and its edge is a
+// low quay wall, solid on all four sides, so no car drives in. Two or three small boats lie moored on the water. The water
+// is flat, at the top of the quay's paving. A river with bridges is a later step: it would cross the road grid.
+function harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
+  const S = 18, Y0 = 0.25;                                                          // the basin's half-size; the quay's top
+  padBox(56, 56, mat(0xb7b2a6), bxo - bx, bzo - bz);                               // the quay's paving
+  const water = mat(0x2d6f8c), rim = mat(0x8e8a80), bollard = mat(0x3c434b);
+  add(box(2 * S, 0.04, 2 * S, water, bxo, Y0 + 0.02, bzo, false));                 // the water, flat
+  for (const [x, z, w, d] of [[bxo, bzo - S - 0.5, 2 * S + 1, 1], [bxo, bzo + S + 0.5, 2 * S + 1, 1],
+                              [bxo - S - 0.5, bzo, 1, 2 * S + 1], [bxo + S + 0.5, bzo, 1, 2 * S + 1]]) {
+    add(box(w, 0.8, d, rim, x, Y0 + 0.4, z));                                       // the quay wall
+    solid(x, z, w / 2, d / 2, 'building');
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(cyl(0.22, 0.22, 0.5, 6, bollard, bxo + sx * (S + 3), Y0 + 0.25, bzo + sz * (S + 3)));
+  const hull = mat(0xf2efe6), cabin = mat(0xc62828);
+  const boats = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < boats; i++) {
+    const a = rng() * Math.PI * 2, rr = 4 + rng() * 9, x = bxo + Math.cos(a) * rr, z = bzo + Math.sin(a) * rr, h = a + Math.PI / 2;
+    const hb = box(7, 0.5, 2.4, hull, x, Y0 + 0.2, z); hb.rotation.y = h; add(hb);            // the hull
+    const cb = box(2.4, 1.1, 1.6, cabin, x, Y0 + 0.9, z); cb.rotation.y = h; add(cb);           // the cabin
+  }
+}
+
 // The covered bazaar of the old town (js/districts.js, 'bazaar'): a long brick hall with a glazed roof on a paved court,
 // a row of stall counters with striped canopies down each side and an open aisle between them. The hall is a building
 // (solid long walls, solid counters) and stays on the block's own paving, inside the same pad as the shopping street.
@@ -2177,6 +2200,8 @@ function generateChunk(cx, cz, defer = false) {
     fuelBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, group, padBox, parkedCar, prop, rng, solid });
   } else if (type === 'shops') {
     shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree });
+  } else if (type === 'harbour') {
+    harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
   } else if (type === 'bazaar') {
     bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
   } else if (type === 'factory') {

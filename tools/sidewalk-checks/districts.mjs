@@ -54,6 +54,7 @@ const want = {
   industrial: { factory: 0.45, industrial: 0.3, fuel: 0.1, fire: 0.05, shops: 0.05, park: 0.05 },
   centre: { downtown: 0.51, commercial: 0.2, bank: 0.1, shops: 0.08, park: 0.07, hospital: 0.04 },
   suburb: { suburb: 0.62, park: 0.18, school: 0.07, shops: 0.07, fuel: 0.06 },
+  harbour: { harbour: 0.3, industrial: 0.3, factory: 0.1, shops: 0.1, park: 0.1, downtown: 0.1 },
 };
 const shares = [];
 for (const d of DISTRICTS) {
