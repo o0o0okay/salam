@@ -23,10 +23,12 @@ export class Object3D {
   add(o) { this.children.push(o); return this; }
   remove() { return this; }
   traverse(fn) { fn(this); this.children.forEach(c => c.traverse(fn)); }
+  clone() { const o = Object.create(Object.getPrototypeOf(this)); Object.assign(o, this); o.position = Object.assign(new V3(), this.position); o.rotation = { ...this.rotation }; o.children = this.children.map(c => c.clone()); return o; }
 }
 export class Group extends Object3D {}
 export class Mesh extends Object3D { constructor(g, m) { super(); this.geometry = g; this.material = m; } }
 export class BoxGeometry { dispose() {} }
+export class CylinderGeometry { dispose() {} }
 export class MeshPhongMaterial { constructor(o) { this.color = o.color; } dispose() {} }
 export class MeshBasicMaterial { constructor(o) { this.color = o.color; } dispose() {} }
 `);

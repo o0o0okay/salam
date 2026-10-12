@@ -7,10 +7,11 @@
  *   A ROUTE is a maximal run of eligible segments on one line, cut into pieces. Each piece is a route with two terminals,
  *   at its ends, and is 13 to 24 blocks long (1040 to 1920 m, always between 1000 and 2000 m). A run of 12 blocks or fewer
  *   carries no route, and neither does a run of 25 blocks, which no cut can make out of pieces of that length. Longer runs
- *   are cut into the fewest pieces that fit. The rails, the overhead wire and the masts are laid by the chunk that owns each
+ *   are cut into the fewest pieces that fit. The rails, the contact wire and the poles are laid by the chunk that owns each
  *   segment (tramRails, called from generateChunk). Every chunk finds the same route from any of its segments, so the ends
- *   agree. The overhead wire runs the whole length of the route, from one terminal to the other. Its masts are props, so a
- *   car can break one, and the wire stays up.
+ *   agree. The contact wire runs the whole length of the route, from one terminal to the other. Each block has a pair of
+ *   poles on the sidewalks at each quarter, and the span wires across the street are laid after the props have settled
+ *   (tramWires), between the poles that still stand. The poles are props, so a car can break one.
  *   The rails run down the centre line: the civilian lanes are at 2.5 m and 5 m, so the tram does not sit in a lane.
  *
  * THE TRAM
@@ -91,10 +92,13 @@ export function tramLaid(axis, jx, jz) {
   return routeOf(axis, k, j) !== null;
 }
 
-// The rails, the overhead wire and the masts of the two street segments this chunk owns: the column at its west edge
-// (x0) and the row at its south edge (z0). `add`, `box` and `mat` are the chunk builder's own, so everything is baked into the chunk.
-// The masts are props (js/props.js, 'tramMast'): a car can break one, and then the wire, which stays baked, hangs from nothing.
-export function tramRails({ add, box, mat, prop, x0, z0, cx, cz }) {
+// The rails, the contact wire and the poles of the two street segments this chunk owns: the column at its west edge (x0)
+// and the row at its south edge (z0). `add`, `box` and `mat` are the chunk builder's own, so everything is baked into the
+// chunk. The contact wire runs the length of the block. The poles are props (js/props.js, 'tramMast'), a pair on the two
+// sidewalks at each quarter of the block (20 m and 60 m along), so each pair is 40 m apart. Their brackets reach out over
+// the street. They are recorded in `poles`, and tramWires lays the span wires afterwards, between the poles that survive,
+// so no span hangs from a pole that is gone.
+export function tramRails({ add, box, mat, prop, poles, x0, z0, cx, cz }) {
   const rail = mat(0xa9afb5), sleeper = mat(0x5e4b38), wire = mat(0x2b2b2b);
   const mid = CHUNK / 2;
   if (tramLaid('z', cx, cz)) {
@@ -102,42 +106,98 @@ export function tramRails({ add, box, mat, prop, x0, z0, cx, cz }) {
     add(box(0.14, 0.2, CHUNK, rail, x0 + GAUGE, 0.12, z0 + mid, false));
     for (let t = 1.1; t < CHUNK; t += 2.2) add(box(2.6, 0.12, 0.26, sleeper, x0, 0.06, z0 + t, false));
     add(box(0.06, 0.06, CHUNK, wire, x0, WIRE_H, z0 + mid, false));                       // contact wire along the track
-    add(box(2 * MAST_X, 0.05, 0.05, wire, x0, WIRE_H, z0 + mid, false));                  // span wire across it
-    prop('tramMast', x0 - MAST_X, z0 + mid, 0);
-    prop('tramMast', x0 + MAST_X, z0 + mid, 0);
+    for (const q of [0.25, 0.75]) {
+      const zq = z0 + CHUNK * q;
+      poles.push({ axis: 'z', a: prop('tramMast', x0 - MAST_X, zq, 0), b: prop('tramMast', x0 + MAST_X, zq, Math.PI) });
+    }
   }
   if (tramLaid('x', cx, cz)) {
     add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 - GAUGE, false));
     add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 + GAUGE, false));
     for (let t = 1.1; t < CHUNK; t += 2.2) add(box(0.26, 0.12, 2.6, sleeper, x0 + t, 0.06, z0, false));
-    add(box(CHUNK, 0.06, 0.06, wire, x0 + mid, WIRE_H, z0, false));
-    add(box(0.05, 0.05, 2 * MAST_X, wire, x0 + mid, WIRE_H, z0, false));
-    prop('tramMast', x0 + mid, z0 - MAST_X, Math.PI / 2);
-    prop('tramMast', x0 + mid, z0 + MAST_X, Math.PI / 2);
+    add(box(CHUNK, 0.06, 0.06, wire, x0 + mid, WIRE_H, z0, false));                       // contact wire along the track
+    for (const q of [0.25, 0.75]) {
+      const xq = x0 + CHUNK * q;
+      poles.push({ axis: 'x', a: prop('tramMast', xq, z0 - MAST_X, -Math.PI / 2), b: prop('tramMast', xq, z0 + MAST_X, Math.PI / 2) });
+    }
+  }
+}
+// The span wires: one across the street between the two poles of each pair, at wire height, from one bracket's insulator to
+// the other's. Called after the chunk's props have settled, so a pole that freeStreetProps moved or removed is not used.
+export function tramWires({ add, box, mat, ch, poles }) {
+  const wire = mat(0x2b2b2b), ARM = 4.2;
+  for (const p of poles) {
+    const a = p.a, b = p.b;
+    if (!a || !b || !ch.props.includes(a) || !ch.props.includes(b)) continue;
+    if (p.axis === 'z') {
+      const x1 = a.x + ARM, x2 = b.x - ARM;
+      if (x2 - x1 > 1) add(box(x2 - x1, 0.05, 0.05, wire, (x1 + x2) / 2, WIRE_H, (a.z + b.z) / 2, false));
+    } else {
+      const z1 = a.z + ARM, z2 = b.z - ARM;
+      if (z2 - z1 > 1) add(box(0.05, 0.05, z2 - z1, wire, (a.x + b.x) / 2, WIRE_H, (z1 + z2) / 2, false));
+    }
   }
 }
 
 // ---------- the tram's body ----------
-function buildMesh() {
+// The model is built once. Each tram is a copy of it that shares the geometry and the materials, so removing a tram must
+// not dispose of them (removeTram).
+let model = null;
+const partMats = {};
+function part(name, c, shininess = 30) {
+  if (!partMats[name]) partMats[name] = new THREE.MeshPhongMaterial({ color: c, shininess });
+  return partMats[name];
+}
+function makeModel() {
   const g = new THREE.Group();
-  const M = c => new THREE.MeshPhongMaterial({ color: c, shininess: 40 });
-  const yellow = M(0xf2b233), grey = M(0x9ea4aa), white = M(0xf1f1ee), dark = M(0x1d2630), black = M(0x222222);
-  const amber = new THREE.MeshBasicMaterial({ color: 0xffc247 }), lamp = new THREE.MeshBasicMaterial({ color: 0xfff4d0 });
-  const B = (w, h, d, m, x, y, z) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); mesh.position.set(x, y, z); g.add(mesh); };
-  for (const z of [-10, 0, 10]) {                        // three sections of 10 m, the front at +z
-    B(2.5, 1.9, 9.4, yellow, 0, 1.2, z);                 // body
-    B(2.56, 0.8, 9.4, grey, 0, 0.55, z);                 // grey skirt
-    B(2.3, 0.45, 9.2, white, 0, 2.5, z);                 // white roof
-    B(2.52, 0.9, 7.8, dark, 0, 1.6, z);                  // window band
+  const yellow = part('yellow', 0xf2b233, 50), cream = part('cream', 0xf2efe6), grey = part('grey', 0x9ea4aa);
+  const dark = part('dark', 0x3c434b), roof = part('roof', 0xdfe3e6), glass = part('glass', 0x1f2b36, 90);
+  const steel = part('steel', 0xbfc5cc, 60), black = part('black', 0x1b1b1b), rubber = part('rubber', 0x161616);
+  const red = part('red', 0xc62828, 50);
+  const amber = part('amber', 0xffc247, 0), lamp = part('lamp', 0xfff4d0, 0), tail = part('tail', 0xff3b30, 0);
+  const B = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); g.add(o); };
+  // a wheel on the rail, its axle along x
+  const Wh = (m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.14, 12), m); o.rotation.z = Math.PI / 2; o.position.set(x, y, z); g.add(o); };
+  for (const z of [-10, 0, 10]) {                        // three sections of 10 m, the cab at the front (+z)
+    B(2.5, 0.95, 9.4, yellow, 0, 0.8, z);                // lower body
+    B(2.58, 0.2, 9.4, grey, 0, 0.36, z);                 // skirt
+    B(2.5, 1.0, 9.4, cream, 0, 1.8, z);                  // upper body
+    B(2.52, 0.12, 9.4, red, 0, 1.3, z);                  // red stripe along the side
+    B(2.38, 0.24, 9.2, roof, 0, 2.42, z);                // roof
+    B(2.44, 0.07, 9.4, grey, 0, 2.56, z);                // roof edge
+    for (const s of [-1, 1]) {
+      for (const dz of [-3, 0]) B(0.04, 0.85, 2.3, glass, s * 1.255, 1.9, z + dz);   // windows
+      B(0.04, 1.6, 1.4, steel, s * 1.255, 1.1, z + 3.2);                             // door
+      B(0.04, 0.5, 1.4, glass, s * 1.255, 1.9, z + 3.2);                             // door window
+    }
+    for (const bz of [-3, 3]) {                          // two bogies per section, four wheels each
+      B(2.0, 0.16, 2.4, dark, 0, 0.42, z + bz);
+      for (const wx of [-0.72, 0.72]) for (const wz of [-0.8, 0.8]) Wh(rubber, wx, 0.56, z + bz + wz);
+    }
   }
-  B(2.4, 2.1, 1.4, white, 0, 1.25, 15.3);              // cab nose
-  B(2.1, 1.1, 0.06, dark, 0, 1.6, 16.05);              // windscreen
-  B(1.4, 0.25, 0.05, amber, 0, 2.35, 16.0);            // destination sign
-  B(0.3, 0.2, 0.05, lamp, -0.8, 0.9, 16.02);
-  B(0.3, 0.2, 0.05, lamp, 0.8, 0.9, 16.02);
-  B(0.08, 3.1, 0.08, black, 0, 4.25, 0);               // pantograph mast, up to the wire
-  B(1.6, 0.05, 0.3, black, 0, WIRE_H + 0.02, 0);       // pantograph head on the wire
+  // the cab at the front
+  B(2.5, 0.95, 1.2, yellow, 0, 0.8, 15.1);               // lower nose
+  B(2.4, 1.0, 1.2, cream, 0, 1.8, 15.1);                 // upper nose
+  B(2.38, 0.24, 1.2, roof, 0, 2.42, 15.1);               // roof over the cab
+  B(2.2, 1.0, 0.06, glass, 0, 1.85, 15.72);              // windscreen
+  B(1.5, 0.24, 0.05, amber, 0, 2.5, 15.72);              // destination sign
+  for (const s of [-1, 1]) B(0.5, 0.26, 0.05, lamp, s * 0.78, 1.05, 15.72);    // headlights
+  for (const s of [-1, 1]) B(0.05, 0.6, 0.04, black, s * 0.4, 1.8, 15.76);     // wipers
+  B(2.5, 0.16, 0.3, black, 0, 0.36, 15.8);               // front bumper
+  // the rear end
+  B(2.2, 1.0, 0.06, glass, 0, 1.85, -15.72);             // rear window
+  for (const s of [-1, 1]) B(0.4, 0.25, 0.05, tail, s * 0.78, 1.05, -15.72);   // tail lights
+  B(2.5, 0.16, 0.3, black, 0, 0.36, -15.8);              // rear bumper
+  // the roof: the pantograph, which reaches the wire, and the air units
+  B(0.9, 0.14, 1.2, black, 0, 2.7, 3.5);                 // pantograph base
+  for (const s of [-1, 1]) B(0.06, 3.0, 0.06, black, s * 0.3, 4.25, 3.5);     // its two arms
+  B(1.7, 0.06, 0.22, black, 0, WIRE_H, 3.5);             // the contact head, on the wire
+  for (const z of [-5, -8]) B(1.4, 0.32, 1.8, grey, 0, 2.86, z);               // air units
   return g;
+}
+function buildMesh() {
+  if (!model) model = makeModel();
+  return model.clone();                                  // shares the geometry and the materials of the model
 }
 
 // ---------- the tram on its route ----------
@@ -158,8 +218,7 @@ function makeTram(route, dir, s) {
   return t;
 }
 export function removeTram(t) {
-  t.dead = true; scene.remove(t.group);
-  t.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  t.dead = true; scene.remove(t.group);                  // the model's geometry and materials are shared, so they are not disposed
   const i = trams.indexOf(t); if (i >= 0) trams.splice(i, 1);
 }
 export function clearTrams() { for (const t of [...trams]) removeTram(t); }

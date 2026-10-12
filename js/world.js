@@ -42,7 +42,7 @@ import { CHUNK, VIEW_R, PI, mulberry32, hash2, ck } from './utils.js';
 import { scene } from './renderer.js';
 import { mat, box, cyl, ASSET, makeBuildingGeo, facadeMat } from './assets.js';
 import { textGeometry, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildFuelStationMesh, buildBankMesh, buildStoreMesh, STORE_KINDS, STORE_DEFS, FUEL_BRANDS, textBlocks } from "./campus.js";
-import { tramRails } from './tram.js';
+import { tramRails, tramWires } from './tram.js';
 import { buildSportMesh, SPORT_KINDS, SPORT_SLOTS, SPORT_DEFS, sportScale } from "./sports.js";
 import { buildFactoryMesh, FACTORY_KINDS } from "./factory.js";
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
@@ -1964,7 +1964,8 @@ function generateChunk(cx, cz, defer = false) {
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
     if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;   // that strip is carriageway now, not pavement
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
-    ch.props.push({ mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft });
+    const rec = { mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft };
+    ch.props.push(rec); return rec;
   };
   const tree = (x, z, y = 0.2) => {
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
@@ -2034,7 +2035,8 @@ function generateChunk(cx, cz, defer = false) {
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
-  tramRails({ add, box, mat, prop, x0, z0, cx, cz });           // tram rails on this block's own street segments (not closed, not filled)
+  const tramPoles = [];                                          // the tram poles of this block, for the span wires laid after the props settle
+  tramRails({ add, box, mat, prop, poles: tramPoles, x0, z0, cx, cz });   // tram rails on this block's own street segments (not closed, not filled)
   let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
   interchanges({ ch, p, add, ramp, group, r, cx, cz });
   let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
@@ -2099,6 +2101,7 @@ function generateChunk(cx, cz, defer = false) {
   crossings({ x0, z0, kerbIn, add, cx, cz });
   pruneBlockedRoadworks(ch);
   freeStreetProps(ch);
+  tramWires({ add, box, mat, ch, poles: tramPoles });   // the span wires, between the poles that survived
   powerLines(ch, powerRuns, add, (x, z) => onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7));   // the same test prop() makes
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it

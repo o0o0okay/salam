@@ -1258,9 +1258,9 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
           if (world.solidAt(px, pz, 0.15)) under++;
         }
       }
-      for (const off of [-9, 9]) {
+      for (const q of [0.25, 0.75]) for (const off of [-9, 9]) {       // the poles stand at each quarter of the block
         masts++;
-        const mx = axis === 'z' ? i * CHUNK + off : i * CHUNK + CHUNK / 2, mz = axis === 'z' ? j * CHUNK + CHUNK / 2 : j * CHUNK + off;
+        const mx = axis === 'z' ? i * CHUNK + off : i * CHUNK + CHUNK * q, mz = axis === 'z' ? j * CHUNK + CHUNK * q : j * CHUNK + off;
         // the mast is a prop of its chunk, a breakable one; a tree may stand by it (trees are placed at random on the verge)
         // the prop may have been moved off a buried spot by freeStreetProps, so the test is at its own position
         const pr = [...chunks.values()].flatMap(ch => ch.props).filter(q => q.kind === 'tramMast' && !q.broken)
