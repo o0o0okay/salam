@@ -1587,7 +1587,7 @@ function factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree }) {
   for (const sx of [-1, 1]) tree(bxo + sx * 22, bzo + 21, lotSurfaceY + 0.02);
 }
 
-function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ramp, rng, solid }) {
+function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, ch, padBox, prop, r, ramp, rng, solid }) {
   padBox(56, 56, mat(0x9b9da4), bxo - bx, bzo - bz);
   const wc = [0x7b838c, 0x5f6e66, 0x8f6a4c, 0x6a7f8f];      // the industrial district's sheds: sheet metal in grey, sage, rust and slate
   for (let i = 0; i < 2; i++) {
@@ -1632,8 +1632,10 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ram
   fenceRun(X1, Z0, X1, Z1, null);
   // A yellow tower crane on about half of the yards: a footing and a mast (solid), a 30 m jib high over the yard, a
   // counter-jib with its weight, and a hook on a cable. Only the foot and the mast are in the way of a car.
+  let craneFoot = null;                                                             // the footing's square, once the crane stands
   if (rng() < .55) {
     const kx = bx0 + 4 + (bxo - bx), kz = bz0 + 46 + (bzo - bz), cf = mat(0xf2b233), dk = mat(0x3c434b);
+    craneFoot = [kx - 1.3, kz - 1.3, kx + 1.3, kz + 1.3];
     add(box(2.4, 0.5, 2.4, mat(0x6b737b), kx, 0.5, kz, false));                  // footing
     add(cyl(0.22, 0.3, 26, 8, cf, kx, 13.5, kz, false));                          // mast, from the footing to 26.5 m
     add(box(1.6, 1.6, 1.8, dk, kx - 1.2, 25.6, kz, false));                       // operator's cab
@@ -1642,6 +1644,37 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ram
     add(box(2.6, 1.6, 2.6, mat(0x555b63), kx - 7.5, 25.4, kz, false));            // counterweight
     add(box(0.05, 12, 0.05, mat(0x222222), kx + 24, 20.5, kz, false));            // hook cable
     solid(kx, kz, 0.45, 0.45, 'building');                                        // the mast
+  }
+  // ---- the open yard: pallet stacks and pipe racks on the ground the layout leaves free ----
+  // Candidates are a grid across the pad, inside the fence. Each is taken only if it clears every solid and prop
+  // already placed (the warehouses, containers, barrels, the crane's footing), so the layout above is not moved.
+  const yx0 = bx0 + (bxo - bx) + 1.2, yx1 = bx0 + (bxo - bx) + 54.8, yz0 = bz0 + (bzo - bz) + 1.2, yz1 = bz0 + (bzo - bz) + 54.8;
+  const clear = (x0q, z0q, x1q, z1q) => {
+    if (craneFoot && x1q > craneFoot[0] && x0q < craneFoot[2] && z1q > craneFoot[1] && z0q < craneFoot[3]) return false;
+    for (const s of ch.solids) if (s.x + s.hx > x0q - 0.3 && s.x - s.hx < x1q + 0.3 && s.z + s.hz > z0q - 0.3 && s.z - s.hz < z1q + 0.3) return false;
+    for (const p of ch.props) if (p.x > x0q - p.r - 0.3 && p.x < x1q + p.r + 0.3 && p.z > z0q - p.r - 0.3 && p.z < z1q + p.r + 0.3) return false;
+    return true;
+  };
+  const woodM = mat(0xb08a5a), boxM = mat(0xc9a06c), pipeM = mat(0x8a8f96), postM2 = mat(0x5b6168);
+  let yardItems = 0;
+  for (let z = yz0 + 1.5; z < yz1 - 1.5 && yardItems < 8; z += 4) {
+    for (let x = yx0 + 1.5; x < yx1 - 1.5 && yardItems < 8; x += 5) {
+      if (rng() < 0.5) {
+        // a pipe rack: two posts, three pipes, 6 m along x, one solid footprint
+        if (!clear(x - 3, z - 0.6, x + 3, z + 0.6)) continue;
+        for (const h of [0.8, 1.4, 2.0]) add(box(6, 0.22, 0.22, pipeM, x, h, z, false));
+        for (const sx of [-2.7, 2.7]) add(box(0.16, 2.2, 0.16, postM2, x + sx, 1.1, z, false));
+        solid(x, z, 3, 0.6, 'building');
+      } else {
+        // a pallet stack: a base and two boxes, 1.2 m square
+        if (!clear(x - 0.6, z - 0.6, x + 0.6, z + 0.6)) continue;
+        add(box(1.2, 0.15, 1.2, woodM, x, 0.2, z, false));
+        add(box(1.1, 0.8, 1.1, boxM, x, 0.7, z, false));
+        add(box(1.0, 0.6, 1.0, boxM, x, 1.4, z, false));
+        solid(x, z, 0.6, 0.6, 'container');
+      }
+      yardItems++;
+    }
   }
 }
 
@@ -2149,7 +2182,7 @@ function generateChunk(cx, cz, defer = false) {
   } else if (type === 'factory') {
     factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree });
   } else { // industrial
-    industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ramp, rng, solid });
+    industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, ch, padBox, prop, r, ramp, rng, solid });
   }
   // Utility poles. A line of poles stands on a pavement 20 m either side of the block's middle, 29.5 m out from its
   // centre (the paving band is 27.4 to 31.5 m). Two kinds of line:
