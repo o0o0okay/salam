@@ -588,3 +588,16 @@ export function plazaAt(jx, jz) {
   plazaCache.set(key, res);
   return res;
 }
+
+// The street rectangles for the radar, in world metres: one 16 m strip per open street segment (one block long), and a
+// 16 m square at each junction that still has an open arm. A segment is open when it is neither closed nor filled.
+export function radarStreets(gx0, gx1, gz0, gz1) {
+  const open = (axis, i, j) => !segClosed(axis, i, j) && !segFilled(axis, i, j);
+  const out = [];
+  for (let i = gx0; i <= gx1; i++) for (let j = gz0; j < gz1; j++) if (open('z', i, j)) out.push([i * CHUNK - 8, j * CHUNK, 16, CHUNK]);
+  for (let j = gz0; j <= gz1; j++) for (let i = gx0; i < gx1; i++) if (open('x', i, j)) out.push([i * CHUNK, j * CHUNK - 8, CHUNK, 16]);
+  for (let i = gx0; i <= gx1; i++) for (let j = gz0; j <= gz1; j++) {
+    if (open('z', i, j) || open('z', i, j - 1) || open('x', i, j) || open('x', i - 1, j)) out.push([i * CHUNK - 8, j * CHUNK - 8, 16, 16]);
+  }
+  return out;
+}

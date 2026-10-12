@@ -1225,6 +1225,20 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (astray) bad(`${astray} power wire end(s) do not meet a pole in the finished world`);
     if (ends && !astray) console.log(`power wires meet their poles: ${ends} wire ends in the sample, all on a standing pole (${outside} run into blocks outside it)`);
   }
+  // ---- 2d-11) the radar draws only the streets that run: a closed street (a three-way junction) or a filled one is grass,
+  // so no radar strip may cover one, and the sample must hold some, or the check would pass for free. (radarStreets, flyover.js)
+  {
+    const { radarStreets, segClosed, segFilled } = await import(new URL('../../js/flyover.js', import.meta.url).href);
+    let closed = 0, strips = 0, onClosed = 0;
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) { if (segClosed('z', i, j)) closed++; if (segClosed('x', i, j)) closed++; }
+    for (const [x, z, w, d] of radarStreets(-6, 6, -6, 6)) {
+      if (w === 16 && d === CHUNK) { strips++; const i = Math.round((x + 8) / CHUNK), j = Math.round(z / CHUNK); if (segClosed('z', i, j) || segFilled('z', i, j)) onClosed++; }
+      else if (w === CHUNK && d === 16) { strips++; const i = Math.round(x / CHUNK), j = Math.round((z + 8) / CHUNK); if (segClosed('x', i, j) || segFilled('x', i, j)) onClosed++; }
+    }
+    if (!closed) bad('no closed streets in the radar sample: the check would be empty');
+    if (onClosed) bad(`${onClosed} radar strip(s) lie on a closed or filled street`);
+    if (closed && !onClosed) console.log(`radar streets: ${closed} closed arms in the sample, none drawn (${strips} strips drawn)`);
+  }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fireSlots);

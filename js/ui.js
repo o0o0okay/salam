@@ -5,6 +5,7 @@ import { DIFF, POLICE_TIERS } from './config.js';
 import { env } from './environment.js';
 import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
+import { radarStreets } from './flyover.js';
 export function toast(text) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), 1500);
   if ($('toasts').children.length > 3) $('toasts').firstChild.remove();
@@ -18,8 +19,9 @@ export function drawRadar() {
   rctx.transform(-co * s, -si * s, si * s, -co * s, 0, 0); rctx.translate(-player.x, -player.z);
   rctx.fillStyle = '#23262d';
   const gx0 = Math.floor((player.x - range * 1.5) / CHUNK), gx1 = Math.ceil((player.x + range * 1.5) / CHUNK), gz0 = Math.floor((player.z - range * 1.5) / CHUNK), gz1 = Math.ceil((player.z + range * 1.5) / CHUNK);
-  for (let i = gx0; i <= gx1; i++) rctx.fillRect(i * CHUNK - 8, player.z - range * 1.6, 16, range * 3.2);
-  for (let j = gz0; j <= gz1; j++) rctx.fillRect(player.x - range * 1.6, j * CHUNK - 8, range * 3.2, 16);
+  // The streets, as far as they really run: a closed arm (a three-way junction, see segClosed) and a filled one are grass,
+  // so they are not drawn, and a junction square shows only while one of its arms is open.
+  for (const [x, z, w, d] of radarStreets(gx0, gx1, gz0, gz1)) rctx.fillRect(x, z, w, d);
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
     if (pk.taken) continue;
     rctx.fillStyle = pk.kind === 'nitro' ? '#4aa8ff' : pk.kind === 'repair' ? '#44ff77' : '#ffd23b';
