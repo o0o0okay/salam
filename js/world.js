@@ -1607,6 +1607,42 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, padBox, prop, r, ram
   }
   for (let i = 0; i < 6; i++) prop('barrel', bx0 + r(6, 50) + (bxo - bx), bz0 + r(34.5, 37.5) + (i % 2) * 8.5 + (bzo - bz), 0, 0.2);
   if (rng() < .72) ramp(bx + (rng() < .5 ? -4 : 4), bz + r(-20, 20), rng() < .5 ? .13 : -.13);
+  // ---- the yard's own details, drawn after the rolls above so the layout before them does not move ----
+  // A chain-link fence round the pad (its inner edge, 0.5 m in), with a gate gap on the south side.
+  const X0 = bx0 + (bxo - bx) + 0.5, X1 = bx0 + (bxo - bx) + 55.5;
+  const Z0 = bz0 + (bzo - bz) + 0.5, Z1 = bz0 + (bzo - bz) + 55.5;
+  const meshM = mat(0x9aa79f, { transparent: true, opacity: 0.3 }), postM = mat(0x6b737b);
+  const fenceRun = (ax, az, bx2, bz2, gap) => {
+    const horiz = az === bz2, lo = horiz ? Math.min(ax, bx2) : Math.min(az, bz2), L = horiz ? Math.abs(bx2 - ax) : Math.abs(bz2 - az);
+    const segs = gap ? [[lo, gap[0]], [gap[1], lo + L]] : [[lo, lo + L]];
+    for (const [s0, s1] of segs) {
+      const len = s1 - s0;
+      if (len < 0.5) continue;
+      const mid = (s0 + s1) / 2, fx = horiz ? mid : ax, fz = horiz ? az : mid;
+      add(box(horiz ? len : 0.04, 1.8, horiz ? 0.04 : len, meshM, fx, 1.1, fz, false));
+      add(box(horiz ? len : 0.08, 0.08, horiz ? 0.08 : len, postM, fx, 1.9, fz, false));
+      for (let p = s0; p <= s1 + 0.01; p += 3) add(cyl(0.05, 0.05, 2.0, 6, postM, horiz ? p : ax, 1.0, horiz ? az : p, false));
+      solid(fx, fz, horiz ? len / 2 : 0.08, horiz ? 0.08 : len / 2, 'fence');
+    }
+  };
+  const xm = (X0 + X1) / 2;
+  fenceRun(X0, Z0, X1, Z0, null);
+  fenceRun(X0, Z1, X1, Z1, [xm - 4, xm + 4]);
+  fenceRun(X0, Z0, X0, Z1, null);
+  fenceRun(X1, Z0, X1, Z1, null);
+  // A yellow tower crane on about half of the yards: a footing and a mast (solid), a 30 m jib high over the yard, a
+  // counter-jib with its weight, and a hook on a cable. Only the foot and the mast are in the way of a car.
+  if (rng() < .55) {
+    const kx = bx0 + 4 + (bxo - bx), kz = bz0 + 46 + (bzo - bz), cf = mat(0xf2b233), dk = mat(0x3c434b);
+    add(box(2.4, 0.5, 2.4, mat(0x6b737b), kx, 0.5, kz, false));                  // footing
+    add(cyl(0.22, 0.3, 26, 8, cf, kx, 13.5, kz, false));                          // mast, from the footing to 26.5 m
+    add(box(1.6, 1.6, 1.8, dk, kx - 1.2, 25.6, kz, false));                       // operator's cab
+    add(box(30, 0.7, 0.7, cf, kx + 15, 26.4, kz, false));                         // jib over the yard
+    add(box(8, 0.6, 0.6, cf, kx - 4, 26.4, kz, false));                           // counter-jib
+    add(box(2.6, 1.6, 2.6, mat(0x555b63), kx - 7.5, 25.4, kz, false));            // counterweight
+    add(box(0.05, 12, 0.05, mat(0x222222), kx + 24, 20.5, kz, false));            // hook cable
+    solid(kx, kz, 0.45, 0.45, 'building');                                        // the mast
+  }
 }
 
 // The power poles and the wire runs between them. The runs are only planned here: they are drawn by powerLines once the

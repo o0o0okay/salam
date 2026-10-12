@@ -15,6 +15,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'salam-tram-'));
 
+// A fixed seed: the player's start points are drawn from it, so the numbers are the same on every run.
+let seed = 4242;
+// The real modules (tram.js spawns, utils.js rnd) draw from Math.random too, so it is seeded for the whole run.
+Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+const rand = Math.random;
+
 // ---- stubs -------------------------------------------------------------------------------------------------------
 fs.writeFileSync(path.join(work, 'three.mjs'), `
 class V3 { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
@@ -61,7 +67,7 @@ const clearAll = () => { for (const t of [...trams]) removeTram(t); cars.length 
 // Find a moving tram somewhere in the city, with the player beside it (so it is not taken away).
 function findRunningTram() {
   for (let g = 0; g < 300; g++) {
-    player.x = (Math.random() * 2 - 1) * 1200; player.z = (Math.random() * 2 - 1) * 1200;
+    player.x = (rand() * 2 - 1) * 1200; player.z = (rand() * 2 - 1) * 1200;
     for (let f = 0; f < 60 * 300; f++) {
       updateTrams(dt);
       const t = trams.find(x => x.speed > 15 && !x.turning);
@@ -85,10 +91,10 @@ function carOnTrack(t, dist) {
   let maxSpeed = 0, maxAccel = 0, maxDecelRunning = 0, sameRoute = 0, outOfRoute = 0, turns = 0, reversals = 0, spawns = 0;
   const seen = new Set(), prev = new Map();
   for (let trial = 0; trial < 40; trial++) {
-    player.x = (Math.random() * 2 - 1) * 1200; player.z = (Math.random() * 2 - 1) * 1200;
+    player.x = (rand() * 2 - 1) * 1200; player.z = (rand() * 2 - 1) * 1200;
     prev.clear();
     for (let f = 0; f < 60 * 200; f++) {
-      if (f % (60 * 60) === 0) { player.x += (Math.random() * 2 - 1) * 150; player.z += (Math.random() * 2 - 1) * 150; }
+      if (f % (60 * 60) === 0) { player.x += (rand() * 2 - 1) * 150; player.z += (rand() * 2 - 1) * 150; }
       updateTrams(dt);
       const ids = new Set();
       for (const t of trams) {
