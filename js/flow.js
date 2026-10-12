@@ -33,7 +33,7 @@ export function resetWorld() {
   sight.x = player.x; sight.z = player.z; sight.vx = sight.vz = 0; sight.t = game.t; sight.heliLock = 0; sight.heliOn = false; sight.lostFlag = false;
   ensureHelicopter();
   setHelicopterVisible(false);
-  for (let i = 0; i < 8; i++) spawnCiv();
+  for (let i = 0; i < 30; i++) spawnCiv();   // the streets start full: about a hundred cars, jam platoons included
   resetHudCache();
 }
 export function startGame() {

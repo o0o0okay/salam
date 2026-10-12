@@ -17,7 +17,7 @@ import { updateSpikes, deploySpike } from './spikes.js';
 import { policeAI, spawnPolice } from './police.js';
 import { deployRoadblock } from './roadblock.js';
 import { updateHelicopter, helicopter } from './helicopter.js';
-import { civAI, spawnCiv } from './civilians.js';
+import { civAI, spawnCiv, CIV_MAX, CIV_MAX_MENU } from './civilians.js';
 import { updateTrafficLights } from './trafficLights.js';
 import { updateWanted, nearMissAward } from './rules.js';
 import { updateHiding } from './hide.js';
@@ -124,10 +124,11 @@ export function update(dt) {
   if (playing || menu) {
     game.civT -= sdt;
     if (game.civT <= 0) {
-      game.civT = 0.7;
+      game.civT = 0.25;
       let alive = 0; for (const c of civs) if (!c.wrecked) alive++;
-      const maxC = menu ? 10 : 13;
-      if (alive < maxC) spawnCiv();
+      const maxC = menu ? CIV_MAX_MENU : CIV_MAX;
+      // a few per tick, so the streets fill up; a jam platoon counts as several cars
+      for (let k = 0; k < 3 && alive < maxC; k++) { const before = civs.length; if (spawnCiv()) alive += civs.length - before; else break; }
     }
   }
   for (let i = 0; i < civs.length; i++) {          // same index walk as the police loop above

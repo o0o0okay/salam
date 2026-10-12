@@ -1,6 +1,6 @@
 /* Civilian traffic - lane routing + reactive AI.
    Right-hand traffic. Lane position: axis z -> x = road - dir*off ; axis x -> z = road + dir*off */
-import { PI, CHUNK, clamp, wrapAngle, rnd } from './utils.js';
+import { PI, CHUNK, clamp, wrapAngle, rnd, hash2 } from './utils.js';
 import { player, police, cars, civs } from './state.js';
 import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
@@ -267,30 +267,51 @@ export function civAI(c, dt) {
   return { throttle, hand: false };
 }
 
+// Traffic density and jams. A quarter of the lanes (by hash, the same on every visit) are jam lanes: a car spawned there
+// comes with a platoon of three to five cars behind it, spaced 7.5 m, all creeping along at 1.5 to 3.5 m/s, so a queue
+// forms that reads as a jam. The other lanes keep the normal speeds. The cap is ten times the old 13 (menu: 10 -> 100).
+export const CIV_MAX = 130, CIV_MAX_MENU = 100;
+const JAM_SHARE = 4;                                    // one lane in four
+export function isJamLane(axis, road, dir) {
+  return (hash2(Math.round(road / CHUNK) * 2 + (axis === 'z' ? 1 : 0), dir > 0 ? 1 : 0) % JAM_SHARE) === 0;
+}
+// One civilian car at a lane position, with the checks the spawn always made (clear of the junctions, of a closed
+// street, of the player by 55 m, and of anything that stands there). Returns the car or null.
+function placeCiv(axis, road, dir, off, along, cruise) {
+  const x = axis === 'z' ? road - dir * off : along, z = axis === 'z' ? along : road + dir * off;
+  if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) return null;   // keep clear of the wide junctions
+  if (nearClosedStreet(x, z, 10)) return null;                                  // nor on a street closed for a T junction
+  if (Math.hypot(x - player.x, z - player.z) < 55) return null;
+  const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
+  const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };
+  if (overlapsAnything(tmp, null)) return null;
+  const color = civColor(kind);
+  const params = civParams(kind);
+  const c = createCar(kind, x, z, h, params, color);
+  c.axis = axis; c.dir = dir; c.road = road; c.off = off; c.cruise = cruise ?? civCruise(kind);
+  c.vx = Math.sin(h) * c.cruise; c.vz = Math.cos(h) * c.cruise;
+  civs.push(c); cars.push(c);
+  return c;
+}
 export function spawnCiv() {
   for (let a = 0; a < 10; a++) {
     const ang = Math.random() * PI * 2, dist = rnd(70, 135);
-    let x = player.x + Math.sin(ang) * dist, z = player.z + Math.cos(ang) * dist;
+    const x = player.x + Math.sin(ang) * dist, z = player.z + Math.cos(ang) * dist;
     const rx = Math.round(x / CHUNK) * CHUNK, rz = Math.round(z / CHUNK) * CHUNK;
     let axis, road;
     if (Math.abs(x - rx) < Math.abs(z - rz)) { axis = 'z'; road = rx; }
     else { axis = 'x'; road = rz; }
     const dir = Math.random() < 0.5 ? 1 : -1, off = Math.random() < 0.5 ? 2.5 : 5.0;   // inner lane / outer lane beside the parking
-    if (axis === 'z') x = road - dir * off; else z = road + dir * off;
     const along = axis === 'z' ? z : x;
-    if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) continue;   // keep clear of the wide junctions
-    if (nearClosedStreet(x, z, 10)) continue;                                  // nor on a street closed for a T junction
-    if (Math.hypot(x - player.x, z - player.z) < 55) continue;
-    const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
-    const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };
-    if (overlapsAnything(tmp, null)) continue;
-    const color = civColor(kind);
-    const params = civParams(kind);
-    const c = createCar(kind, x, z, h, params, color);
-    c.axis = axis; c.dir = dir; c.road = road; c.off = off; c.cruise = civCruise(kind);
-    c.vx = Math.sin(h) * c.cruise; c.vz = Math.cos(h) * c.cruise;
-    civs.push(c); cars.push(c);
-    return true;
+    if (isJamLane(axis, road, dir)) {
+      // a jam: the lead car and the cars queued behind it, all slow
+      const slow = rnd(1.5, 3.5), n = 3 + Math.floor(Math.random() * 3);
+      let placed = false;
+      for (let k = 0; k < n; k++) if (placeCiv(axis, road, dir, off, along - dir * k * 7.5, slow)) placed = true;
+      if (placed) return true;
+      continue;
+    }
+    if (placeCiv(axis, road, dir, off, along, null)) return true;
   }
   return false;
 }
