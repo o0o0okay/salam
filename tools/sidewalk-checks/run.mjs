@@ -1227,7 +1227,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   }
   // ---- 2d-12) trams: the rails lie on the centre line of the routes that carry them. A rail on a closed or filled
   // street, or one with a solid (a bench, a pole, a parked car) standing on it, is a rail in the wrong place. The overhead
-  // masts must not stand in a solid either (trees aside: they are placed at random on the verge). A route must have two terminals, and be no longer than ROUTE_MAX blocks.
+  // masts are props ('tramMast'): each one must be in the chunks, breakable, and not stand inside a solid (trees aside: they
+  // are placed at random on the verge). A route must have two terminals, and be 1000 to 2000 m long (13 to 24 blocks).
   // The sample must hold rails, or the check would pass for free. (tramLaid, routeOf, tram.js)
   {
     const { segClosed, segFilled } = await import(new URL('../../js/flyover.js', import.meta.url).href);
@@ -1239,14 +1240,15 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       if (have.has(key) || made.has(key)) return;
       made.add(key); const ch = generateChunk(cx, cz, false); madeCh.push(ch); chunks.set(chunkKey(cx, cz), ch);
     };
-    let segs = 0, onClosed = 0, probes = 0, under = 0, masts = 0, mastUnder = 0, routes = new Set(), badRoute = 0;
+    let segs = 0, onClosed = 0, probes = 0, under = 0, masts = 0, mastFound = 0, mastUnder = 0, routes = new Set(), badRoute = 0;
     for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const axis of ['x', 'z']) {
       if (!world.tramLaid(axis, i, j)) continue;
       if (segClosed(axis, i, j) || segFilled(axis, i, j)) { onClosed++; continue; }
       need(i, j); need(axis === 'z' ? i : i + 1, axis === 'z' ? j + 1 : j);
       segs++;
       const r = world.routeOf(axis, axis === 'z' ? i : j, axis === 'z' ? j : i);
-      if (!r || r.hi < r.lo || r.hi - r.lo + 1 > 12) badRoute++;
+      const lenM = r ? (r.hi - r.lo + 1) * CHUNK : 0;                       // a route's length between its terminals, in metres
+      if (!r || r.hi < r.lo || !(lenM > 1000 && lenM < 2000)) badRoute++;
       else routes.add(r.id);
       for (let t = 2; t < CHUNK; t += 4) {
         const x = axis === 'z' ? i * CHUNK : i * CHUNK + t, z = axis === 'z' ? j * CHUNK + t : j * CHUNK;
@@ -1259,18 +1261,32 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       for (const off of [-9, 9]) {
         masts++;
         const mx = axis === 'z' ? i * CHUNK + off : i * CHUNK + CHUNK / 2, mz = axis === 'z' ? j * CHUNK + CHUNK / 2 : j * CHUNK + off;
-        // a tree may stand by a mast (trees are placed at random on the verge): only the other solids count
+        // the mast is a prop of its chunk, a breakable one; a tree may stand by it (trees are placed at random on the verge)
+        const pr = [...chunks.values()].flatMap(ch => ch.props).find(q => q.kind === 'tramMast' && Math.hypot(q.x - mx, q.z - mz) < 0.5);
+        if (pr) mastFound++;
         const hits = world.solidsNear(mx, mz, 0.3).filter(so => so.kind !== 'tree' && Math.abs(mx - so.x) < so.hx + 0.3 && Math.abs(mz - so.z) < so.hz + 0.3);
         if (hits.length) mastUnder++;
       }
     }
     for (const ch of madeCh) { chunks.delete(chunkKey(ch.cx, ch.cz)); disposeChunk(ch); }
+    // every route in a wider window (no chunks needed): 1000 to 2000 m between its terminals, and some must exist
+    let wideRoutes = 0, wideBad = 0;
+    for (const axis of ['x', 'z']) for (let k = -20; k <= 20; k++) for (let j = -20; j <= 20; j++) {
+      const r = world.routeOf(axis, k, j);
+      if (!r || r.lo !== j) continue;
+      wideRoutes++;
+      const L = (r.hi - r.lo + 1) * CHUNK;
+      if (!(L > 1000 && L < 2000)) wideBad++;
+    }
+    if (!wideRoutes) bad('no tram routes in the wide window: the length check would be empty');
+    if (wideBad) bad(`${wideBad} tram route(s) in the wide window are not 1000 to 2000 m long`);
     if (!segs) bad('no tram-laid street segments in the sample: the check would be empty');
+    if (segs && !mastFound) bad('no overhead mast is a tramMast prop in the sample: the masts would not break');
     if (onClosed) bad(`${onClosed} tram-laid segment(s) lie on a closed or filled street`);
-    if (badRoute) bad(`${badRoute} tram-laid segment(s) belong to no route, or to one longer than 12 blocks`);
+    if (badRoute) bad(`${badRoute} tram-laid segment(s) belong to no route, or to a route not 1000 to 2000 m long`);
     if (under) bad(`${under} rail probe(s) stand inside a solid`);
     if (mastUnder) bad(`${mastUnder} overhead mast(s) stand inside a solid`);
-    if (segs && !onClosed && !under && !mastUnder && !badRoute) console.log(`tram routes: ${routes.size} routes, ${segs} rail segments, ${probes} rail probes and ${masts} mast probes, none on a closed street, none under a solid`);
+    if (segs && !onClosed && !under && !mastUnder && !badRoute && mastFound) console.log(`tram routes: ${wideRoutes} routes of 1000 to 2000 m in a 41-block window (${routes.size} in the sample), ${segs} rail segments, ${probes} rail probes, ${mastFound} of ${masts} masts as breakable props, none on a closed street, none under a solid`);
   }
   // ---- 2d-11) the radar draws only the streets that run: a closed street (a three-way junction) or a filled one is grass,
   // so no radar strip may cover one, and the sample must hold some, or the check would pass for free. (radarStreets, flyover.js)

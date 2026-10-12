@@ -2034,7 +2034,7 @@ function generateChunk(cx, cz, defer = false) {
   const ground = new THREE.Mesh(ASSET.groundGeo, ASSET.roadMat); ground.position.set(bx, 0, bz); ground.receiveShadow = true; group.add(ground);
   const snowCover = new THREE.Mesh(ASSET.groundGeo, ASSET.snowRoadMat); snowCover.position.set(bx, 0.025, bz); snowCover.renderOrder = 1; group.add(snowCover);
   let { closed, filled, site } = closedStreets({ prop, add, tree, x0, z0, cx, cz });
-  tramRails({ add, box, mat, x0, z0, cx, cz });           // tram rails on this block's own street segments (not closed, not filled)
+  tramRails({ add, box, mat, prop, x0, z0, cx, cz });           // tram rails on this block's own street segments (not closed, not filled)
   let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
   interchanges({ ch, p, add, ramp, group, r, cx, cz });
   let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });

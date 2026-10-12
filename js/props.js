@@ -7,6 +7,10 @@ import * as THREE from 'three';
 export const PROP_DEFS = {
   streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, soft: true, make() { const g = new THREE.Group(), m = mat(0x7d838c);
     g.add(cyl(0.14, 0.2, 7, 8, m, 0, 3.5, 0, false)); g.add(box(1.8, 0.14, 0.14, m, 0.8, 7, 0, false)); g.add(box(0.7, 0.16, 0.4, ASSET.lampMat, 1.55, 6.88, 0, false)); return g; } },
+  // a steel tram mast: a round pole with a short arm. The arm runs across the street, the way the span wire goes (the
+  // wire is baked by js/tram.js). It breaks like any street prop when a car hits it, and the wire stays up.
+  tramMast: { r: 0.22, drag: 0.9, color: 0x8a8f96, soft: true, make() { const g = new THREE.Group(), m = mat(0x8a8f96);
+    g.add(cyl(0.16, 0.2, 6.2, 8, m, 0, 3.1, 0, false)); g.add(box(2.2, 0.12, 0.12, m, 0, 5.9, 0, false)); return g; } },
   // a wooden utility pole: a tapered pole, two crossarms across the line with insulators, braces and a transformer.
   // The wires are not part of the prop; they are laid between poles by js/world.js (utilityLine).
   utilitypole: { r: 0.3, drag: 0.9, color: 0x5a3d26, soft: true, make() { const g = new THREE.Group(), w = mat(0x4a3322), arm = mat(0x6b4a2f), ins = mat(0x1d1d1d), tr = mat(0x5d636b);

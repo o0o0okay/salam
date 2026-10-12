@@ -14,7 +14,7 @@ import { carBox, createCar } from './vehicle.js';
 import { trams } from './tram.js';
 import { emit, debris, sparks, smoke, explosion } from './particles.js';
 import { sfx } from './audio.js';
-import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx } from './damage.js';
+import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx, wreckCar } from './damage.js';
 import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
@@ -129,16 +129,24 @@ export function collideTrams(c) {
     if (!sat(b, t.box)) continue;
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
-    // The tram is far heavier than a car: the car takes the blow, and is carried along the track a little.
-    const fx = t.box.ux, fz = t.box.uz;                   // the tram's box points the way it runs
-    c.vx += fx * t.speed * 0.5; c.vz += fz * t.speed * 0.5;
+    c.lastWall = game.time;
+    if (!c.isPlayer) {
+      // A car the tram hits is destroyed. It is thrown sideways, off the rails, so it does not stay in front of the tram
+      // (the tram ignores a wrecked car, so it would otherwise keep running into it on the track).
+      if (!c.wrecked) {
+        impactFx(c.x + nx * 1.5, c.z + nz * 1.5, t.speed, nx, nz, false, c.y);
+        hurtCar(c, 6 + t.speed * 2.2);
+        if (!c.wrecked) wreckCar(c);
+      }
+      const side = t.axis === 'z' ? Math.sign(c.x - t.x) || 1 : Math.sign(c.z - t.z) || 1;   // which side of the rails it is on
+      if (t.axis === 'z') c.vx = side * 12; else c.vz = side * 12;
+      continue;
+    }
     if ((c.tramHitAt ?? -9) < game.time - 0.5) {          // one blow per half second of contact
       c.tramHitAt = game.time;
-      const amt = 6 + t.speed * 2.2;
-      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, t.speed, nx, nz, c.isPlayer, c.y);
-      if (c.isPlayer) hurtPlayer(amt); else hurtCar(c, amt);
+      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, t.speed, nx, nz, true, c.y);
+      hurtPlayer(6 + t.speed * 2.2);
     }
-    c.lastWall = game.time;
   }
 }
 const TRAM_REACH = 20;                  // a tram is 30 m long: its half length plus a car's half length, with margin

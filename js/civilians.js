@@ -7,6 +7,7 @@ import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
+import { tramTrackAhead } from './tram.js';
 import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet } from './flyover.js';
 
 const CIV_KINDS = [
@@ -240,7 +241,15 @@ export function civAI(c, dt) {
     }
   }
 
+  // Trams: a car on a live track gets off it (gas, on towards its lane); a car about to cross a track with a tram coming
+  // brakes for it and waits for the tram to pass.
+  const rails = tramTrackAhead(c);
+  const offRails = rails < 0;
+  if (offRails) target = Math.max(target, c.cruise + 6);
+  else if (rails < Infinity) target = Math.min(target, Math.max(0, rails - 4) * 1.2);
+
   let throttle = sp < target - 0.5 ? 0.75 : sp > target + 1.5 ? -0.6 : 0;
+  if (offRails) throttle = 1;
 
   if (c.panicT > 0) {
     c.panicT -= dt;
