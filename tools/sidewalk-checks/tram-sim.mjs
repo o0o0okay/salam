@@ -215,10 +215,18 @@ function carOnTrack(t, dist) {
     if (t3) {
       clearAll();
       const t3b = findRunningTram();
-      const tramSec = 30, b1 = sfx.bells;                    // counted from here, after the search
-      let runSec = 0;
-      for (let f = 0; f < 60 * tramSec && t3b && trams.includes(t3b); f++) { player.x = t3b.x; player.z = t3b.z; updateTrams(dt); if (!t3b.blocked && t3b.speed > 1) runSec += dt; }
-      const movingRate = (sfx.bells - b1) / Math.max(1, runSec);
+      // the steady rate: only after 6 s of running clear of a car, when the bell is back on its 5 s interval (a bell
+      // rung just after a car clears the track comes sooner, on the 1.3 s timer, and that is checked below, not here)
+      const tramSec = 30;
+      let runSec = 0, runBells = 0, calm = 0;
+      for (let f = 0; f < 60 * tramSec && t3b && trams.includes(t3b); f++) {
+        player.x = t3b.x; player.z = t3b.z;
+        for (const o of trams) if (o !== t3b) o.bellT = 1e9;               // the other trams stay quiet: sfx.bells counts them all
+        const b0 = sfx.bells; updateTrams(dt);
+        calm = t3b.blocked ? 0 : calm + dt;
+        if (!t3b.blocked && t3b.speed > 1 && calm > 6) { runSec += dt; runBells += sfx.bells - b0; }
+      }
+      const movingRate = runBells / Math.max(1, runSec);
       check(runSec < 5 || (movingRate > 0.1 && movingRate < 0.35), `bell rate while running ${movingRate.toFixed(2)} per s, want about 0.2`);
       console.log(`tram bell while running: ${movingRate.toFixed(2)} per second over ${runSec.toFixed(0)} s`);
       clearAll();
