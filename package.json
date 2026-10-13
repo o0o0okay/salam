@@ -11,6 +11,7 @@
     "serve": "python3 -m http.server 8000 --bind 0.0.0.0",
     "build": "node tools/build.mjs",
     "bake:map": "node tools/map-data/bake.mjs",
+    "postinstall": "node tools/map-data/bake.mjs || echo 'map-data not built: run npm run bake:map'",
     "serve:dist": "python3 -m http.server 8001 --bind 0.0.0.0 --directory dist"
   },
   "devDependencies": {
