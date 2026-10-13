@@ -28,6 +28,10 @@ export function build() {
   src = chunkSrc + src;
   // The interchange's numbers live in their own module (js/flyover.js, no three.js in it) and js/world.js imports
   // them: the stitched module needs its source in front of world.js, the same way the browser gets it.
+  // js/island.js (the island's bounds and the core rule) is imported by js/flyover.js and js/world.js: stitched in front of them.
+  let islandSrc = fs.readFileSync(path.join(repo, 'js/island.js'), 'utf8');
+  islandSrc = islandSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = islandSrc + '\n' + src;
   let flySrc = fs.readFileSync(path.join(repo, 'js/flyover.js'), 'utf8');
   flySrc = flySrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = flySrc + '\n' + src;

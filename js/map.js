@@ -15,10 +15,11 @@ import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW } from './flyover.js';
 import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
+import { ISLAND_R, ISLAND_MIN, ISLAND_MAX } from './island.js';
 
 const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
 const C = {
-  casing: '#b9b1a0', street: '#fffefb', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
+  sea: '#9fcde4', beach: '#efe4c6', casing: '#b9b1a0', street: '#fffefb', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
   building: '#c6c0b2', park: '#b8dc98', quay: '#d9d2c0', you: '#e63946', mark: '#e63946',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
@@ -152,11 +153,13 @@ function draw() {
   if (!open || !ctx) return;
   learn();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = LAND.centre; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
+  rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
 
   const half = { x: W / 2 / view.s, z: H / 2 / view.s };
-  const gx0 = Math.floor((view.cx - half.x) / CHUNK) - 1, gx1 = Math.ceil((view.cx + half.x) / CHUNK) + 1;
-  const gz0 = Math.floor((view.cz - half.z) / CHUNK) - 1, gz1 = Math.ceil((view.cz + half.z) / CHUNK) + 1;
+  // the blocks in view, on the island only (chunks -ISLAND_R..ISLAND_R-1)
+  const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
+  const gz0 = Math.max(-ISLAND_R, Math.floor((view.cz - half.z) / CHUNK) - 1), gz1 = Math.min(ISLAND_R, Math.ceil((view.cz + half.z) / CHUNK) + 1);
 
   // 1. the ground of each block, by district; parks and the harbour quay where the block has been built
   for (let cx = gx0; cx < gx1; cx++) for (let cz = gz0; cz < gz1; cz++) {
@@ -179,8 +182,11 @@ function draw() {
   // 3. the river: its bank and channel, in every visible block (straight, at z = RIVER_ROW * CHUNK, 8 m wide)
   const rz = RIVER_ROW * CHUNK;
   const cw = Math.max(8, 7 / view.s);                              // the channel, at least 7 px wide on screen
-  rect(view.cx - half.x, rz - cw * 1.3, 2 * half.x, cw * 2.6, C.bank);
-  rect(view.cx - half.x, rz - cw / 2, 2 * half.x, cw, C.water);
+  const rx0 = Math.max(view.cx - half.x, ISLAND_MIN), rw = Math.min(view.cx + half.x, ISLAND_MAX) - rx0;   // it runs out to the sea
+  if (rw > 0) {
+    rect(rx0, rz - cw * 1.3, rw, cw * 2.6, C.bank);
+    rect(rx0, rz - cw / 2, rw, cw, C.water);
+  }
 
   // 4. the water and bridge decks that are known from the built chunks (the harbour basin, the river crossings)
   for (const k of seen.values()) for (const [x, z, w, d, kind] of k.water) {

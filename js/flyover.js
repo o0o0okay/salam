@@ -30,6 +30,7 @@
  */
 import { CHUNK, hash2 } from './utils.js';
 import { districtOfNb } from './districts.js';
+import { CORE, segInCore } from './island.js';
 
 export const FLY = {
   span: CHUNK,      // streets sit on multiples of the block size
@@ -100,7 +101,7 @@ function ensureNodes(blocks) {
 }
 // The distance (in blocks) of the flyover at |block|, or 0 when that junction carries none.
 export function nodeBlock(blocks) {
-  if (blocks < FLY.minGap) return 0;
+  if (blocks < FLY.minGap || blocks > CORE - 1) return 0;   // a junction on the island's core only (js/island.js)
   ensureNodes(blocks);
   return nodeSet.has(blocks) ? blocks : 0;
 }
@@ -121,7 +122,7 @@ export const bridgeExt = b => {
 // The record of the flyover at `b` blocks from the centre on side `s`. `lo` and `hi` are the along-road extent of the
 // deck measured from the start junction: [0, 0] for an ordinary flyover, [0, ext * span] going outward otherwise.
 function recordFor(axis, b, s) {
-  const ext = bridgeExt(b), F = ext * FLY.span;
+  const ext = Math.min(bridgeExt(b), CORE - 1 - b), F = ext * FLY.span;   // the far end stays on the core, not the coast
   return { axis, road: 0, node: s * b * FLY.span, ext, lo: Math.min(0, s * F), hi: Math.max(0, s * F) };
 }
 export function nodeAt(ix, iz) {
@@ -422,6 +423,7 @@ function segsAt(ex, ez) { return [['x', ex - 1, ez], ['x', ex, ez], ['z', ex, ez
 export const NB_BLOCKS = 3;
 function nbhdBase(RX, RZ) {
   if (RX === 0 || RX === -1 || RZ === 0 || RZ === -1) return false;
+  if (RX < -8 || RX > 7 || RZ < -8 || RZ > 7) return false;   // the region's blocks must all be on the island, inside the core
   if (RIVER_ROW >= NB_BLOCKS * RZ && RIVER_ROW <= NB_BLOCKS * RZ + NB_BLOCKS) return false;   // no neighbourhood on the river
   if (districtOfNb(RX, RZ) !== 'suburb') return false;      // estates are a suburb's thing (js/districts.js)
   if ((hash2(RX * 13 + 5, RZ * 7 + 11) & 0xFF) >= 42) return false;
@@ -519,6 +521,7 @@ function segCandidate(axis, jx, jz) {
 export const RIVER_ROW = 8;
 export function riverSeg(axis, jx, jz) { return axis === 'x' && jz === RIVER_ROW; }
 export function segClosed(axis, jx, jz) {
+  if (!segInCore(axis, jx, jz)) return true;                  // the island's coast: no street reaches the sea (js/island.js)
   if (riverSeg(axis, jx, jz)) return true;
   const key = axis + jx + ',' + jz;
   let v = closedCache.get(key);
@@ -573,6 +576,7 @@ export function nearClosedStreet(x, z, margin) {
 const plazaCache = new Map();
 const plazaPrio = (jx, jz) => hash2(jx * 5 + 1, jz * 5 + 2) >>> 0;
 function plazaEligible(jx, jz) {
+  if (Math.abs(jx) >= CORE || Math.abs(jz) >= CORE) return false;   // a plaza's island needs all four arms: none at the coast
   if (jz === RIVER_ROW) return false;                           // the river runs along this row
   if (nbhdJunction(jx, jz)) return false;                        // a neighbourhood has no island
   if (jx === 0 || jz === 0) return false;                       // main roads carry flyovers: keep plazas off them

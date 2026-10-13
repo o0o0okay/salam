@@ -3,6 +3,7 @@
 import { modulePath } from './harness.mjs';
 import { heliModulePath } from './heli-harness.mjs';
 import { districtOf, DISTRICTS, DIST_NB } from '../../js/districts.js';
+import { CORE } from '../../js/island.js';
 
 const world = await import(modulePath);
 const { __merge, __checked, textBlocks, generateChunk, disposeChunk, chunkKey, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
@@ -701,10 +702,11 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     // and never a fixed beat. (The two roads see the same sequence, so a driver meets them at the same rate
     // whichever way he turns at the start.)
     const seq = [];
-    for (let k = 1; k <= 30; k++) { const f = nodeAt(0, k); if (f) seq.push(f.node); }
+    // The island (js/island.js) ends the avenue at its core: the junctions 1..CORE are the whole run of flyovers.
+    for (let k = 1; k <= CORE; k++) { const f = nodeAt(0, k); if (f) seq.push(f.node); }
     const xseq = [];
-    for (let k = 1; k <= 30; k++) { const f = nodeAt(k, 0); if (f) xseq.push(f.node); }
-    if (seq.length < 5) bad(`only ${seq.length} flyovers in the first 30 junctions of the avenue`);
+    for (let k = 1; k <= CORE; k++) { const f = nodeAt(k, 0); if (f) xseq.push(f.node); }
+    if (seq.length < 3) bad(`only ${seq.length} flyovers in the island's core on the avenue (junctions 1..${CORE})`);
     if (seq.join() !== xseq.join()) bad('the two main roads do not carry the same flyover spacing');
     const gaps = seq.slice(1).map((v, i) => v - seq[i]);
     for (const g of gaps) if (g < FLY.minGap * CHUNK) bad(`two flyovers on the avenue are only ${g} m apart`);

@@ -5,6 +5,7 @@ import { player, police, cars, civs } from './state.js';
 import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
+import { onIsland } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
@@ -309,6 +310,7 @@ export function spawnCiv() {
     const ang = Math.random() * PI * 2, dist = rnd(70, 135);
     const x = player.x + Math.sin(ang) * dist, z = player.z + Math.cos(ang) * dist;
     const rx = Math.round(x / CHUNK) * CHUNK, rz = Math.round(z / CHUNK) * CHUNK;
+    if (!onIsland(x, z, 14)) continue;                          // never out to sea
     let axis, road;
     if (Math.abs(x - rx) < Math.abs(z - rz)) { axis = 'z'; road = rx; }
     else { axis = 'x'; road = rz; }

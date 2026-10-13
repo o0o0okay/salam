@@ -66,6 +66,7 @@ import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
+import { ISLAND_R, inIslandChunk, onIsland } from './island.js';
 import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
@@ -164,13 +165,16 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
     add(box(CHUNK, 0.04, 8, mat(WATER), x0 + 40, 0.04, zc, false));                 // the water, the full block width (under the decks too)
     add(box(63.4, 0.9, 0.5, mat(0x8e8a80), x0 + 40, 0.45, bankZ, false));            // the bank wall, on the kerb line
     solid(x0 + 40, bankZ, 31.7, 0.25, 'building');
+    // on the coast (the west block of the island) the river runs out to the sea: no parapet or deck out in the water
     for (const px of [x0 - 8.25, x0 + 8.25]) {                                       // the bridge parapets at this block's west junction
+      if (!onIsland(px, zc)) continue;
       add(box(0.5, 1.0, 8, mat(0xd3d0c8), px, 0.5, zc, false));
       solid(px, zc, 0.25, 4, 'flyover', 2.0);
     }
-    add(box(16, 0.06, 8, mat(0x4b5058), x0, 0.05, zc, false));                       // the bridge deck over the water
+    const coastDeck = !onIsland(x0 - 8, zc);
+    add(box(coastDeck ? 8 : 16, 0.06, 8, mat(0x4b5058), coastDeck ? x0 + 4 : x0, 0.05, zc, false));   // the bridge deck over the water
     // what the radar draws (ui.js): the water and the deck, in world metres
-    (ch.radarWater = ch.radarWater || []).push([x0, zc - 4, CHUNK, 8, 'water'], [x0 - 8, zc - 4, 16, 8, 'deck']);
+    (ch.radarWater = ch.radarWater || []).push([x0, zc - 4, CHUNK, 8, 'water'], coastDeck ? [x0, zc - 4, 8, 8, 'deck'] : [x0 - 8, zc - 4, 16, 8, 'deck']);
   };
   if (river[2]) riverSide(2);
   if (river[3]) riverSide(3);
@@ -2126,6 +2130,7 @@ function generateChunk(cx, cz, defer = false) {
     return Math.abs(along - g.t) < g.clear + rad && across > g.r0 - rad && across < g.r1 + rad;
   };
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
+    if (!onIsland(x, z)) return;                               // the far half of a coast street is the sea's: nothing stands there
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // the river's water and banks: nothing stands in it
     if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;   // that strip is carriageway now, not pavement
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
@@ -2136,6 +2141,7 @@ function generateChunk(cx, cz, defer = false) {
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // nothing is planted in the river
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
     const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
+    if (!onIsland(x, z)) return;                                 // (after the draws, so the rest of the block keeps its trees)
     solid(x, z, 0.65, 0.65, 'tree');
     const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
     t.solid.tree = t; ch.trees.push(t);
@@ -2274,6 +2280,7 @@ function generateChunk(cx, cz, defer = false) {
   freeStreetProps(ch);
   tramWires({ add, box, mat, ch, poles: tramPoles });   // the span wires, between the poles that survived
   powerLines(ch, powerRuns, add, (x, z) => onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7));   // the same test prop() makes
+  seaWall({ add, solid, x0, z0, cx, cz });                       // the coast of the island, if this block is on it (no RNG)
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
@@ -2321,7 +2328,31 @@ export function disposeChunk(ch) {
 // moves, that block is already there instead of being built in the middle of the frame. The prefetch only runs
 // when the view queue is empty, so a fast drive never pays for it, and it has its own small budget.
 const STREAM_MS = 6, PREFETCH_MS = 4, MERGE_MS = 3;
+// ---- the island's coast (js/island.js): a concrete seawall along each side of the island, on the block's own edge ----
+const SEAWALL_T = 3, SEAWALL_TOP = 1.2, SEAWALL_BOTTOM = -0.3;   // 3 m thick; it stands on the ground and reaches down into the sea
+function seaWall({ add, solid, x0, z0, cx, cz }) {
+  const edge = [];
+  if (cx === -ISLAND_R) edge.push([x0 + SEAWALL_T / 2, z0 + 40, SEAWALL_T, CHUNK]);
+  if (cx === ISLAND_R - 1) edge.push([x0 + CHUNK - SEAWALL_T / 2, z0 + 40, SEAWALL_T, CHUNK]);
+  if (cz === -ISLAND_R) edge.push([x0 + 40, z0 + SEAWALL_T / 2, CHUNK, SEAWALL_T]);
+  if (cz === ISLAND_R - 1) edge.push([x0 + 40, z0 + CHUNK - SEAWALL_T / 2, CHUNK, SEAWALL_T]);
+  if (!edge.length) return;
+  const m = mat(0x8d8a84), h = SEAWALL_TOP - SEAWALL_BOTTOM;
+  for (const [x, z, w, d] of edge) {
+    add(box(w, h, d, m, x, SEAWALL_BOTTOM + h / 2, z, false));
+    solid(x, z, w / 2, d / 2, 'building');
+  }
+}
+// The sea: one large plane below the island's ground, so the coast reads as a quay. Built once, on the first update.
+let seaMesh = null;
+function ensureSea() {
+  if (seaMesh) return;
+  seaMesh = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), mat(0x2d6f8c));
+  seaMesh.rotation.x = -Math.PI / 2; seaMesh.position.set(0, SEAWALL_BOTTOM, 0);
+  scene.add(seaMesh);
+}
 export function updateChunks(px, pz, budget) {
+  ensureSea();
   const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
   // ---- drop what is two rings out, and show/hide what is in the view ring ----
   for (const [k, ch] of chunks) if (Math.max(Math.abs(ch.cx - pcx), Math.abs(ch.cz - pcz)) > VIEW_R + 2) { disposeChunk(ch); chunks.delete(k); }
@@ -2332,7 +2363,7 @@ export function updateChunks(px, pz, budget) {
   // ---- build whatever the view needs, nearest first, inside the time budget ----
   const need = [];
   for (let dx = -VIEW_R; dx <= VIEW_R; dx++) for (let dz = -VIEW_R; dz <= VIEW_R; dz++) {
-    const cx = pcx + dx, cz = pcz + dz; if (!chunks.has(ck(cx, cz))) need.push({ cx, cz, d: dx * dx + dz * dz });
+    const cx = pcx + dx, cz = pcz + dz; if (inIslandChunk(cx, cz) && !chunks.has(ck(cx, cz))) need.push({ cx, cz, d: dx * dx + dz * dz });
   }
   need.sort((a, b) => a.d - b.d);
   const all = budget >= 999;
@@ -2358,7 +2389,7 @@ export function updateChunks(px, pz, budget) {
   for (let dx = -VIEW_R - 1; dx <= VIEW_R + 1; dx++) for (let dz = -VIEW_R - 1; dz <= VIEW_R + 1; dz++) {
     if (Math.max(Math.abs(dx), Math.abs(dz)) !== VIEW_R + 1) continue;
     const cx = pcx + dx, cz = pcz + dz;
-    if (!chunks.has(ck(cx, cz))) ahead.push({ cx, cz, d: dx * dx + dz * dz });
+    if (inIslandChunk(cx, cz) && !chunks.has(ck(cx, cz))) ahead.push({ cx, cz, d: dx * dx + dz * dz });
   }
   if (!ahead.length) return;
   ahead.sort((a, b) => a.d - b.d);

@@ -6,6 +6,7 @@ import { env } from './environment.js';
 import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt } from './world.js';
+import { onIsland } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { tramTrackAhead } from './tram.js';
 import { FLY, flyoverNear, structureLevel, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
@@ -465,6 +466,7 @@ export function spawnPolice(forceTier = 0) {
     const rx = Math.round(x / CHUNK) * CHUNK, rz = Math.round(z / CHUNK) * CHUNK, lane = (Math.random() < 0.5 ? -1 : 1) * 3.5; let h;
     if (Math.abs(x - rx) < Math.abs(z - rz)) { x = rx + lane; h = player.z > z ? 0 : PI; } else { z = rz + lane; h = player.x > x ? PI / 2 : -PI / 2; }
     if (Math.hypot(x - player.x, z - player.z) < 105) continue;
+    if (!onIsland(x, z, 14)) continue;                          // never out to sea
     const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
     const dims = CAR_DIMS[kind], tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1, e2: dims.e2 };
     if (overlapsAnything(tmp, null)) continue;
