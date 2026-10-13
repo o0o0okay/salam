@@ -153,36 +153,25 @@ const shade = (hex, f) => {
   const c = v => Math.max(0, Math.min(255, Math.round(v * f)));
   return `rgb(${c(n >> 16 & 255)},${c(n >> 8 & 255)},${c(n & 255)})`;
 };
-// one box as a raised block: the ground shadow, the two walls that face the viewer (bottom and right), the roof on top.
-// A gable roof is two pitched halves with a ridge along the long side; a flat roof is one plain top.
+// one box seen from above: its roof, flat. A gable roof is two halves with a ridge along the long side.
 function box(x, z, w, d, roof, hm, gable) {
   const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;   // the footprint, top-left corner on screen
-  const h = Math.max(3, hm * view.s * 1.4), dx = h * 0.6, dy = h * 0.6;   // at least 3 px, so the height reads at any zoom
   const c = C.roofs[roof];
-  ctx.fillStyle = 'rgba(40,36,28,0.28)';                          // the shadow, down and to the right
-  ctx.fillRect(X + dx + 1.5, Y + dy + 1.5, W2, D2);
-  ctx.fillStyle = shade(c, 0.6);                                   // the wall that faces down
-  ctx.beginPath(); ctx.moveTo(X, Y + D2); ctx.lineTo(X + W2, Y + D2); ctx.lineTo(X + W2 - dx, Y + D2 - dy); ctx.lineTo(X - dx, Y + D2 - dy); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = shade(c, 0.78);                                  // the wall that faces right
-  ctx.beginPath(); ctx.moveTo(X + W2, Y); ctx.lineTo(X + W2, Y + D2); ctx.lineTo(X + W2 - dx, Y + D2 - dy); ctx.lineTo(X + W2 - dx, Y - dy); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = c;                                               // the roof
-  ctx.fillRect(X - dx, Y - dy, W2, D2);
+  ctx.fillStyle = c;
+  ctx.fillRect(X, Y, W2, D2);
   if (gable) {
     const along = w >= d;                                          // the ridge runs along the long side
-    ctx.fillStyle = shade(c, 0.84);                                // the half in shadow
-    if (along) ctx.fillRect(X - dx, Y - dy + D2 / 2, W2, D2 / 2);
-    else ctx.fillRect(X - dx + W2 / 2, Y - dy, W2 / 2, D2);
-    ctx.strokeStyle = shade(c, 0.55); ctx.lineWidth = 0.6;
+    ctx.fillStyle = shade(c, 0.86);                                // the half in shadow
+    if (along) ctx.fillRect(X, Y + D2 / 2, W2, D2 / 2);
+    else ctx.fillRect(X + W2 / 2, Y, W2 / 2, D2);
+    ctx.strokeStyle = shade(c, 0.6); ctx.lineWidth = 0.6;
     ctx.beginPath();
-    if (along) { ctx.moveTo(X - dx, Y - dy + D2 / 2); ctx.lineTo(X - dx + W2, Y - dy + D2 / 2); }
-    else { ctx.moveTo(X - dx + W2 / 2, Y - dy); ctx.lineTo(X - dx + W2 / 2, Y - dy + D2); }
+    if (along) { ctx.moveTo(X, Y + D2 / 2); ctx.lineTo(X + W2, Y + D2 / 2); }
+    else { ctx.moveTo(X + W2 / 2, Y); ctx.lineTo(X + W2 / 2, Y + D2); }
     ctx.stroke();
-  } else {
-    ctx.fillStyle = shade(c, 1.12);                                // a light edge on the top of the roof
-    ctx.fillRect(X - dx, Y - dy, W2, Math.max(0.8, 0.12 * D2));
   }
-  ctx.strokeStyle = shade(c, 0.5); ctx.lineWidth = 0.6;
-  ctx.strokeRect(X - dx, Y - dy, W2, D2);
+  ctx.strokeStyle = shade(c, 0.6); ctx.lineWidth = 0.7;
+  ctx.strokeRect(X, Y, W2, D2);
 }
 // a building: a plain box, a pitched-roof box, an L-shaped building, or a box with a rooftop unit (by its place)
 function building(x, z, w, d, roof, hm, st) {
@@ -193,7 +182,7 @@ function building(x, z, w, d, roof, hm, st) {
   }
   box(x, z, w, d, roof, hm, st === 1);
   if (st === 3 && w > 8 && d > 8) {                                // a rooftop unit: a small grey box on the roof
-    const X = sx(x) - Math.max(3, hm * view.s * 1.4) * 0.6, Y = sy(z + d) - Math.max(3, hm * view.s * 1.4) * 0.6;
+    const X = sx(x), Y = sy(z + d);
     ctx.fillStyle = shade(C.roofs[roof], 0.7);
     ctx.fillRect(X + w * view.s * 0.55, Y + d * view.s * 0.2, w * view.s * 0.22, d * view.s * 0.26);
   }
