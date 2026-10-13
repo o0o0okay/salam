@@ -34,7 +34,9 @@ const view = { cx: 0, cz: 0, s: 0.45 };     // centre (world metres), screen pix
 let mark = null;                           // { x, z } or null
 let open = false, timer = 0, W = 0, H = 0, dpr = 1;
 let overlay, canvas, ctx, infoBox;
-const seen = new Map();                    // chunk key -> { type, water } for chunks that have been built
+const seen = new Map();                    // chunk key -> { type, water, blds, trees, lm } for chunks the car has been near
+const baked = new Map();                   // chunk key -> the same, for every block of the island (tiles of map-data/, see tools/map-data)
+const tileAsked = new Set();
 let streetKey = '', streetCache = [];      // the open streets for the visible range, cached while the range is unchanged
 
 function el(tag, css, text) {
@@ -231,6 +233,32 @@ function crown(tx, tz) {
   ctx.fillStyle = C.treeLight; ctx.fill();
 }
 
+// The island's blocks, baked ahead of time (tools/map-data/bake.mjs) in tiles of 10 x 10 blocks. The tile of a part on
+// screen is fetched the first time it is shown, so scrolling the map loads it. A block the car has been near is used as
+// the game made it (seen); any other block is the baked one.
+const TILE = 10;
+function known(key) { return seen.get(key) || baked.get(key); }
+function* allKnown() {
+  for (const v of seen.values()) yield v;
+  for (const [key, v] of baked) if (!seen.has(key)) yield v;
+}
+function needTiles(gx0, gx1, gz0, gz1) {
+  const lo = -ISLAND_R, hi = ISLAND_R - 1;
+  gx0 = Math.max(lo, gx0); gx1 = Math.min(hi, gx1); gz0 = Math.max(lo, gz0); gz1 = Math.min(hi, gz1);
+  for (let tx = Math.floor((gx0 - lo) / TILE); tx <= Math.floor((gx1 - lo) / TILE); tx++)
+  for (let tz = Math.floor((gz0 - lo) / TILE); tz <= Math.floor((gz1 - lo) / TILE); tz++) {
+    const name = `${tx}_${tz}`;
+    if (tileAsked.has(name)) continue;
+    tileAsked.add(name);
+    fetch(`map-data/${name}.json`).then(r => (r.ok ? r.json() : null)).then(j => {
+      if (!j) return;                                   // no baked data here (not generated): the map shows what the car has seen
+      for (const [key, rec] of Object.entries(j)) {
+        const [cx, cz] = key.split(',').map(Number);
+        baked.set(ck(cx, cz), rec);
+      }
+    }).catch(() => {});
+  }
+}
 function learn() {
   for (const [key, ch] of chunks) {
     if (ch.mapType !== undefined && !seen.has(key)) {
@@ -255,6 +283,7 @@ function draw() {
   // the blocks in view, on the island only (chunks -ISLAND_R..ISLAND_R-1)
   const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
   const gz0 = Math.max(-ISLAND_R, Math.floor((view.cz - half.z) / CHUNK) - 1), gz1 = Math.min(ISLAND_R, Math.ceil((view.cz + half.z) / CHUNK) + 1);
+  needTiles(gx0, gx1 - 1, gz0, gz1 - 1);   // the part on screen: its tiles are fetched the first time it is shown
 
   // 1. the ground of each block, by district; then, for a block the player has been near (it is built and remembered),
   // its parks, its harbour quay, its real buildings and its real trees. A block never visited is only its ground, so the
@@ -262,7 +291,7 @@ function draw() {
   for (let cx = gx0; cx < gx1; cx++) for (let cz = gz0; cz < gz1; cz++) {
     const x0 = cx * CHUNK, z0 = cz * CHUNK;
     rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
-    const k = seen.get(ck(cx, cz));
+    const k = known(ck(cx, cz));
     if (!k) continue;
     // a built block is a lawn with a darker edge (the look of the reference); unbuilt blocks stay plain ground
     rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#7fa857');
@@ -290,7 +319,7 @@ function draw() {
   }
 
   // 4. the water and bridge decks that are known from the built chunks (the harbour basin, the river crossings)
-  for (const k of seen.values()) for (const [x, z, w, d, kind] of k.water) {
+  for (const k of allKnown()) for (const [x, z, w, d, kind] of k.water) {
     if (x > view.cx + half.x || x + w < view.cx - half.x || z > view.cz + half.z || z + d < view.cz - half.z) continue;
     if (kind === 'water') rect(x, z, w, d, C.water);
   }
@@ -320,7 +349,7 @@ function draw() {
     ctx.strokeStyle = C.casing; ctx.lineWidth = AVENUE_W * view.s + 2 * pad; ctx.stroke();
     ctx.strokeStyle = C.main; ctx.lineWidth = AVENUE_W * view.s; ctx.stroke();
   }
-  for (const k of seen.values()) for (const [x, z, w, d, kind] of k.water) {
+  for (const k of allKnown()) for (const [x, z, w, d, kind] of k.water) {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
 

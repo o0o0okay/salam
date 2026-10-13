@@ -14,3 +14,6 @@ npm-debug.log*
 
 # Output of `npm run build` (the optional bundle)
 dist/
+
+# Generated: the city map's baked tiles (npm run bake:map)
+/map-data/

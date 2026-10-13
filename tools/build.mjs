@@ -33,6 +33,7 @@ if (html === before || html.includes('importmap') || !html.includes('src="app.js
 }
 fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.cpSync(path.join(root, 'css'), path.join(out, 'css'), { recursive: true });
+if (fs.existsSync(path.join(root, 'map-data'))) fs.cpSync(path.join(root, 'map-data'), path.join(out, 'map-data'), { recursive: true });   // the map's baked tiles (npm run bake:map)
 
 const inputs = Object.keys(result.metafile.inputs).filter(f => !f.includes('node_modules')).length;
 const three = Object.keys(result.metafile.inputs).filter(f => f.includes('node_modules/three/')).length;
