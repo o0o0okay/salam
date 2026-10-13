@@ -20,7 +20,7 @@ import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
 const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
 const C = {
-  sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#b9b6ae', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
+  sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#5d6065', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
   building: '#c6c0b2', park: '#a6d57f', quay: '#d9d2c0', you: '#e63946',
   // the building roofs, as in the reference: sand, orange, rose, blue, green, pale grey, brick
   roofs: ['#f0e2b8', '#e8934a', '#ef8f96', '#6fa8de', '#8fc777', '#e3dfd6', '#c46d4c'],
