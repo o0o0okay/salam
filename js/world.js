@@ -603,12 +603,12 @@ function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
   // One hospital is pinned beside the spawn block (front-left of the start) so it is easy to find; the rest of
   // the city grows a few more at random, never on the two guaranteed shopping centres.
   let type = nearSpawn ? 'commercial'
-    : (cx === -1 && cz === 0) ? 'hospital'
+    : (cx === -2 && cz === 0) ? 'hospital'
     : (cx === 0 && cz === -1) ? 'fire'                          // the block the player starts beside
-    : (cx === -1 && cz === -1) ? 'fuel'                         // the filling station across from the fire hall
+    : (cx === -2 && cz === -2) ? 'fuel'                         // the filling station, two blocks west of the fire hall (no civic block touches another)
     : (cx === 1 && cz === -1) ? 'downtown'                     // the north-east corner beside the start: brick walk-ups (high street, shopfronts on the walk)
     : (cx === 0 && cz === 1) ? 'school'                        // a school one block up the street the player starts on
-    : (cx === -1 && cz === 1) ? 'bank'                         // a bank on the block across from the school
+    : (cx === -2 && cz === 2) ? 'bank'                         // a bank, two blocks west of the school
     : laneBlock ? (t < 0.5 ? 'downtown' : t < 0.85 ? 'suburb' : 'park')   // no campus on a lane block
     : pickBlockType(districtOf(cx, cz), t);                                     // the district sets the mix of the other types (js/districts.js)
   // Standalone shops and services (grocery, fast food, pizza, gym, car showroom, pharmacy) take about one commercial or
@@ -626,7 +626,36 @@ function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
   const sportRoll = hash2(cx + 31, cz - 17);
   if (!laneBlock && !nearSpawn && (type === 'park' || (type === 'suburb' && !estateNow)) && (sportRoll & 0xFF) < 40)
     type = SPORT_SLOTS[(sportRoll >>> 8) % SPORT_SLOTS.length] || type;
+  // The civic buildings (the hospital, fire hall, filling station, school, bank, standalone shops and sports grounds) never
+  // stand beside each other: a block keeps one only if it wins against its neighbours (civicWins). A block that does not win
+  // takes another type of its district. The pinned spawn blocks keep theirs.
+  if (CIVIC_TYPES.has(type) && !CIVIC_PINNED.some(([px, pz]) => px === cx && pz === cz) && !civicWins(cx, cz)) {
+    for (let k = 1; k <= 8 && CIVIC_TYPES.has(type); k++) type = pickBlockType(districtOf(cx, cz), (t + 0.37 * k) % 1);
+    if (CIVIC_TYPES.has(type)) type = 'park';
+  }
   return { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow };
+}
+
+// The civic types, the spawn's pinned blocks, and the rule that keeps civic blocks apart. A block may hold a civic building
+// only if its own hash rank is the highest among its civic-eligible neighbours (ties by position), and no pinned block is
+// beside it. Two neighbours can never both win, so no two civic blocks touch. The rule uses the hashes alone, so the same
+// blocks come out whatever order the city is built in.
+const CIVIC_TYPES = new Set(['hospital', 'fire', 'fuel', 'school', 'bank', ...STORE_KINDS, ...SPORT_SLOTS]);
+const CIVIC_PINNED = [[0, -1], [-2, -2], [-2, 0], [0, 1], [-2, 2]];   // the fire hall, filling station, hospital, school and bank by the spawn
+const civicMayHold = (cx, cz) => (hash2(cx * 17 + 5, cz * 29 + 3) & 0xFF) < 220;
+const civicRank = (cx, cz) => hash2(cx * 41 + 9, cz * 23 + 1);
+function civicWins(cx, cz) {
+  if (!civicMayHold(cx, cz)) return false;
+  const r = civicRank(cx, cz);
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    if (!dx && !dz) continue;
+    const nx = cx + dx, nz = cz + dz;
+    if (CIVIC_PINNED.some(([px, pz]) => px === nx && pz === nz)) return false;
+    if (!civicMayHold(nx, nz)) continue;
+    const rn = civicRank(nx, nz);
+    if (rn > r || (rn === r && (nx > cx || (nx === cx && nz > cz)))) return false;
+  }
+  return true;
 }
 
 function furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz }) {

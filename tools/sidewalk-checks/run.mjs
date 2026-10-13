@@ -168,10 +168,10 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (!H.heliBeacons || H.heliBeacons.length < 2) bad('the air ambulance has no beacons');
     console.log(`hospital model: ${parts(H.group)} parts + air ambulance with ${parts(H.heliMain)}-part main rotor`);
   }
-  const pinned = chunks.get(ck(-1, 0));
-  if (!pinned) bad('the pinned hospital block next to the spawn was not generated');
-  else if (!(pinned.ambulanceSlots || []).length) bad('the pinned block next to the spawn is not a hospital');
-  else console.log(`hospital: ${hospitals.length} campus(es), pinned block (-1,0) has ${pinned.ambulanceSlots.filter(sl => sl.car).length} of ${pinned.ambulanceSlots.length} ambulance bays taken, ${pinned.parkingTotal} bays in total`);
+  const pinned = chunks.get(ck(-2, 0));
+  if (!pinned) bad('the pinned hospital block by the spawn was not generated');
+  else if (!(pinned.ambulanceSlots || []).length) bad('the pinned block by the spawn is not a hospital');
+  else console.log(`hospital: ${hospitals.length} campus(es), pinned block (-2,0) has ${pinned.ambulanceSlots.filter(sl => sl.car).length} of ${pinned.ambulanceSlots.length} ambulance bays taken, ${pinned.parkingTotal} bays in total`);
   // the lettering must cover every character a sign uses
   for (const ch2 of 'HOSPITAL EMERGENCY 12345') if (!FONT3D[ch2]) bad(`FONT3D is missing the glyph '${ch2}'`);
   // every hospital rooftop carries a helipad with an air ambulance on it, rotors and all
@@ -301,8 +301,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   // ---- 2d-3) fuel station: canopy over the pumps, a store, a price pylon, destrctible dispensers ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fuelBrand);
-    const pinnedFuel = chunks.get(ck(-1, -1));
-    if (!pinnedFuel || !pinnedFuel.fuelBrand) bad('the filling station pinned at (-1,-1) was not generated');
+    const pinnedFuel = chunks.get(ck(-2, -2));
+    if (!pinnedFuel || !pinnedFuel.fuelBrand) bad('the filling station pinned at (-2,-2) was not generated');
     let pumpCount = 0;
     for (const ch of stations) {
       const C = ch.fuelCanopy, baySet = ch.lotStanding.concat(ch.parking.map(sl => ({ slot: sl })));
@@ -344,7 +344,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       if ((ch.parkingFloor || 0) < 2) bad(`chunk ${ch.cx},${ch.cz}: fewer than two cars ever stand at the pumps`);
     }
     if (!stations.length) bad('no filling station was generated');
-    else console.log(`fuel stations: ${stations.length} block(s), ${pumpCount} dispensers total; pinned (-1,-1) is ${pinnedFuel.fuelBrand} with ${pinnedFuel.pumps.length} pumps and ${pinnedFuel.lotStanding.length} cars on ${pinnedFuel.parkingTotal} bays`);
+    else console.log(`fuel stations: ${stations.length} block(s), ${pumpCount} dispensers total; pinned (-2,-2) is ${pinnedFuel.fuelBrand} with ${pinnedFuel.pumps.length} pumps and ${pinnedFuel.lotStanding.length} cars on ${pinnedFuel.parkingTotal} bays`);
   }
   // ---- 2c-2) school: a fenced yard with a playground, and the yellow bus fleet in the lot ----
   {
