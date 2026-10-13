@@ -13,12 +13,11 @@
  * meet the grid at a junction, so the grid's signals and flyovers are not placed on it (js/trafficLights.js). */
 
 export const AVENUE_W = 16;                         // the road's width (the main roads are 16 m too)
-export const AVENUES = [
-  // south-west quadrant: from the coast-side corner towards the centre, clear of the river row (z = 640) and the main roads
-  { name: 'south-west', a: [-1600, -1400], b: [-250, -120] },
-  // south-east quadrant: from the south coast towards the east
-  { name: 'south-east', a: [400, -1500], b: [1500, -500] },
-];
+// Removed from the game for now (to be re-added properly later). The two avenues that were here were:
+//   south-west: a [-1600, -1400] -> b [-250, -120]
+//   south-east: a [400, -1500]   -> b [1500, -500]
+// Put them back in this list to restore them: the road, the clearing of the blocks, the map and the radar all read it.
+export const AVENUES = [];
 
 // The distance from (x, z) to the segment a-b, and the point on it that is nearest.
 function segDist(x, z, a, b) {

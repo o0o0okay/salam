@@ -911,6 +911,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   // The streamed path is used (generateChunk with defer): the bake list is moved to ch.mergeQ after the clearing.
   {
     const A = await import('../../js/avenues.js');
+    if (!A.AVENUES.length) console.log('diagonal avenues: none in the game (js/avenues.js is empty), skipped');
+    else {
     const av = [];
     for (let cx = -25; cx < 25; cx++) for (let cz = -25; cz < 25; cz++) {
       if (A.rectInAvenue(cx * CHUNK, cz * CHUNK, cx * CHUNK + CHUNK, cz * CHUNK + CHUNK, 0)) av.push([cx, cz]);
@@ -938,6 +940,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (pickupsOn) bad(`${pickupsOn} pickup(s) lie on a diagonal avenue`);
     if (piecesOn) bad(`${piecesOn} built piece(s) stand on a diagonal avenue`);
     if (!piecesKept) bad('the blocks on the avenues have nothing built off the avenue (the clearing took everything)');
+    }
   }
 
   // ---- 2d-3b) the coast: no signal pole stands in the sea. A coast junction's far poles are 13 m past the seawall; they
