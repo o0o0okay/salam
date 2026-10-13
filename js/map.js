@@ -686,6 +686,8 @@ function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.ro
 export function mapOpen() { return open; }
 // the marked place (or null): the radar shows it too (js/ui.js)
 export function currentMark() { return mark; }
+// Takes the mark away: the pin on the map, the route, and the pin and route on the radar and the road all go with it.
+export function clearMark() { mark = null; }
 let pausedByMap = false;
 // A new game starts the map afresh: no mark, no route, and the parts of the city it had seen are forgotten.
 export function resetMap() {

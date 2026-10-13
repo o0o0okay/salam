@@ -3,10 +3,10 @@
  * It stands only while there is a mark, and goes when the mark is cleared or the game restarts (currentMark is null). */
 import * as THREE from 'three';
 import { scene } from './renderer.js';
-import { currentMark } from './map.js';
+import { currentMark, clearMark } from './map.js';
 import { player } from './state.js';
 
-const ARRIVE_R = 15;            // within this many metres of the mark the car has arrived, and the light goes
+const ARRIVE_R = 15;            // within this many metres of the mark the car has arrived: the mark is done and is cleared
 
 const HEIGHT = 80;              // the column's height, in metres
 const RADIUS = 1.6;             // its radius
@@ -55,8 +55,9 @@ function ensure() {
 export function updateMarkBeam() {
   ensure();
   const m = currentMark();
-  // the light stands until the car is on the spot; then it goes (the mark itself stays on the map and the radar)
-  if (!m || Math.hypot(m.x - player.x, m.z - player.z) < ARRIVE_R) { group.visible = false; return; }
+  // on the spot: the mark is finished, so it is cleared everywhere (the map, the radar, the road arrows and this light)
+  if (m && Math.hypot(m.x - player.x, m.z - player.z) < ARRIVE_R) clearMark();
+  if (!m || !currentMark()) { group.visible = false; return; }
   group.visible = true;
   group.position.set(m.x, 0, m.z);
   // the ring breathes slowly, so the spot reads as live
