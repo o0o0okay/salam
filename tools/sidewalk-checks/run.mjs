@@ -911,7 +911,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   // are not built, and every pole that is built stands on the island (js/trafficLights.js).
   {
     const { onIsland, ISLAND_R } = await import('../../js/island.js');
-    const coastChunks = [[-ISLAND_R, 3], [ISLAND_R - 1, 3], [3, -ISLAND_R], [3, ISLAND_R - 1], [-ISLAND_R, -ISLAND_R], [ISLAND_R - 1, ISLAND_R - 1]];
+    const coastChunks = [];                                    // every block along the four coasts
+    for (let t = -ISLAND_R; t < ISLAND_R; t++) coastChunks.push([-ISLAND_R, t], [ISLAND_R - 1, t], [t, -ISLAND_R], [t, ISLAND_R - 1]);
     let coastPoles = 0;
     for (const [cx, cz] of coastChunks) {
       const ch = generateChunk(cx, cz, false);
@@ -921,6 +922,14 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       }
     }
     if (!coastPoles) bad('no signal poles were built on the coast chunks (the check would pass for free)');
+    let coastCoins = 0;
+    for (const [cx, cz] of coastChunks) {
+      for (const pk of generateChunk(cx, cz, false).pickups || []) {
+        coastCoins++;
+        if (!onIsland(pk.x, pk.z, 4)) bad(`a ${pk.kind} pickup at ${pk.x.toFixed(1)},${pk.z.toFixed(1)} is in the sea or on the seawall`);
+      }
+    }
+    if (!coastCoins) bad('no pickups were built on the coast chunks (the check would pass for free)');
   }
 
   // ---- 2d-4) shops: a shopping street of ten storefronts, all different, none of them in the road ----

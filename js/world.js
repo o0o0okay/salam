@@ -2294,6 +2294,7 @@ function generateChunk(cx, cz, defer = false) {
   return ch;
 }
 function addPickup(ch, kind, x, z) {
+  if (!onIsland(x, z, 4)) return;                       // nothing is placed in the sea, or on the seawall (js/island.js)
   let m;
   if (kind === 'cash') m = new THREE.Mesh(ASSET.coinGeo, ASSET.coinMat);
   else if (kind === 'nitro') {
