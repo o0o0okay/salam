@@ -4,6 +4,7 @@
  *   - the open streets (radarStreets); the two main roads, the avenue (x = 0) and the cross street (z = 0), are orange;
  *   - the interchanges (flyovers: the deck, the ramps and the at-grade lanes beside them) and the roundabouts (junction
  *     plazas), from the same rules (nodeAt, plazaAt, atGradeSide in js/flyover.js);
+ *   - the tram lines (routeOf in js/tram.js), on the streets;
  *   - the river: the straight water line at z = RIVER_ROW * CHUNK, with its bridge decks where the streets cross it;
  *   - the districts, as the colour of the ground.
  * What is known only where the city has been built (the chunks are generated as you drive near them): parks, and the
@@ -15,6 +16,7 @@
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW, segClosed, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
+import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
@@ -66,7 +68,9 @@ function build() {
     + 'padding:10px 12px;border-radius:6px;font-size:13px;line-height:1.6;');
   tl.innerHTML = '<b style="font-size:16px">MAP</b>'
     + Object.keys(DIST_NAMES).map(k => `<div><span style="display:inline-block;width:12px;height:12px;background:${LAND[k]};`
-      + `border:1px solid #bbb;margin-right:6px;vertical-align:-1px"></span>${DIST_NAMES[k]}</div>`).join('');
+      + `border:1px solid #bbb;margin-right:6px;vertical-align:-1px"></span>${DIST_NAMES[k]}</div>`).join('')
+    + `<div><span style="display:inline-block;width:16px;height:4px;background:${TRAM_C};margin-right:6px;vertical-align:middle;`
+    + `box-shadow:0 0 0 1px #fff"></span>Tram line</div>`;
   overlay.appendChild(tl);
   infoBox = el('div', 'position:absolute;left:16px;bottom:14px;background:rgba(255,255,255,.85);padding:8px 12px;'
     + 'border-radius:6px;font-size:13px;pointer-events:none;');
@@ -325,6 +329,26 @@ function drawFlyovers(gx0, gx1, gz0, gz1) {
     }
   }
 }
+// The tram lines (js/tram.js): a route is a run of street segments that carries rails, and the rails run down the centre line
+// of the street. The map draws each segment on that rule (tramRouteOf), as a purple line with a white edge.
+const TRAM_C = '#6a2c91';
+function drawTramLines(gx0, gx1, gz0, gz1) {
+  const segs = [];
+  for (let k = gx0; k <= gx1; k++) for (let j = gz0; j < gz1; j++) if (tramRouteOf('z', k, j)) segs.push(['z', k, j]);
+  for (let k = gz0; k <= gz1; k++) for (let j = gx0; j < gx1; j++) if (tramRouteOf('x', k, j)) segs.push(['x', k, j]);
+  if (!segs.length) return;
+  const lw = Math.max(2, 2.4 * view.s), e = 0.6;                     // the line's width on screen; each segment runs 0.6 m past its ends so they join
+  ctx.save(); ctx.lineCap = 'butt';
+  for (const [w, c] of [[lw + 2, '#ffffff'], [lw, TRAM_C]]) {
+    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+    for (const [a, k, j] of segs) {
+      if (a === 'z') { ctx.moveTo(sx(k * CHUNK), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK), sy((j + 1) * CHUNK + e)); }
+      else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK)); }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 // The roundabouts: a junction with a plaza is a round asphalt island in its 16 m square, with a grass island in the middle
 // (5 m, a curb round it) and the feature on the grass: 0 a fountain, 1 a statue, 2 a tree grove (plazaAt, js/flyover.js).
 function drawRoundabouts(gx0, gx1, gz0, gz1) {
@@ -418,6 +442,7 @@ function draw() {
   drawAtGradeLanes(gx0, gx1 - 1, gz0, gz1 - 1);
   drawFlyovers(gx0, gx1, gz0, gz1);
   drawRoundabouts(gx0, gx1, gz0, gz1);
+  drawTramLines(gx0, gx1, gz0, gz1);                     // the tram lines, on the streets (their rails are on the centre line)
   // the diagonal avenues (js/avenues.js): a main road, drawn as a thick line with its casing
   for (const av of AVENUES) {
     ctx.beginPath(); ctx.moveTo(sx(av.a[0]), sy(av.a[1])); ctx.lineTo(sx(av.b[0]), sy(av.b[1]));
