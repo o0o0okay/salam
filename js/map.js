@@ -20,8 +20,11 @@ import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
 const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
 const C = {
-  sea: '#9fcde4', beach: '#efe4c6', casing: '#b9b1a0', street: '#fffefb', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
-  building: '#c6c0b2', park: '#b8dc98', quay: '#d9d2c0', you: '#e63946',
+  sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#b9b6ae', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
+  building: '#c6c0b2', park: '#a6d57f', quay: '#d9d2c0', you: '#e63946',
+  // the building roofs, as in the reference: sand, orange, rose, blue, green, pale grey, brick
+  roofs: ['#f0e2b8', '#e8934a', '#ef8f96', '#6fa8de', '#8fc777', '#e3dfd6', '#c46d4c'],
+  tree: '#4d8f3c', treeLight: '#7fbf5e', lot: '#bfbab0', lotLine: '#f4f3ee', dash: '#ffffff',
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
@@ -172,11 +175,29 @@ function draw() {
     else if (k && k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
     else {
       // 2. generic buildings on the block: up to four in the quarters, always clear of the streets (8 m in)
+      // a parking lot on some blocks (the reference's car parks)
+      if (hb(cx, cz, 30) < 0.3) {
+        rect(x0 + 44, z0 + 44, 28, 26, C.lot);
+        if (view.s > 0.2) for (let k = 0; k < 6; k++) rect(x0 + 45 + k * 4.4, z0 + 45, 0.5, 24, C.lotLine);
+      }
       for (let q = 0; q < 4; q++) {
         if (hb(cx, cz, q) < 0.2) continue;
         const qx = x0 + 8 + (q & 1) * 32, qz = z0 + 8 + (q >> 1) * 32;
-        const w = 16 + hb(cx, cz, q + 4) * 8, d = 16 + hb(cx, cz, q + 8) * 8;
-        rect(qx + 3 + hb(cx, cz, q + 12) * Math.max(0, 26 - w), qz + 3 + hb(cx, cz, q + 16) * Math.max(0, 26 - d), w, d, C.building);
+        const w = 20 + hb(cx, cz, q + 4) * 10, d = 20 + hb(cx, cz, q + 8) * 10;
+        const bx = qx + 2 + hb(cx, cz, q + 12) * Math.max(0, 24 - w), bz = qz + 2 + hb(cx, cz, q + 16) * Math.max(0, 24 - d);
+        // the roof, with its shadow on the south-east edge
+        rect(bx + 1.2, bz + 1.2, w, d, '#8d8779');
+        rect(bx, bz, w, d, C.roofs[Math.floor(hb(cx, cz, q + 20) * C.roofs.length)]);
+      }
+      // trees: a few round crowns in the open ground of the block (not on the streets)
+      if (view.s > 0.12) for (let k = 0; k < 8; k++) {
+        if (hb(cx, cz, 40 + k) < 0.5) continue;
+        const tx = x0 + 6 + hb(cx, cz, 50 + k) * 68, tz = z0 + 6 + hb(cx, cz, 60 + k) * 68;
+        if (tx > x0 + 36 && tx < x0 + 44 || tz > z0 + 36 && tz < z0 + 44) continue;   // keep the middle of the block for the lot
+        ctx.beginPath(); ctx.arc(sx(tx), sy(tz), Math.max(1.6, 4.2 * view.s), 0, Math.PI * 2);
+        ctx.fillStyle = C.tree; ctx.fill();
+        ctx.beginPath(); ctx.arc(sx(tx) - 1.2 * view.s, sy(tz) - 1.2 * view.s, Math.max(0.9, 2.2 * view.s), 0, Math.PI * 2);
+        ctx.fillStyle = C.treeLight; ctx.fill();
       }
     }
   }
@@ -202,6 +223,18 @@ function draw() {
   for (const [x, z, w, d] of st) rect(x - pad, z - pad, w + 2 * pad, d + 2 * pad, C.casing);
   for (const r of st) if (!isMain(r)) rect(r[0], r[1], r[2], r[3], C.street);
   for (const r of st) if (isMain(r)) rect(r[0], r[1], r[2], r[3], C.main);
+  if (view.s > 0.2) {
+    // the centre line of each straight street: dashed white, like the reference's roads
+    ctx.save(); ctx.strokeStyle = C.dash; ctx.lineWidth = Math.max(1.4, 0.9 * view.s); ctx.setLineDash([2.5 * view.s, 2.5 * view.s]);
+    for (const r of st) {
+      if (r[2] === r[3]) continue;                     // a junction square: no line
+      ctx.beginPath();
+      if (r[2] < r[3]) { ctx.moveTo(sx(r[0] + r[2] / 2), sy(r[1])); ctx.lineTo(sx(r[0] + r[2] / 2), sy(r[1] + r[3])); }
+      else { ctx.moveTo(sx(r[0]), sy(r[1] + r[3] / 2)); ctx.lineTo(sx(r[0] + r[2]), sy(r[1] + r[3] / 2)); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   // the diagonal avenues (js/avenues.js): a main road, drawn as a thick line with its casing
   for (const av of AVENUES) {
     ctx.beginPath(); ctx.moveTo(sx(av.a[0]), sy(av.a[1])); ctx.lineTo(sx(av.b[0]), sy(av.b[1]));
