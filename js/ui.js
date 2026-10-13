@@ -6,7 +6,7 @@ import { env } from './environment.js';
 import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
 import { radarStreets } from './flyover.js';
-import { currentMark } from './map.js';
+import { currentMark, currentRoute } from './map.js';
 export function toast(text) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), 1500);
   if ($('toasts').children.length > 3) $('toasts').firstChild.remove();
@@ -33,6 +33,15 @@ export function drawRadar() {
     rctx.fillRect(pk.x - 1.4 / s * 1.2, pk.z - 1.4 / s * 1.2, 2.8 / s * 1.2, 2.8 / s * 1.2);
   }
   for (const c of civs) { rctx.fillStyle = c.wrecked ? '#666' : '#e8e8e8'; rctx.beginPath(); rctx.arc(c.x, c.z, 3 / s, 0, PI * 2); rctx.fill(); }
+  // the route to the marked place, on the streets (js/map.js): a white casing and a blue line, in the radar's frame
+  const rt = currentMark() ? currentRoute() : null;
+  if (rt) {
+    rctx.lineJoin = 'round'; rctx.lineCap = 'round';
+    for (const [w, c] of [[6 / s, '#ffffff'], [3.6 / s, '#4285f4']]) {
+      rctx.strokeStyle = c; rctx.lineWidth = w;
+      rctx.beginPath(); rt.pts.forEach(([x, z], k) => (k ? rctx.lineTo(x, z) : rctx.moveTo(x, z))); rctx.stroke();
+    }
+  }
   const ph = Math.floor(game.t * 6) % 2;
   for (const sp of spikes) { // spike strips: blinking red bars
     rctx.fillStyle = ph ? '#ff2a2a' : '#ffffff';

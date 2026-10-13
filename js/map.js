@@ -336,7 +336,7 @@ function roadRoute(from, to) {
 }
 // the route for the current mark from the car, recomputed when the mark changes or the car has moved 8 m
 let routeCache = { from: null, to: null, res: null };
-function currentRoute() {
+export function currentRoute() {
   if (!mark) return null;
   if (routeCache.to !== mark || !routeCache.from || Math.hypot(routeCache.from.x - player.x, routeCache.from.z - player.z) > 8) {
     const from = { x: player.x, z: player.z };
@@ -350,6 +350,11 @@ function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.ro
 export function mapOpen() { return open; }
 // the marked place (or null): the radar shows it too (js/ui.js)
 export function currentMark() { return mark; }
+// A new game starts the map afresh: no mark, no route, and the parts of the city it had seen are forgotten.
+export function resetMap() {
+  if (open) toggleMap();
+  mark = null; routeCache = { from: null, to: null, res: null }; seen.clear();
+}
 
 export function toggleMap() {
   if (!overlay) build();

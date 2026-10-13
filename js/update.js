@@ -27,6 +27,7 @@ import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
 import { updateCamera } from './camera.js';
 import { updateHUD, drawRadar, toast } from './ui.js';
+import { updateRouteArrows } from './routeArrows.js';
 import { endGame, showOver } from './flow.js';
 function spinPickups(t) {
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
@@ -273,4 +274,5 @@ export function update(dt) {
   // canvas off the critical path (they update at ~20 Hz, which reads as live).
   hudTick = (hudTick + 1) % 3;
   if (!menu && hudTick === 0) { updateHUD(); drawRadar(); }
+  if (!menu) updateRouteArrows();                                  // the route on the road (js/routeArrows.js)
 }

@@ -10,6 +10,7 @@ import { clearParticles, explosion } from './particles.js';
 import { ASSET } from './assets.js';
 import { sfx } from './audio.js';
 import { resetHudCache } from './ui.js';
+import { resetMap } from './map.js';
 import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
@@ -19,6 +20,7 @@ export function resetWorld() {
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;
   for (const ch of chunks.values()) disposeChunk(ch); chunks.clear();
+  resetMap();                                                    // the mark, the route and the map start afresh
   clearTrams();
   clearParticles(); $('toasts').innerHTML = '';
   Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
