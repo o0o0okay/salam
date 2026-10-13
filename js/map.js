@@ -255,6 +255,9 @@ function draw() {
     rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
     const k = seen.get(ck(cx, cz));
     if (!k) continue;
+    // a built block is a lawn with a darker edge (the look of the reference); unbuilt blocks stay plain ground
+    rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#6f9c4a');
+    rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#9fcf72');
     if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
     else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
     // each building is a raised block; its height is a fixed value for its place, so it does not change between redraws
