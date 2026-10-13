@@ -68,5 +68,6 @@ for (const [key, obj] of tiles) {
   bytes += text.length;
   fs.writeFileSync(path.join(out, `${key}.json`), text);
 }
+fs.writeFileSync(path.join(out, 'index.json'), JSON.stringify({ tiles: [...tiles.keys()].sort() }));   // the tiles that exist: the map asks for these only
 fs.rmSync(parts, { recursive: true, force: true });
 console.log(`map-data/: ${blocks} built blocks in ${tiles.size} tiles, ${(bytes / 1048576).toFixed(2)} MB`);

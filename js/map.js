@@ -40,7 +40,6 @@ let open = false, timer = 0, W = 0, H = 0, dpr = 1;
 let overlay, canvas, ctx, infoBox;
 const seen = new Map();                    // chunk key -> { type, water, blds, trees, lm } for chunks the car has been near
 const baked = new Map();                   // chunk key -> the same, for every block of the island (tiles of map-data/, see tools/map-data)
-const tileAsked = new Set();
 let streetKey = '', streetCache = [];      // the open streets for the visible range, cached while the range is unchanged
 
 function el(tag, css, text) {
@@ -245,29 +244,32 @@ function crown(tx, tz) {
 // The island's blocks, baked ahead of time (tools/map-data/bake.mjs) in tiles of 10 x 10 blocks. The tile of a part on
 // screen is fetched the first time it is shown, so scrolling the map loads it. A block the car has been near is used as
 // the game made it (seen); any other block is the baked one.
-const TILE = 10;
 function known(key) { return seen.get(key) || baked.get(key); }
 function* allKnown() {
   for (const v of seen.values()) yield v;
   for (const [key, v] of baked) if (!seen.has(key)) yield v;
 }
-function needTiles(gx0, gx1, gz0, gz1) {
-  const lo = -ISLAND_R, hi = ISLAND_R - 1;
-  gx0 = Math.max(lo, gx0); gx1 = Math.min(hi, gx1); gz0 = Math.max(lo, gz0); gz1 = Math.min(hi, gz1);
-  for (let tx = Math.floor((gx0 - lo) / TILE); tx <= Math.floor((gx1 - lo) / TILE); tx++)
-  for (let tz = Math.floor((gz0 - lo) / TILE); tz <= Math.floor((gz1 - lo) / TILE); tz++) {
-    const name = `${tx}_${tz}`;
-    if (tileAsked.has(name)) continue;
-    tileAsked.add(name);
-    fetch(`map-data/${name}.json`).then(r => (r.ok ? r.json() : null)).then(j => {
-      if (!j) return;                                   // no baked data here (not generated): the map shows what the car has seen
-      for (const [key, rec] of Object.entries(j)) {
+// The baked tiles (map-data/, written by tools/map-data/bake.mjs with an index.json that lists them). They are loaded once,
+// in the background, when the game starts, so opening the map (M) does not wait for them and does not ask for a tile that
+// is not there. Without the index (no map-data/ here), nothing is asked for beyond the index itself, and the map shows what
+// the car has seen.
+let preloadP = null;
+function preloadMap() {
+  if (preloadP) return preloadP;
+  preloadP = fetch('map-data/index.json').then(r => (r.ok ? r.json() : null)).then(j => {
+    const names = j && Array.isArray(j.tiles) ? j.tiles : [];
+    return Promise.all(names.map(name => fetch(`map-data/${name}.json`).then(r => (r.ok ? r.json() : null)).then(t => {
+      if (!t) return;
+      for (const [key, rec] of Object.entries(t)) {
         const [cx, cz] = key.split(',').map(Number);
         baked.set(ck(cx, cz), rec);
       }
-    }).catch(() => {});
-  }
+    }).catch(() => {})));
+  }).catch(() => {});
+  return preloadP;
 }
+if (typeof window !== 'undefined') preloadMap();
+
 function learn() {
   for (const [key, ch] of chunks) {
     if (ch.mapType !== undefined && !seen.has(key)) {
@@ -378,7 +380,6 @@ function draw() {
   // the blocks in view, on the island only (chunks -ISLAND_R..ISLAND_R-1)
   const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
   const gz0 = Math.max(-ISLAND_R, Math.floor((view.cz - half.z) / CHUNK) - 1), gz1 = Math.min(ISLAND_R, Math.ceil((view.cz + half.z) / CHUNK) + 1);
-  needTiles(gx0, gx1 - 1, gz0, gz1 - 1);   // the part on screen: its tiles are fetched the first time it is shown
 
   // 1. the ground of each block, by district; then, for a block the player has been near (it is built and remembered),
   // its parks, its harbour quay, its real buildings and its real trees. A block never visited is only its ground, so the
