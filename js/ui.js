@@ -6,6 +6,7 @@ import { env } from './environment.js';
 import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
 import { radarStreets } from './flyover.js';
+import { AVENUES, AVENUE_W } from './avenues.js';
 import { currentMark, currentRoute } from './map.js';
 export function toast(text) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), 1500);
@@ -23,6 +24,9 @@ export function drawRadar() {
   // The streets, as far as they really run: a closed arm (a three-way junction, see segClosed) and a filled one are grass,
   // so they are not drawn, and a junction square shows only while one of its arms is open.
   for (const [x, z, w, d] of radarStreets(gx0, gx1, gz0, gz1)) rctx.fillRect(x, z, w, d);
+  // the diagonal avenues (js/avenues.js): the road, in world metres (the transform above is already on)
+  rctx.strokeStyle = '#23262d'; rctx.lineWidth = AVENUE_W; rctx.lineCap = 'butt';
+  for (const av of AVENUES) { rctx.beginPath(); rctx.moveTo(av.a[0], av.a[1]); rctx.lineTo(av.b[0], av.b[1]); rctx.stroke(); }
   // water (the river, a harbour basin) and bridge decks: closed streets are not in radarStreets, so they come from the chunks
   for (const ch of nearChunks(player.x, player.z)) for (const [x, z, w, d, k] of ch.radarWater || []) {
     rctx.fillStyle = k === 'water' ? '#2d6f8c' : '#7a8088'; rctx.fillRect(x, z, w, d);

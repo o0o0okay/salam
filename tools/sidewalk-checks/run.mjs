@@ -907,6 +907,39 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
   }
 
+  // ---- 2d-3a) the diagonal avenues (js/avenues.js): nothing stands on them, and the blocks they cross are still built.
+  // The streamed path is used (generateChunk with defer): the bake list is moved to ch.mergeQ after the clearing.
+  {
+    const A = await import('../../js/avenues.js');
+    const av = [];
+    for (let cx = -25; cx < 25; cx++) for (let cz = -25; cz < 25; cz++) {
+      if (A.rectInAvenue(cx * CHUNK, cz * CHUNK, cx * CHUNK + CHUNK, cz * CHUNK + CHUNK, 0)) av.push([cx, cz]);
+    }
+    if (av.length < 20) bad(`the avenues cross only ${av.length} blocks (want at least 20)`);
+    let solidsOn = 0, piecesOn = 0, piecesKept = 0, pickupsOn = 0;
+    for (const [cx, cz] of av) {
+      const ch = generateChunk(cx, cz, true);
+      for (const so of ch.solids) {
+        const R = Math.hypot(so.hx, so.hz);
+        if (A.rectInAvenue(so.x - R, so.z - R, so.x + R, so.z + R, 0)) solidsOn++;
+      }
+      for (const pk of ch.pickups || []) if (A.inAvenue(pk.x, pk.z, 0)) pickupsOn++;
+      for (const bk of ch.mergeQ || []) {
+        const g = bk.geo;
+        if (!g || g.w === undefined) continue;
+        const t = bk.m.t, sc = bk.m.s || [1, 1, 1];
+        const hx = g.w * sc[0] / 2, hy = g.h * sc[1] / 2, hz = g.d * sc[2] / 2;
+        const onAv = A.rectInAvenue(t[0] - hx, t[2] - hz, t[0] + hx, t[2] + hz, 0);
+        if (onAv && t[1] + hy > 0.1) piecesOn++;
+        if (!onAv) piecesKept++;
+      }
+    }
+    if (solidsOn) bad(`${solidsOn} solid(s) stand on a diagonal avenue`);
+    if (pickupsOn) bad(`${pickupsOn} pickup(s) lie on a diagonal avenue`);
+    if (piecesOn) bad(`${piecesOn} built piece(s) stand on a diagonal avenue`);
+    if (!piecesKept) bad('the blocks on the avenues have nothing built off the avenue (the clearing took everything)');
+  }
+
   // ---- 2d-3b) the coast: no signal pole stands in the sea. A coast junction's far poles are 13 m past the seawall; they
   // are not built, and every pole that is built stands on the island (js/trafficLights.js).
   {

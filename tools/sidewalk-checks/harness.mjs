@@ -59,6 +59,14 @@ export function build() {
   tramSrc = tramSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = tramSrc + '\n' + src;
 
+  // ... and the diagonal avenues (js/avenues.js: the geometry; js/avenueClear.js: what is taken off them; js/avenueRoad.js:
+  // the road itself). Stitched in dependency order: the geometry first.
+  for (const f of ['avenueRoad.js', 'avenueClear.js', 'avenues.js']) {
+    let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
+    part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    src = part + '\n' + src;
+  }
+
   const stubs = `
 // geom counts merged pieces, geosCreated/geosDisposed count BufferGeometry objects: one block must not leave
 // its geometries behind when it streams out (see the ownership check in run.mjs).
@@ -81,6 +89,7 @@ function BoxGeometry(w=1,h=1,d=1){ checked.geosCreated++; this.attributes={uv:ma
     const p=[this.w/2,this.h/2,this.d/2];
     for (const v of p) if(!Number.isFinite(v)) checked.nan++;
     this.origin=[m.t[0],m.t[1],m.t[2]]; checked.geom++; return this; };
+  this.computeBoundingBox=()=>{ this.boundingBox={min:{x:-this.w/2,y:-this.h/2,z:-this.d/2},max:{x:this.w/2,y:this.h/2,z:this.d/2}}; };
   this.clone=()=>{const g=new BoxGeometry(this.w,this.h,this.d);g.attributes=this.attributes;g.origin=this.origin;return g;};
   this.dispose=()=>{ checked.geosDisposed++; this.__disposed = true; }; this.translate=()=>this; this.scale=()=>this; this.rotateX=()=>this; this.rotateY=()=>this; this.rotateZ=()=>this; }
 class Obj3D { constructor(){this.children=[];this.userData={};this.pos=[0,0,0];this.visible=true;
@@ -96,7 +105,14 @@ class Obj3D { constructor(){this.children=[];this.userData={};this.pos=[0,0,0];t
   remove(o){const i=this.children.indexOf(o);if(i>=0)this.children.splice(i,1);if(o)o.parent=null;} }
 class Mesh extends Obj3D { constructor(g,m){super();this.isMesh=true;this.geometry=g;this.material=m;} }
 class InstancedMesh extends Obj3D { constructor(g,m,n){super();this.geometry=g;this.material=m;this.count=n;this.instanceMatrix={needsUpdate:false};} setMatrixAt(){} dispose(){} }
+class Box3 { constructor(){ this.min={x:Infinity,y:Infinity,z:Infinity}; this.max={x:-Infinity,y:-Infinity,z:-Infinity}; }
+  copy(b){ this.min={...b.min}; this.max={...b.max}; return this; }
+  applyMatrix4(m){ const s=m.s||[1,1,1], t=m.t||[0,0,0]; for (let i=0;i<3;i++){ const k='xyz'[i]; const lo=this.min[k]*s[i]+t[i], hi=this.max[k]*s[i]+t[i]; this.min[k]=Math.min(lo,hi); this.max[k]=Math.max(lo,hi); } return this; }
+  setFromObject(o){ this.min={x:Infinity,y:Infinity,z:Infinity}; this.max={x:-Infinity,y:-Infinity,z:-Infinity};
+    o.traverse(c=>{ if(!c.isMesh||!c.geometry||c.geometry.w===undefined) return; c.geometry.computeBoundingBox(); const b=new Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld); for(const k of 'xyz'){ this.min[k]=Math.min(this.min[k],b.min[k]); this.max[k]=Math.max(this.max[k],b.max[k]); } }); return this; }
+  isEmpty(){ return this.min.x>this.max.x; } }
 const THREE={Group:Obj3D,Mesh,InstancedMesh,BoxGeometry,Matrix4:M4,
+  Box3,
   Vector3:class{constructor(x,y,z){this.x=x;this.y=y;this.z=z;}set(){return this;}setFromAxisAngle(){return this;}multiply(){return this;}},
   Quaternion:class{setFromAxisAngle(){return this;}},
   Color:class{constructor(c){this.h=c|0;}setHex(v){this.h=v;return this;}getHex(){return this.h;}setRGB(){return this;}},

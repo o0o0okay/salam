@@ -13,6 +13,7 @@
 import { player } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW, segClosed } from './flyover.js';
+import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
@@ -201,6 +202,13 @@ function draw() {
   for (const [x, z, w, d] of st) rect(x - pad, z - pad, w + 2 * pad, d + 2 * pad, C.casing);
   for (const r of st) if (!isMain(r)) rect(r[0], r[1], r[2], r[3], C.street);
   for (const r of st) if (isMain(r)) rect(r[0], r[1], r[2], r[3], C.main);
+  // the diagonal avenues (js/avenues.js): a main road, drawn as a thick line with its casing
+  for (const av of AVENUES) {
+    ctx.beginPath(); ctx.moveTo(sx(av.a[0]), sy(av.a[1])); ctx.lineTo(sx(av.b[0]), sy(av.b[1]));
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = C.casing; ctx.lineWidth = AVENUE_W * view.s + 2 * pad; ctx.stroke();
+    ctx.strokeStyle = C.main; ctx.lineWidth = AVENUE_W * view.s; ctx.stroke();
+  }
   for (const k of seen.values()) for (const [x, z, w, d, kind] of k.water) {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }

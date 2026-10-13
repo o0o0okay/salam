@@ -67,6 +67,8 @@ import { PROP_DEFS } from './props.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
 import { ISLAND_R, inIslandChunk, onIsland } from './island.js';
+import { clearAvenues, blockNearAvenue } from './avenueClear.js';
+import { buildAvenueRoad } from './avenueRoad.js';
 import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
@@ -2281,6 +2283,9 @@ function generateChunk(cx, cz, defer = false) {
   tramWires({ add, box, mat, ch, poles: tramPoles });   // the span wires, between the poles that survived
   powerLines(ch, powerRuns, add, (x, z) => onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7));   // the same test prop() makes
   seaWall({ add, solid, x0, z0, cx, cz });                       // the coast of the island, if this block is on it (no RNG)
+  // the diagonal avenues (js/avenues.js) take out whatever stands on them, before the block is merged (both the
+  // streamed and the immediate path go through here, so it runs first)
+  if (blockNearAvenue(x0, z0, x0 + CHUNK, z0 + CHUNK)) clearAvenues(ch);
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
@@ -2354,6 +2359,7 @@ function ensureSea() {
 }
 export function updateChunks(px, pz, budget) {
   ensureSea();
+  buildAvenueRoad();
   const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
   // ---- drop what is two rings out, and show/hide what is in the view ring ----
   for (const [k, ch] of chunks) if (Math.max(Math.abs(ch.cx - pcx), Math.abs(ch.cz - pcz)) > VIEW_R + 2) { disposeChunk(ch); chunks.delete(k); }
