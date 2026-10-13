@@ -1730,14 +1730,14 @@ function bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
   const HALF_L = 25, HALF_W = 10, WALL_H = 9, RISE = 4;
   padBox(56, 56, mat(0xd8cbb2), bxo - bx, bzo - bz);                               // the paving under the hall
   const wallC = OLD_TOWN_WALLS[Math.floor(rng() * OLD_TOWN_WALLS.length)];
-  const wallM = facadeMat(wallC), roofM = mat(0x9fbfc8, { transparent: true, opacity: 0.6 }), dark = mat(0x3c434b);
+  const wallM = facadeMat(wallC), roofM = mat(0x7d5a4a), dark = mat(0x3c434b);      // an opaque clay-tile roof, not glass
   const L = HALF_L * 2;
   for (const side of [-1, 1]) {
     add(box(L, WALL_H, 0.8, wallM, bxo, WALL_H / 2, bzo + side * HALF_W));          // a long wall
     for (let x = -HALF_L; x <= HALF_L + 0.01; x += 6) add(box(0.9, WALL_H + 0.4, 0.9, wallM, bxo + x, (WALL_H + 0.4) / 2, bzo + side * HALF_W));
     solid(bxo, bzo + side * HALF_W, HALF_L, 0.4, 'building');
   }
-  // the glazed roof: two slopes meeting at a ridge, the eaves on the long walls
+  // the roof: two tiled slopes meeting at a ridge, the eaves on the long walls
   const ang = Math.atan2(RISE, HALF_W), slopeLen = Math.hypot(HALF_W, RISE) + 0.3;
   for (const side of [-1, 1]) {
     const sl = box(L + 0.6, 0.3, slopeLen, roofM, bxo, WALL_H + RISE / 2 + 0.1, bzo + side * HALF_W / 2);
