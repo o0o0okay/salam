@@ -907,6 +907,22 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
   }
 
+  // ---- 2d-3b) the coast: no signal pole stands in the sea. A coast junction's far poles are 13 m past the seawall; they
+  // are not built, and every pole that is built stands on the island (js/trafficLights.js).
+  {
+    const { onIsland, ISLAND_R } = await import('../../js/island.js');
+    const coastChunks = [[-ISLAND_R, 3], [ISLAND_R - 1, 3], [3, -ISLAND_R], [3, ISLAND_R - 1], [-ISLAND_R, -ISLAND_R], [ISLAND_R - 1, ISLAND_R - 1]];
+    let coastPoles = 0;
+    for (const [cx, cz] of coastChunks) {
+      const ch = generateChunk(cx, cz, false);
+      for (const pl of ch.signalPoles || []) {
+        coastPoles++;
+        if (!onIsland(pl.x, pl.z)) bad(`a signal pole at ${pl.x.toFixed(1)},${pl.z.toFixed(1)} stands in the sea (the junction at ${pl.ix},${pl.iz} on the coast)`);
+      }
+    }
+    if (!coastPoles) bad('no signal poles were built on the coast chunks (the check would pass for free)');
+  }
+
   // ---- 2d-4) shops: a shopping street of ten storefronts, all different, none of them in the road ----
   {
     // every visited shopping block (a parade is only in a shops block, and the spawn district is the city centre)

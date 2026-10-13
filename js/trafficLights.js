@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { rnd, CHUNK } from './utils.js';
 import { mat, box } from './assets.js';
 import { isFlyoverNode, nbhdInterior, atGradeSide, roadEdge, FLY } from './flyover.js';
+import { onIsland } from './island.js';
 
 const GREEN = 7, YELLOW = 1.6;
 const poleMat = mat(0x2d2f33);
@@ -85,6 +86,8 @@ export function buildIntersection(ix, iz, group, ch) {
   if (isFlyoverNode(ix, iz) || nbhdInterior(Math.round(ix / CHUNK), Math.round(iz / CHUNK))) { lights.set(key(ix, iz), { free: true, phase: 'free', t: Infinity, zHeads: [], xHeads: [] }); return; }
   const zHeads = [], xHeads = [];
   for (const c of cornerPoles(ix, iz)) {
+    // A pole out in the sea (a coast junction's far poles, 13 m past the seawall) is not built: the island ends there.
+    if (!onIsland(c.x, c.z)) continue;
     const h = addSignal(group, c.x, c.z, ix, iz, c.axis);
     (c.axis === 'z' ? zHeads : xHeads).push(h);
     // Recorded for the suite: where this junction's poles actually stand, so a pole left standing in the
