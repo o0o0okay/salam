@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { scene } from './renderer.js';
 import { currentMark, currentRoute } from './map.js';
 
-const POOL = 30;          // arrows shown at once: about 270 m of route ahead
+const POOL = 70;          // arrows shown at once: about 630 m of route ahead (the whole way to the head of the street)
 const STEP = 9;           // metres between arrows (they are stacked closely, as on the reference)
 const ARROW_Y = 0.09;     // just above the asphalt (the decks and the road surface are at 0.05 to 0.08)
 const SIZE = 9.0;         // the arrow's square on the road, in metres; the bloom reaches to its edge

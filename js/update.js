@@ -28,6 +28,7 @@ import { updateFlying } from './flying.js';
 import { updateCamera } from './camera.js';
 import { updateHUD, drawRadar, toast } from './ui.js';
 import { updateRouteArrows } from './routeArrows.js';
+import { updateMarkBeam } from './markBeam.js';
 import { endGame, showOver } from './flow.js';
 function spinPickups(t) {
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
@@ -275,4 +276,5 @@ export function update(dt) {
   hudTick = (hudTick + 1) % 3;
   if (!menu && hudTick === 0) { updateHUD(); drawRadar(); }
   if (!menu) updateRouteArrows();                                  // the route on the road (js/routeArrows.js)
+  if (!menu) updateMarkBeam();                                    // the light on the marked place (js/markBeam.js)
 }
