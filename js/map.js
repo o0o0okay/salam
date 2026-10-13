@@ -348,6 +348,8 @@ function currentRoute() {
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 
 export function mapOpen() { return open; }
+// the marked place (or null): the radar shows it too (js/ui.js)
+export function currentMark() { return mark; }
 
 export function toggleMap() {
   if (!overlay) build();

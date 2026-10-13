@@ -6,6 +6,7 @@ import { env } from './environment.js';
 import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
 import { radarStreets } from './flyover.js';
+import { currentMark } from './map.js';
 export function toast(text) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), 1500);
   if ($('toasts').children.length > 3) $('toasts').firstChild.remove();
@@ -61,6 +62,22 @@ export function drawRadar() {
     rctx.restore();
   }
   rctx.restore();
+  // the marked place (the pin on the map, js/map.js): drawn upright in screen space, at the spot in the radar's frame. A
+  // mark outside the radar's range sits on the rim in its direction, dimmed.
+  const mk = currentMark();
+  if (mk) {
+    const dx = mk.x - player.x, dz = mk.z - player.z, co = Math.cos(player.h), si = Math.sin(player.h);
+    let X = (-co * dx + si * dz) * s, Y = (-si * dx - co * dz) * s;      // the same rotation as the radar's transform
+    const dist = Math.hypot(X, Y), rim = R - 18, inside = dist <= rim;
+    if (!inside) { X *= rim / dist; Y *= rim / dist; }
+    const tx = R + X, ty = R + Y, hy = ty - 15;                           // the tip is the marked spot, the head 15 px above
+    rctx.save(); rctx.globalAlpha = inside ? 1 : 0.6;
+    rctx.fillStyle = '#ea4335'; rctx.strokeStyle = '#a52714'; rctx.lineWidth = 1.2;
+    rctx.beginPath(); rctx.moveTo(tx, ty); rctx.lineTo(tx - 4.7, hy + 2.7); rctx.lineTo(tx + 4.7, hy + 2.7); rctx.closePath(); rctx.fill(); rctx.stroke();
+    rctx.beginPath(); rctx.arc(tx, hy, 6.5, 0, PI * 2); rctx.fill(); rctx.stroke();
+    rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.arc(tx, hy, 2.5, 0, PI * 2); rctx.fill();
+    rctx.restore();
+  }
   rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.moveTo(R, R - 11); rctx.lineTo(R - 7, R + 8); rctx.lineTo(R + 7, R + 8); rctx.closePath(); rctx.fill();
 }
 let hudCache = {};
