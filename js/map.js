@@ -12,10 +12,10 @@
  */
 import { player } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW } from './flyover.js';
+import { radarStreets, RIVER_ROW, segClosed } from './flyover.js';
 import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
-import { ISLAND_R, ISLAND_MIN, ISLAND_MAX } from './island.js';
+import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
 const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
 const C = {
@@ -205,14 +205,18 @@ function draw() {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
 
-  // 6. the route from the car to the mark (a blue line with a white casing, as in a navigation map), the car, the pin
+  // 6. the road route from the car to the mark (a blue line with a white casing, as in a navigation map), the car, the pin.
+  // If there is no street route, the straight line is drawn instead and the distance is the straight one.
+  const route = currentRoute();
   if (mark) {
-    const ax = sx(player.x), ay = sy(player.z), bx = sx(mark.x), by = sy(mark.z);
+    const pts = route ? route.pts : [[player.x, player.z], [mark.x, mark.z]];
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 9;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    ctx.strokeStyle = C.route; ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    for (const [w, c] of [[9, '#ffffff'], [5, C.route]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w;
+      ctx.beginPath();
+      pts.forEach(([x, z], k) => (k ? ctx.lineTo(sx(x), sy(z)) : ctx.moveTo(sx(x), sy(z))));
+      ctx.stroke();
+    }
   }
   const fx = Math.sin(player.h), fy = -Math.cos(player.h);      // forward on the map (at h = 0 the car faces up)
   const px = sx(player.x), py = sy(player.z);
@@ -233,7 +237,7 @@ function draw() {
     ctx.beginPath(); ctx.arc(tx, hy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(tx, hy, 4.2, 0, Math.PI * 2); ctx.fill();
-    const label = fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z));
+    const label = fmtDist(route ? route.len : Math.hypot(mark.x - player.x, mark.z - player.z));
     ctx.font = 'bold 14px monospace';
     const tw = ctx.measureText ? ctx.measureText(label).width : label.length * 9;
     const bx0 = tx - tw / 2 - 9, by0 = hy - R - 36;
@@ -246,8 +250,99 @@ function draw() {
   ctx.fillStyle = '#222'; ctx.fillRect(W - 32 - bw, H - 34, bw, 4);
   ctx.font = '13px monospace'; ctx.fillStyle = '#222'; ctx.fillText('200 m', W - 32 - bw, H - 40);
   infoBox.textContent = mark
-    ? 'Mark: ' + fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z)) + ' from the car'
+    ? (route ? 'Mark: ' + fmtDist(route.len) + ' by road' : 'Mark: ' + fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z)) + ' straight (no street route)')
     : 'Left click: mark a place · Right click: clear';
+}
+
+// ---- the road distance ----
+// The streets as a graph of junctions: a junction is a crossing of the core's street lines (x = i * CHUNK, z = j * CHUNK),
+// and an open street (segClosed in js/flyover.js is false) joins two neighbouring junctions. Every street is one block
+// long, so the shortest route is a Dijkstra over that graph. The car and the mark each join the graph at the corners
+// of their own block (the straight leg is drawn across the block to the corner).
+const GN = 2 * CORE + 1;
+const nid = (i, j) => (i + CORE) * GN + (j + CORE);
+let adjCache = null;
+function roadGraph() {
+  if (adjCache) return adjCache;
+  const adj = Array.from({ length: GN * GN }, () => []);
+  for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
+    if (i < CORE && !segClosed('x', i, j)) { adj[nid(i, j)].push([nid(i + 1, j), CHUNK]); adj[nid(i + 1, j)].push([nid(i, j), CHUNK]); }
+    if (j < CORE && !segClosed('z', i, j)) { adj[nid(i, j)].push([nid(i, j + 1), CHUNK]); adj[nid(i, j + 1)].push([nid(i, j), CHUNK]); }
+  }
+  return (adjCache = adj);
+}
+// the junction corners of the block a point stands in that have a street, with the straight leg to each
+function accessNodes(p, adj) {
+  const cx = Math.floor(p.x / CHUNK), cz = Math.floor(p.z / CHUNK), out = [];
+  for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+    const i = cx + di, j = cz + dj;
+    if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
+    const n = nid(i, j);
+    if (adj[n].length) out.push({ n, acc: Math.hypot(p.x - i * CHUNK, p.z - j * CHUNK) });
+  }
+  return out;
+}
+// Dijkstra from the start nodes (each with its leg length): returns the distance and the predecessor of every node
+function shortest(starts) {
+  const adj = roadGraph(), dist = new Float64Array(GN * GN).fill(Infinity), prev = new Int32Array(GN * GN).fill(-1);
+  const hd = [], hn = [];
+  const swap = (a, k, m) => { [a[k], a[m]] = [a[m], a[k]]; };
+  const push = (d, n) => {
+    hd.push(d); hn.push(n);
+    for (let k = hd.length - 1; k > 0;) { const q = (k - 1) >> 1; if (hd[q] <= hd[k]) break; swap(hd, k, q); swap(hn, k, q); k = q; }
+  };
+  const pop = () => {
+    const d = hd[0], n = hn[0], ld = hd.pop(), ln = hn.pop();
+    if (hd.length) {
+      hd[0] = ld; hn[0] = ln;
+      for (let k = 0;;) {
+        const l = 2 * k + 1, r = l + 1; let m = k;
+        if (l < hd.length && hd[l] < hd[m]) m = l;
+        if (r < hd.length && hd[r] < hd[m]) m = r;
+        if (m === k) break;
+        swap(hd, k, m); swap(hn, k, m); k = m;
+      }
+    }
+    return [d, n];
+  };
+  for (const s of starts) if (s.acc < dist[s.n]) { dist[s.n] = s.acc; push(s.acc, s.n); }
+  while (hd.length) {
+    const [d, n] = pop();
+    if (d > dist[n]) continue;
+    for (const [m, w] of adj[n]) if (d + w < dist[m]) { dist[m] = d + w; prev[m] = n; push(d + w, m); }
+  }
+  return { dist, prev };
+}
+// The road route from one point to another: { len, pts } (pts are world points along the streets), or null if there is no
+// street route between them.
+function roadRoute(from, to) {
+  const adj = roadGraph();
+  const A = accessNodes(from, adj), B = accessNodes(to, adj);
+  if (!A.length || !B.length) return null;
+  const { dist, prev } = shortest(A);
+  let best = null;
+  for (const b of B) {
+    const len = dist[b.n] + b.acc;
+    if (isFinite(len) && (!best || len < best.len)) best = { len, end: b.n };
+  }
+  if (!best) return null;
+  const nodes = [];
+  for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
+  nodes.reverse();
+  const pts = [[from.x, from.z]];
+  for (const n of nodes) pts.push([(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK]);
+  pts.push([to.x, to.z]);
+  return { len: best.len, pts };
+}
+// the route for the current mark from the car, recomputed when the mark changes or the car has moved 8 m
+let routeCache = { from: null, to: null, res: null };
+function currentRoute() {
+  if (!mark) return null;
+  if (routeCache.to !== mark || !routeCache.from || Math.hypot(routeCache.from.x - player.x, routeCache.from.z - player.z) > 8) {
+    const from = { x: player.x, z: player.z };
+    routeCache = { from, to: mark, res: roadRoute(from, mark) };
+  }
+  return routeCache.res;
 }
 
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
