@@ -20,7 +20,8 @@ import { ISLAND_R, ISLAND_MIN, ISLAND_MAX } from './island.js';
 const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
 const C = {
   sea: '#9fcde4', beach: '#efe4c6', casing: '#b9b1a0', street: '#fffefb', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
-  building: '#c6c0b2', park: '#b8dc98', quay: '#d9d2c0', you: '#e63946', mark: '#e63946',
+  building: '#c6c0b2', park: '#b8dc98', quay: '#d9d2c0', you: '#e63946',
+  pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
 const DIST_NAMES = { centre: 'City centre', old: 'Old town', industrial: 'Industrial', suburb: 'Suburbs', harbour: 'Harbour' };
@@ -204,13 +205,14 @@ function draw() {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
 
-  // 6. the mark, and the car
+  // 6. the route from the car to the mark (a blue line with a white casing, as in a navigation map), the car, the pin
   if (mark) {
-    ctx.strokeStyle = C.mark; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
-    ctx.beginPath(); ctx.moveTo(sx(player.x), sy(player.z)); ctx.lineTo(sx(mark.x), sy(mark.z)); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = C.mark; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(sx(mark.x), sy(mark.z), 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const ax = sx(player.x), ay = sy(player.z), bx = sx(mark.x), by = sy(mark.z);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.strokeStyle = C.route; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
   }
   const fx = Math.sin(player.h), fy = -Math.cos(player.h);      // forward on the map (at h = 0 the car faces up)
   const px = sx(player.x), py = sy(player.z);
@@ -220,6 +222,24 @@ function draw() {
   ctx.lineTo(px - fx * 9 - fy * 9, py - fy * 9 + fx * 9);
   ctx.lineTo(px - fx * 9 + fy * 9, py - fy * 9 - fx * 9);
   ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // the mark: a red location pin like Google Maps (its tip is the marked point), with a blue distance label above it
+  if (mark) {
+    const tx = sx(mark.x), ty = sy(mark.z);                      // the tip of the pin = the marked point
+    const hy = ty - 30, R = 11;                                  // the head of the pin, 30 px above the tip
+    ctx.fillStyle = C.pin; ctx.strokeStyle = '#a52714'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx - R * 0.78, hy + R * 0.45); ctx.lineTo(tx + R * 0.78, hy + R * 0.45); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(tx, hy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(tx, hy, 4.2, 0, Math.PI * 2); ctx.fill();
+    const label = fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z));
+    ctx.font = 'bold 14px monospace';
+    const tw = ctx.measureText ? ctx.measureText(label).width : label.length * 9;
+    const bx0 = tx - tw / 2 - 9, by0 = hy - R - 36;
+    ctx.fillStyle = C.label; ctx.fillRect(bx0, by0, tw + 18, 26);
+    ctx.fillStyle = '#ffffff'; ctx.fillText(label, bx0 + 9, by0 + 18);
+  }
 
   // the scale bar (200 m) and the distance to the mark
   const bw = 200 * view.s;
