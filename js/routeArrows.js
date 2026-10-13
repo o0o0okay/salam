@@ -1,5 +1,5 @@
 /* The route on the road: flashing arrows on the asphalt along the route to the marked place (js/map.js), so the way is
- * seen in the game itself and not only on the map. The arrows follow the junctions of the route (its street part; the short
+ * seen in the game itself and not only on the map. The arrows follow the street part of the planned route (its corners; the short
  * steps onto the street at either end get none). Only the first few arrows ahead are shown,
  * and they light up in turn, moving towards the destination. Hidden when there is no mark or no street route. */
 import * as THREE from 'three';
@@ -9,7 +9,7 @@ import { currentMark, currentRoute } from './map.js';
 const POOL = 24;          // arrows shown at once: about 330 m of route ahead
 const STEP = 14;          // metres between arrows
 const ARROW_Y = 0.09;     // just above the asphalt (the decks and the road surface are at 0.05 to 0.08)
-let pool = null, samples = [], lastRoute = null;
+let pool = null, samples = [], lastBase = null;
 
 // one chevron pointing along +z (the arrow's forward), lying flat
 const geo = new THREE.BufferGeometry();
@@ -32,21 +32,20 @@ function ensurePool() {
   }
 }
 
-// The points every STEP metres along the street part of a route, with the direction of travel at each.
-function samplesOf(seg) {
-  const out = [];                                     // seg: the junctions of the route, along the streets
-  let next = STEP, total = 0;
-  for (let k = 0; k < seg.length - 1 && out.length < POOL; k++) {
-    const [ax, az] = seg[k], [bx, bz] = seg[k + 1];
-    const L = Math.hypot(bx - ax, bz - az);
-    if (L === 0) continue;
-    const ux = (bx - ax) / L, uz = (bz - az) / L, start = total, end = total + L;
-    while (next <= end && out.length < POOL) {
-      const d = next - start;
-      out.push({ x: ax + ux * d, z: az + uz * d, ux, uz });
-      next += STEP;
-    }
-    total = end;
+// The arrows sit every STEP metres of the planned route, at fixed places on the road (they do not move with the car).
+// Each one knows its distance `arc` along the planned route, so the ones ahead of the car can be picked out.
+function samplesOf(base) {
+  const out = [], st = base.street, si = base.sIdx, cum = base.cum;
+  if (st.length < 2) return out;
+  let k = 0;
+  for (let g = Math.ceil(cum[si[0]] / STEP) * STEP; ; g += STEP) {
+    while (k < st.length - 2 && g > cum[si[k + 1]]) k++;
+    if (g > cum[si[k + 1]]) break;                    // past the last corner of the way
+    const [ax, az] = st[k], [bx, bz] = st[k + 1];
+    const L = cum[si[k + 1]] - cum[si[k]];
+    if (L <= 0) continue;
+    const f = (g - cum[si[k]]) / L;
+    out.push({ x: ax + (bx - ax) * f, z: az + (bz - az) * f, ux: (bx - ax) / L, uz: (bz - az) / L, arc: g });
   }
   return out;
 }
@@ -54,12 +53,18 @@ function samplesOf(seg) {
 export function updateRouteArrows() {
   ensurePool();
   const route = currentMark() ? currentRoute() : null;
-  if (!route) { for (const m of pool) m.visible = false; lastRoute = null; samples = []; return; }
-  if (route !== lastRoute) { lastRoute = route; samples = samplesOf(route.street); }
+  if (!route) { for (const m of pool) m.visible = false; lastBase = null; samples = []; return; }
+  if (route.base !== lastBase) { lastBase = route.base; samples = samplesOf(route.base); }
+  const ahead = [];                                   // the arrows in front of the car, nearest first
+  for (const s of samples) {
+    if (s.arc <= route.s) continue;
+    if (s.arc > route.s + POOL * STEP || ahead.length >= POOL) break;
+    ahead.push(s);
+  }
   const t = performance.now() / 1000;
   const lit = Math.floor(t * 5);                     // the light moves on five times a second
   for (let k = 0; k < POOL; k++) {
-    const m = pool[k], s = samples[k];
+    const m = pool[k], s = ahead[k];
     if (!s) { m.visible = false; continue; }
     m.position.set(s.x, ARROW_Y, s.z);
     m.rotation.y = Math.atan2(s.ux, s.uz);
