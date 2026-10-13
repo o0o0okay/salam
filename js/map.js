@@ -24,7 +24,7 @@ import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
-  sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#5d6065', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
+  sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#5d6065', main: '#5d6065', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
   building: '#c6c0b2', park: '#a6d57f', quay: '#d9d2c0', you: '#e63946',
   // the building roofs, as in the reference: sand, orange, rose, blue, green, pale grey, brick
   roofs: ['#f0e2b8', '#e8934a', '#ef8f96', '#6fa8de', '#8fc777', '#e3dfd6', '#c46d4c'],
@@ -307,7 +307,7 @@ function drawAtGradeLanes(gx0, gx1, gz0, gz1) {
 }
 // The flyovers: a shadow and the deck on the main road over the junction (the crossing street runs underneath it), and
 // the two ramps that climb to it from the ground at ±rampEnd. A long bridge runs its deck on past the next junction.
-const FLY_DECK = '#e8a23a', FLY_RAMP = '#f8d08f', FLY_EDGE = '#6d6353';
+const FLY_DECK = C.street, FLY_RAMP = C.street, FLY_EDGE = C.casing;   // the main roads are asphalt, like every street
 function drawFlyovers(gx0, gx1, gz0, gz1) {
   const flys = [];
   for (let k = gx0; k <= gx1; k++) { const f = nodeAt(k, 0); if (f) flys.push(f); }
