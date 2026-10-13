@@ -145,12 +145,18 @@ function streetsIn(gx0, gx1, gz0, gz1) {
 // and the cross street (z = 0: the streets with z = -8 and d = 16). Nothing else has either coordinate.
 const isMain = ([x, z, w, d]) => (x === -8 && w === 16) || (z === -8 && d === 16);
 
-// a value in [0, 1) from a block and a salt, for the generic building layout
-const hb = (cx, cz, k) => hash2(cx * 31 + k * 7 + 5, cz * 17 + k * 3 + 11) / 4294967296;
+// the roof colour of a building, from where it stands (the same colour every time it is drawn)
+const roofOf = (x, z) => Math.abs(Math.round(x * 3 + z * 7)) % 7;
 
 function learn() {
   for (const [key, ch] of chunks) {
-    if (ch.mapType !== undefined && !seen.has(key)) seen.set(key, { type: ch.mapType, water: ch.radarWater || [] });
+    if (ch.mapType !== undefined && !seen.has(key)) {
+      // the real buildings of the block (its solids of kind 'building'; thin walls and banks are not buildings), and its trees
+      const blds = ch.solids.filter(so => so.kind === 'building' && Math.min(so.hx, so.hz) >= 2)
+        .map(so => [so.x - so.hx, so.z - so.hz, 2 * so.hx, 2 * so.hz, roofOf(so.x, so.z)]);
+      const trees = (ch.trees || []).map(t => [t.x, t.z]);
+      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees });
+    }
   }
 }
 
@@ -166,39 +172,25 @@ function draw() {
   const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
   const gz0 = Math.max(-ISLAND_R, Math.floor((view.cz - half.z) / CHUNK) - 1), gz1 = Math.min(ISLAND_R, Math.ceil((view.cz + half.z) / CHUNK) + 1);
 
-  // 1. the ground of each block, by district; parks and the harbour quay where the block has been built
+  // 1. the ground of each block, by district; then, for a block the player has been near (it is built and remembered),
+  // its parks, its harbour quay, its real buildings and its real trees. A block never visited is only its ground, so the
+  // map never shows a building that is not in the world.
   for (let cx = gx0; cx < gx1; cx++) for (let cz = gz0; cz < gz1; cz++) {
     const x0 = cx * CHUNK, z0 = cz * CHUNK;
     rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
     const k = seen.get(ck(cx, cz));
-    if (k && k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
-    else if (k && k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
-    else {
-      // 2. generic buildings on the block: up to four in the quarters, always clear of the streets (8 m in)
-      // a parking lot on some blocks (the reference's car parks)
-      if (hb(cx, cz, 30) < 0.3) {
-        rect(x0 + 44, z0 + 44, 28, 26, C.lot);
-        if (view.s > 0.2) for (let k = 0; k < 6; k++) rect(x0 + 45 + k * 4.4, z0 + 45, 0.5, 24, C.lotLine);
-      }
-      for (let q = 0; q < 4; q++) {
-        if (hb(cx, cz, q) < 0.2) continue;
-        const qx = x0 + 8 + (q & 1) * 32, qz = z0 + 8 + (q >> 1) * 32;
-        const w = 20 + hb(cx, cz, q + 4) * 10, d = 20 + hb(cx, cz, q + 8) * 10;
-        const bx = qx + 2 + hb(cx, cz, q + 12) * Math.max(0, 24 - w), bz = qz + 2 + hb(cx, cz, q + 16) * Math.max(0, 24 - d);
-        // the roof, with its shadow on the south-east edge
-        rect(bx + 1.2, bz + 1.2, w, d, '#8d8779');
-        rect(bx, bz, w, d, C.roofs[Math.floor(hb(cx, cz, q + 20) * C.roofs.length)]);
-      }
-      // trees: a few round crowns in the open ground of the block (not on the streets)
-      if (view.s > 0.12) for (let k = 0; k < 8; k++) {
-        if (hb(cx, cz, 40 + k) < 0.5) continue;
-        const tx = x0 + 6 + hb(cx, cz, 50 + k) * 68, tz = z0 + 6 + hb(cx, cz, 60 + k) * 68;
-        if (tx > x0 + 36 && tx < x0 + 44 || tz > z0 + 36 && tz < z0 + 44) continue;   // keep the middle of the block for the lot
-        ctx.beginPath(); ctx.arc(sx(tx), sy(tz), Math.max(1.6, 4.2 * view.s), 0, Math.PI * 2);
-        ctx.fillStyle = C.tree; ctx.fill();
-        ctx.beginPath(); ctx.arc(sx(tx) - 1.2 * view.s, sy(tz) - 1.2 * view.s, Math.max(0.9, 2.2 * view.s), 0, Math.PI * 2);
-        ctx.fillStyle = C.treeLight; ctx.fill();
-      }
+    if (!k) continue;
+    if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
+    else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
+    for (const [x, z, w, d, roof] of k.blds) {
+      rect(x + 1.2, z + 1.2, w, d, '#8d8779');                 // the shadow edge
+      rect(x, z, w, d, C.roofs[roof]);
+    }
+    if (view.s > 0.12) for (const [tx, tz] of k.trees) {
+      ctx.beginPath(); ctx.arc(sx(tx), sy(tz), Math.max(1.6, 4.2 * view.s), 0, Math.PI * 2);
+      ctx.fillStyle = C.tree; ctx.fill();
+      ctx.beginPath(); ctx.arc(sx(tx) - 1.2 * view.s, sy(tz) - 1.2 * view.s, Math.max(0.9, 2.2 * view.s), 0, Math.PI * 2);
+      ctx.fillStyle = C.treeLight; ctx.fill();
     }
   }
 
