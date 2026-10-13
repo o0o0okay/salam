@@ -659,20 +659,25 @@ function nearestOn(route, p) {
 // leaves it, or the mark moves, is a new route planned. The returned view is the rest of the route, from the car:
 // { len (what is left), pts (from the car on), base (the planned route), s (the car's place along base) }.
 const ON_ROUTE = 12;
-let routeCache = { to: null, base: null, view: null, from: null };
+let routeCache = { to: null, base: null, view: null, from: null, at: 0 };
 export function currentRoute() {
   if (!mark) return null;
   const car = { x: player.x, z: player.z };
   const c = routeCache;
-  if (c.to !== mark) { c.to = mark; c.base = null; c.view = null; c.from = null; }
+  if (c.to !== mark) { c.to = mark; c.base = null; c.view = null; c.from = null; c.at = 0; }
   let near = c.base ? nearestOn(c.base, car) : null;
   if (!near || near.d > ON_ROUTE) {
-    // plan again, but not more often than every 8 m while there is no route (no street near the car)
-    if (!c.base && c.from && Math.hypot(c.from.x - car.x, c.from.z - car.z) <= 8) return null;
-    c.from = car;
-    c.base = roadRoute(car, mark); c.view = null;
-    if (!c.base) return null;
-    near = nearestOn(c.base, car);
+    // plan again (a full search, so not every frame): at most once a second, unless the car has moved 8 m since the last plan.
+    // While the car is off the route it keeps the route it has.
+    const now = performance.now();
+    const fresh = c.from && Math.hypot(c.from.x - car.x, c.from.z - car.z) < 8 && now - c.at < 1000;
+    if (!fresh) {
+      c.from = car; c.at = now;
+      c.base = roadRoute(car, mark); c.view = null;
+      if (!c.base) return null;
+      near = nearestOn(c.base, car);
+    } else if (!c.base) return null;
+    if (!near) return null;
   }
   if (c.view && Math.hypot(c.view.car.x - car.x, c.view.car.z - car.z) < 0.5) return c.view;
   const b = c.base;
@@ -693,7 +698,7 @@ let pausedByMap = false;
 export function resetMap() {
   pausedByMap = false;                       // a new game does not inherit the map's pause
   if (open) toggleMap();
-  mark = null; routeCache = { to: null, base: null, view: null, from: null }; seen.clear();
+  mark = null; routeCache = { to: null, base: null, view: null, from: null, at: 0 }; seen.clear();
 }
 
 // The map stops the game while it is open: nothing runs behind it. The map only undoes a pause it made itself.
