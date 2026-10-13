@@ -17,9 +17,9 @@ function fadeTexture() {
   cv.width = 4; cv.height = 256;
   const g = cv.getContext('2d');
   const grad = g.createLinearGradient(0, cv.height, 0, 0);       // bottom (foot) to top
-  grad.addColorStop(0.00, 'rgba(255,59,42,0.95)');
-  grad.addColorStop(0.35, 'rgba(255,59,42,0.75)');
-  grad.addColorStop(0.75, 'rgba(255,59,42,0.25)');
+  grad.addColorStop(0.00, 'rgba(255,59,42,0.9)');
+  grad.addColorStop(0.35, 'rgba(255,59,42,0.5)');
+  grad.addColorStop(0.75, 'rgba(255,59,42,0.12)');
   grad.addColorStop(1.00, 'rgba(255,59,42,0.0)');
   g.fillStyle = grad; g.fillRect(0, 0, cv.width, cv.height);
   const tex = new THREE.CanvasTexture(cv);
