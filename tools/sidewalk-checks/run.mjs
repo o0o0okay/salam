@@ -3,7 +3,7 @@
 import { modulePath } from './harness.mjs';
 import { heliModulePath } from './heli-harness.mjs';
 import { districtOf, DISTRICTS, DIST_NB } from '../../js/districts.js';
-import { CORE } from '../../js/island.js';
+import { CORE, onIsland } from '../../js/island.js';
 
 const world = await import(modulePath);
 const { __merge, __checked, textBlocks, generateChunk, disposeChunk, chunkKey, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
@@ -1290,18 +1290,23 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   // ---- 2d-10) the power wires meet the poles in the finished world: a relocated pole takes its wire with it, so every
   // wire end must sit on a utility pole (the blocks of 2d-9, plus two whose poles are relocated). A wire end with no pole there is a wire in the air.
   {
-    const extra = [[-8, 3], [-1, 6], [-6, -1], [0, -6], [5, -6], [5, 6], [8, -8], [10, 0]].map(([x, z]) => generateChunk(x, z, false));
+    const extra = [[-8, 3], [-1, 6], [-6, -1], [0, -6], [5, -6], [5, 6], [8, -8], [10, 0],
+      // the outermost blocks on each coast: a wire that runs on past the coast would end in the sea
+      // every block on the four coasts (the island is 50 blocks square, cx and cz from -25 to 24)
+      ...Array.from({ length: 50 }, (_, i) => i - 25).flatMap(i => [[24, i], [-25, i], [i, 24], [i, -25]])].map(([x, z]) => generateChunk(x, z, false));
     const all = [...chunks.values(), ...extra];
     const poles = all.flatMap(ch => ch.props.filter(pr => pr.kind === 'utilitypole'));
     const have = new Set(all.map(ch => ch.cx + ',' + ch.cz));       // a wire running into a block outside the sample has no pole to meet
-    let ends = 0, astray = 0, outside = 0;
+    let ends = 0, astray = 0, outside = 0, atSea = 0;
     for (const ch of all) for (const [x, z] of ch.powerEnds || []) {
+      if (!onIsland(x, z)) { atSea++; continue; }                    // a wire end in the sea: it must not be drawn at all
       if (!have.has(Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK))) { outside++; continue; }
       ends++;
       if (!poles.some(pr => Math.abs(pr.x - x) < 1e-6 && Math.abs(pr.z - z) < 1e-6)) astray++;
     }
     if (!ends) bad('no power wires in the sample: the check would be empty');
     if (astray) bad(`${astray} power wire end(s) do not meet a pole in the finished world`);
+    if (atSea) bad(`${atSea} power wire end(s) run out into the sea (past the coast)`);
     if (ends && !astray) console.log(`power wires meet their poles: ${ends} wire ends in the sample, all on a standing pole (${outside} run into blocks outside it)`);
   }
   // ---- 2d-12) trams: the rails lie on the centre line of the routes that carry them. A rail on a closed or filled

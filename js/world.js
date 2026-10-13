@@ -1827,6 +1827,8 @@ function powerLines(ch, runs, add, noPole) {
   };
   ch.powerEnds = [];
   for (const [q0, q1, along] of runs) {
+    // a run that would reach past the coast (the next block is the sea) is not drawn: the wires end on the island
+    if (!onIsland(q0[0], q0[1]) || !onIsland(q1[0], q1[1])) continue;
     if (noPole(q0[0], q0[1]) || noPole(q1[0], q1[1])) continue;
     const p0 = poleNear(q0), p1 = poleNear(q1);
     ch.powerEnds.push(p0, p1);
