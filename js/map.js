@@ -18,7 +18,7 @@ import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
-const LAND = { centre: '#ebe5d5', old: '#e6dbc3', industrial: '#dcd8cd', suburb: '#e0e4c9', harbour: '#d3e2e8' };
+const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
   sea: '#9fcde4', beach: '#efe4c6', casing: '#9d988c', street: '#5d6065', main: '#f6ad3e', bank: '#b5dbeb', water: '#72bfe4', deck: '#9c9385',
   building: '#c6c0b2', park: '#a6d57f', quay: '#d9d2c0', you: '#e63946',
@@ -129,6 +129,25 @@ function zoomAt(px, py, f) {
 }
 
 // a rectangle in world metres (x, z = its lower-left corner, w, d) filled in colour c
+// a rounded rectangle in world metres (a street: round ends and corners, as in the reference)
+function rrect(x, z, w, d, c) {
+  const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;
+  ctx.beginPath(); ctx.roundRect(X, Y, W2, D2, Math.min(W2, D2) * 0.4); ctx.fillStyle = c; ctx.fill();
+}
+// a real place of the city (hospital, school, bank, ...): a white badge with its name, when the map is zoomed in enough
+function landmark(x, z, name) {
+  const X = sx(x), Y = sy(z);
+  ctx.save();
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  const tw = ctx.measureText(name).width + 12, th = 16;
+  if (tw > CHUNK * view.s * 0.92) { ctx.restore(); return; }   // a name wider than its block is left out, not cut off
+  ctx.beginPath(); ctx.roundRect(X - tw / 2, Y - th / 2, tw, th, th / 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.fill();
+  ctx.strokeStyle = '#3d4a2a'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#2b3520'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(name, X, Y + 0.5);
+  ctx.restore();
+}
 function rect(x, z, w, d, c) {
   ctx.fillStyle = c;
   ctx.fillRect(sx(x), sy(z + d), w * view.s, d * view.s);
@@ -219,7 +238,8 @@ function learn() {
       const blds = ch.solids.filter(so => so.kind === 'building' && Math.min(so.hx, so.hz) >= 2)
         .map(so => [so.x - so.hx, so.z - so.hz, 2 * so.hx, 2 * so.hz, roofOf(so.x, so.z)]);
       const trees = (ch.trees || []).map(t => [t.x, t.z]);
-      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees });
+      const lm = (ch.landmarks || []).map(l => [l.x, l.z, l.name]);
+      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm });
     }
   }
 }
@@ -245,8 +265,8 @@ function draw() {
     const k = seen.get(ck(cx, cz));
     if (!k) continue;
     // a built block is a lawn with a darker edge (the look of the reference); unbuilt blocks stay plain ground
-    rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#6f9c4a');
-    rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#9fcf72');
+    rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#7fa857');
+    rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#b9e28a');
     if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
     else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
     // each building is a raised block; its height is a fixed value for its place, so it does not change between redraws
@@ -257,6 +277,7 @@ function draw() {
     const pool = poolSpot(cx, cz, k.blds);
     if (pool) { rect(pool[0] - 1.5, pool[1] - 1.5, 17, 12, '#f4f1ea'); rect(pool[0], pool[1], 14, 9, '#5bbde9'); }
     if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
+    if (view.s > 0.9) for (const [lx, lz, name] of k.lm) landmark(lx, lz, name);   // only when the names fit the block
   }
 
   // 3. the river: its bank and channel, in every visible block (straight, at z = RIVER_ROW * CHUNK, 8 m wide)
@@ -277,9 +298,9 @@ function draw() {
   // 5. the streets: a casing, then the minor streets, then the main roads on top
   const st = streetsIn(gx0, gx1, gz0, gz1);
   const pad = Math.max(2.5, 1.6 / view.s);                         // the casing: a thin dark edge round every street
-  for (const [x, z, w, d] of st) rect(x - pad, z - pad, w + 2 * pad, d + 2 * pad, C.casing);
-  for (const r of st) if (!isMain(r)) rect(r[0], r[1], r[2], r[3], C.street);
-  for (const r of st) if (isMain(r)) rect(r[0], r[1], r[2], r[3], C.main);
+  for (const [x, z, w, d] of st) rrect(x - pad, z - pad, w + 2 * pad, d + 2 * pad, C.casing);
+  for (const r of st) if (!isMain(r)) rrect(r[0], r[1], r[2], r[3], C.street);
+  for (const r of st) if (isMain(r)) rrect(r[0], r[1], r[2], r[3], C.main);
   if (view.s > 0.2) {
     // the centre line of each straight street: dashed white, like the reference's roads
     ctx.save(); ctx.strokeStyle = C.dash; ctx.lineWidth = Math.max(1.4, 0.9 * view.s); ctx.setLineDash([2.5 * view.s, 2.5 * view.s]);

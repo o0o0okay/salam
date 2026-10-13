@@ -1288,6 +1288,7 @@ function hospitalBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch,
   const lotSurfaceY = 0.25;
   padBox(54, 58, mat(0x4b5058), bxo - bx, bzo - bz);
   const H = buildHospitalMesh(bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('HOSPITAL'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   H.group.position.set(bxo, 0, bzo);
   bake(ch, H.group);                       // merged with the rest of the block, in slices
   // Rotors merge on their own so each one can turn about its own mast. The builder works in block-local
@@ -1338,6 +1339,7 @@ function fireBlock({ bx, bxo, bz, bzo, ch, padBox, parkedCar, prop, rng, solid, 
   const lotSurfaceY = 0.25;
   padBox(50, 46, mat(0x5a6068), bxo - bx, bzo - bz);
   const F = buildFireStationMesh(bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('FIRE STATION'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   F.group.position.set(bxo, 0, bzo);
   bake(ch, F.group);
   for (const sv of F.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
@@ -1359,6 +1361,7 @@ function bankBlock({ bx, bxo, bz, bzo, ch, padBox, prop, rng, solid, tree }) {
   const lotSurfaceY = 0.25;
   padBox(56, 42, mat(0xb9bec5), bxo - bx, bzo - bz);                     // forecourt pad
   const K = buildBankMesh(bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('BANK'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   K.group.position.set(bxo, 0, bzo);
   bake(ch, K.group);
   for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
@@ -1372,6 +1375,7 @@ function storeBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, padBox,
   const lotSurfaceY = 0.25, S = STORE_DEFS[type];
   padBox(S.pad[0], S.pad[1], mat(0xb9bec5), bxo - bx, bzo - bz);
   const K = buildStoreMesh(type, bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String(((STORE_DEFS[type] || {}).name || 'STORE')), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   K.group.position.set(bxo, 0, bzo);
   bake(ch, K.group);
   for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, 'building');
@@ -1385,6 +1389,7 @@ function sportBlock({ bx, bxo, bz, bzo, ch, group, padBox, prop, rng, solid, typ
   const lotSurfaceY = 0.25, S = SPORT_DEFS[type], sc = sportScale(type), PW = S.pad[0] * sc, PD = S.pad[1] * sc;
   padBox(PW, PD, mat(S.ground), bxo - bx, bzo - bz);
   const K = buildSportMesh(type, bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String(((SPORT_DEFS[type] || {}).name || 'SPORTS')), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   K.group.position.set(bxo, 0, bzo);
   bake(ch, K.group);
   for (const sv of K.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
@@ -1425,6 +1430,7 @@ function schoolBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, g
   padBox(56, 28, mat(0x4b5058), bxo - bx, 13.7 + (bzo - bz));    // the bus and staff lot
   padBox(56, 20, mat(0x7bc96f), bxo - bx, -10 + (bzo - bz));     // the fenced yard: grass
   const S = buildSchoolMesh(bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('SCHOOL'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   S.group.position.set(bxo, 0, bzo);
   bake(ch, S.group);
   // The schoolyard fence is handed over panel by panel: every panel is its own solid, so a hit takes down the
@@ -1497,6 +1503,7 @@ function fuelBlock({ PARKED_COLORS, PARKED_KINDS, bx, bxo, bz, bzo, ch, group, p
   padBox(52, 48, mat(0x60666d), bxo - bx, bzo - bz);                      // forecourt pad
   padBox(50, 46, mat(0x74797f), bxo - bx, bzo - bz, 0.27, 0.04);          // lighter topping
   const FS = buildFuelStationMesh(bxo, bzo, rng);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('FUEL'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   FS.group.position.set(bxo, 0, bzo);
   bake(ch, FS.group);
   for (const sv of FS.solids) solid(sv.x, sv.z, sv.hx, sv.hz, sv.kind);
@@ -1553,6 +1560,7 @@ function shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, gr
     const shops = ordered.slice(side * nShop, side * nShop + nShop);
     const rotY = side === 0 ? PI / 2 : -PI / 2;                                       // fronts face the court
     const P = buildShopParadeMesh(shops, rng, { title, shopW, h: 4.4, depth: 8.5, wall: side ? 0xd2cfc6 : 0xc9c6bd });
+    ch.landmarks = (ch.landmarks || []).concat([{ name: String(title || 'SHOPS'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
     P.group.position.set(faces[side], lotY, sbz); P.group.rotation.y = rotY;
     bake(ch, P.group);                          // the parade merges with the block, not in a pass of its own
     // The parade is built with its front at local +z, so after the rotation a shop sitting at local x
@@ -1609,6 +1617,7 @@ function factoryBlock({ bx, bxo, bz, bzo, ch, padBox, rng, solid, tree }) {
   padBox(52, 46, mat(0x6f747c), bxo - bx, bzo - bz);
   const kind = FACTORY_KINDS[Math.floor(rng() * FACTORY_KINDS.length)];
   const P = buildFactoryMesh(bxo, bzo, rng, kind);
+  ch.landmarks = (ch.landmarks || []).concat([{ name: String('FACTORY'), x: bxo, z: bzo }]);   // for the city map (js/map.js)
   ch.factory = kind; ch.factorySolids = P.solids;       // the layout, and its solids (for the checks)
   ch.stacks = P.stacks;                                 // chimney tops: smoke comes out of them (js/chimneySmoke.js)
   P.group.position.set(bxo, 0, bzo);
