@@ -2,6 +2,8 @@
  *
  * What is exact, for the whole city, from the rules the city is built with (no chunk has to be loaded):
  *   - the open streets (radarStreets); the two main roads, the avenue (x = 0) and the cross street (z = 0), are orange;
+ *   - the interchanges (flyovers: the deck, the ramps and the at-grade lanes beside them) and the roundabouts (junction
+ *     plazas), from the same rules (nodeAt, plazaAt, atGradeSide in js/flyover.js);
  *   - the river: the straight water line at z = RIVER_ROW * CHUNK, with its bridge decks where the streets cross it;
  *   - the districts, as the colour of the ground.
  * What is known only where the city has been built (the chunks are generated as you drive near them): parks, and the
@@ -12,7 +14,7 @@
  */
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW, segClosed } from './flyover.js';
+import { radarStreets, RIVER_ROW, segClosed, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { chunks } from './chunkState.js';
@@ -272,6 +274,72 @@ function learn() {
   }
 }
 
+// ---- the interchanges (flyovers) and the roundabouts (junction plazas), exact from the rules in js/flyover.js ----
+// A rectangle in world metres along a main road: `u0..u1` is the run along the road, `hw` the half width across it.
+// `edge` is the casing colour round it; (dx, dz) shifts it (the shadow of a deck).
+function slab(x0, z0, x1, z1, fill, pad, edge = C.casing, dx = 0, dz = 0) {
+  if (pad > 0) rrect(x0 + dx - pad, z0 + dz - pad, x1 - x0 + 2 * pad, z1 - z0 + 2 * pad, edge);
+  rrect(x0 + dx, z0 + dz, x1 - x0, z1 - z0, fill);
+}
+function alongRect(f, u0, u1, hw, fill, pad, edge, dx = 0, dz = 0) {
+  if (u1 <= u0) return;
+  if (f.axis === 'z') slab(-hw, u0, hw, u1, fill, pad, edge, dx, dz);
+  else slab(u0, -hw, u1, hw, fill, pad, edge, dx, dz);
+}
+// The at-grade lanes: beside a flyover the street gains a lane on the ground, from 8 m to roadEdge() (22 m) out from the
+// main road's centre line, along the whole block that carries it (atGradeSide, js/flyover.js). Drawn as the main road.
+function drawAtGradeLanes(gx0, gx1, gz0, gz1) {
+  const a = FLY.halfW, b = roadEdge(), pad = Math.max(1.2, 0.9 / view.s);
+  for (let cx = gx0; cx < gx1; cx++) for (let cz = gz0; cz < gz1; cz++) {
+    const x0 = cx * CHUNK, z0 = cz * CHUNK;
+    if (atGradeSide(cx, cz, 0)) { rect(x0 + a, z0, b - a, CHUNK, C.main); rect(x0 + b - pad, z0, pad, CHUNK, C.casing); }
+    if (atGradeSide(cx, cz, 1)) { rect(x0 + CHUNK - b, z0, b - a, CHUNK, C.main); rect(x0 + CHUNK - b, z0, pad, CHUNK, C.casing); }
+    if (atGradeSide(cx, cz, 2)) { rect(x0, z0 + a, CHUNK, b - a, C.main); rect(x0, z0 + b - pad, CHUNK, pad, C.casing); }
+    if (atGradeSide(cx, cz, 3)) { rect(x0, z0 + CHUNK - b, CHUNK, b - a, C.main); rect(x0, z0 + CHUNK - b, CHUNK, pad, C.casing); }
+  }
+}
+// The flyovers: a shadow and the deck on the main road over the junction (the crossing street runs underneath it), and
+// the two ramps that climb to it from the ground at ±rampEnd. A long bridge runs its deck on past the next junction.
+const FLY_DECK = '#e8a23a', FLY_RAMP = '#f8d08f', FLY_EDGE = '#6d6353';
+function drawFlyovers(gx0, gx1, gz0, gz1) {
+  const flys = [];
+  for (let k = gx0; k <= gx1; k++) { const f = nodeAt(k, 0); if (f) flys.push(f); }
+  for (let k = gz0; k <= gz1; k++) { const f = nodeAt(0, k); if (f) flys.push(f); }
+  const hw = FLY.halfW, pad = Math.max(2, 1.4 / view.s);
+  for (const f of flys) {
+    const D = FLY.deckHalf, R = FLY.rampEnd;
+    const a = f.node + f.lo, b = f.node + f.hi;                 // the junction (and a long bridge's far end)
+    alongRect(f, a - R, a - D, hw, FLY_RAMP, pad, FLY_EDGE);
+    alongRect(f, b + D, b + R, hw, FLY_RAMP, pad, FLY_EDGE);
+    alongRect(f, a - D, b + D, hw, 'rgba(40,36,30,0.22)', 0, 'rgba(40,36,30,0.22)', 3, 3);   // the shadow, cast to the south-east
+    alongRect(f, a - D, b + D, hw, FLY_DECK, pad * 1.4, FLY_EDGE);
+    if (view.s > 0.25) {                                         // the centre line along the deck
+      ctx.save(); ctx.strokeStyle = C.dash; ctx.lineWidth = Math.max(1.2, 0.7 * view.s); ctx.setLineDash([2.5 * view.s, 2.5 * view.s]);
+      ctx.beginPath();
+      if (f.axis === 'z') { ctx.moveTo(sx(0), sy(a - D)); ctx.lineTo(sx(0), sy(b + D)); }
+      else { ctx.moveTo(sx(a - D), sy(0)); ctx.lineTo(sx(b + D), sy(0)); }
+      ctx.stroke(); ctx.restore();
+    }
+  }
+}
+// The roundabouts: a junction with a plaza is a round asphalt island in its 16 m square, with a grass island in the middle
+// (5 m, a curb round it) and the feature on the grass: 0 a fountain, 1 a statue, 2 a tree grove (plazaAt, js/flyover.js).
+function drawRoundabouts(gx0, gx1, gz0, gz1) {
+  const circle = (x, z, r, c) => { ctx.beginPath(); ctx.arc(sx(x), sy(z), Math.max(0.5, r * view.s), 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); };
+  for (let cx = gx0; cx <= gx1; cx++) for (let cz = gz0; cz <= gz1; cz++) {
+    const p = plazaAt(cx, cz);
+    if (!p) continue;
+    const X = cx * CHUNK, Z = cz * CHUNK;
+    circle(X, Z, 8.5 + Math.max(1.2, 0.9 / view.s), C.casing);
+    circle(X, Z, 8.5, C.street);
+    circle(X, Z, 5 + 0.4, '#e9e4d6');                            // the curb
+    circle(X, Z, 5, C.park);
+    if (p.feature === 0) { circle(X, Z, 1.9, '#ffffff'); circle(X, Z, 1.4, '#5bbde9'); }
+    else if (p.feature === 1) circle(X, Z, 1.5, '#8e8e8e');
+    else for (const [dx, dz] of [[-2, 0], [2, 0], [0, 2], [0, -2], [0, 0]]) circle(X + dx, Z + dz, 1.5, C.tree);
+  }
+}
+
 function draw() {
   if (!open || !ctx) return;
   learn();
@@ -342,6 +410,11 @@ function draw() {
     }
     ctx.restore();
   }
+  // 5b. the interchanges and the roundabouts: the at-grade lanes beside each flyover, its ramps and deck (over the crossing
+  // street), then the roundabouts on the plain junctions
+  drawAtGradeLanes(gx0, gx1 - 1, gz0, gz1 - 1);
+  drawFlyovers(gx0, gx1, gz0, gz1);
+  drawRoundabouts(gx0, gx1, gz0, gz1);
   // the diagonal avenues (js/avenues.js): a main road, drawn as a thick line with its casing
   for (const av of AVENUES) {
     ctx.beginPath(); ctx.moveTo(sx(av.a[0]), sy(av.a[1])); ctx.lineTo(sx(av.b[0]), sy(av.b[1]));
