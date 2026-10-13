@@ -147,6 +147,40 @@ const isMain = ([x, z, w, d]) => (x === -8 && w === 16) || (z === -8 && d === 16
 
 // the roof colour of a building, from where it stands (the same colour every time it is drawn)
 const roofOf = (x, z) => Math.abs(Math.round(x * 3 + z * 7)) % 7;
+// a colour darker (f < 1) or lighter (f > 1) than a #rrggbb colour
+const shade = (hex, f) => {
+  const n = parseInt(hex.slice(1), 16);
+  const c = v => Math.max(0, Math.min(255, Math.round(v * f)));
+  return `rgb(${c(n >> 16 & 255)},${c(n >> 8 & 255)},${c(n & 255)})`;
+};
+// a building as a raised block: the ground shadow, the two walls that face the viewer (bottom and right), the roof on top
+function block(x, z, w, d, roof, hm) {
+  const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;   // the footprint, top-left corner on screen
+  const h = Math.max(3, hm * view.s * 1.4), dx = h * 0.6, dy = h * 0.6;   // at least 3 px, so the height reads at any zoom
+  const c = C.roofs[roof];
+  ctx.fillStyle = 'rgba(40,36,28,0.28)';                          // the shadow, down and to the right
+  ctx.fillRect(X + dx + 1.5, Y + dy + 1.5, W2, D2);
+  ctx.fillStyle = shade(c, 0.6);                                   // the wall that faces down
+  ctx.beginPath(); ctx.moveTo(X, Y + D2); ctx.lineTo(X + W2, Y + D2); ctx.lineTo(X + W2 - dx, Y + D2 - dy); ctx.lineTo(X - dx, Y + D2 - dy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = shade(c, 0.78);                                  // the wall that faces right
+  ctx.beginPath(); ctx.moveTo(X + W2, Y); ctx.lineTo(X + W2, Y + D2); ctx.lineTo(X + W2 - dx, Y + D2 - dy); ctx.lineTo(X + W2 - dx, Y - dy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = c;                                               // the roof
+  ctx.fillRect(X - dx, Y - dy, W2, D2);
+  ctx.fillStyle = shade(c, 1.12);                                  // a light edge on the top of the roof
+  ctx.fillRect(X - dx, Y - dy, W2, Math.max(0.8, 0.12 * D2));
+  ctx.strokeStyle = shade(c, 0.5); ctx.lineWidth = 0.6;
+  ctx.strokeRect(X - dx, Y - dy, W2, D2);
+}
+// a tree as a crown: a shadow, a dark round crown, a light patch on its top-left
+function crown(tx, tz) {
+  const r = Math.max(2.4, 3.4 * view.s), x = sx(tx), y = sy(tz);
+  ctx.beginPath(); ctx.arc(x + r * 0.7, y + r * 0.7, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(40,36,28,0.25)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = shade(C.tree, 0.8); ctx.fill();
+  ctx.beginPath(); ctx.arc(x - r * 0.25, y - r * 0.25, r * 0.66, 0, Math.PI * 2);
+  ctx.fillStyle = C.treeLight; ctx.fill();
+}
 
 function learn() {
   for (const [key, ch] of chunks) {
@@ -182,16 +216,9 @@ function draw() {
     if (!k) continue;
     if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
     else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
-    for (const [x, z, w, d, roof] of k.blds) {
-      rect(x + 1.2, z + 1.2, w, d, '#8d8779');                 // the shadow edge
-      rect(x, z, w, d, C.roofs[roof]);
-    }
-    if (view.s > 0.12) for (const [tx, tz] of k.trees) {
-      ctx.beginPath(); ctx.arc(sx(tx), sy(tz), Math.max(1.6, 4.2 * view.s), 0, Math.PI * 2);
-      ctx.fillStyle = C.tree; ctx.fill();
-      ctx.beginPath(); ctx.arc(sx(tx) - 1.2 * view.s, sy(tz) - 1.2 * view.s, Math.max(0.9, 2.2 * view.s), 0, Math.PI * 2);
-      ctx.fillStyle = C.treeLight; ctx.fill();
-    }
+    // each building is a raised block; its height is a fixed value for its place, so it does not change between redraws
+    for (const [x, z, w, d, roof] of k.blds) block(x, z, w, d, roof, 6 + (Math.abs(Math.round(x * 5 + z * 11)) % 5) * 3);
+    if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
   }
 
   // 3. the river: its bank and channel, in every visible block (straight, at z = RIVER_ROW * CHUNK, 8 m wide)
