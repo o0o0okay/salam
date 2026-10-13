@@ -2206,6 +2206,7 @@ function generateChunk(cx, cz, defer = false) {
   let { p } = constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz });
   interchanges({ ch, p, add, ramp, group, r, cx, cz });
   let { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow } = typeSelection({ x0, z0, bx, bz, rng, cx, cz });
+  ch.mapType = type;                                             // for the city map (js/map.js): remembered once built
   // ---- sidewalk for this block: style from the district, plus randomly painted kerbs ----
   const swStyle = pickSidewalkStyle(type, rng, districtOf(cx, cz));
   const swPainted = swStyle === 'verge' ? rng() < 0.55 : rng() < 0.2;

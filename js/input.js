@@ -5,7 +5,7 @@ import { sfx } from './audio.js';
 import { weatherSystem } from './weather.js';
 import { toast } from './ui.js';
 import { startGame, togglePause } from './flow.js';
-import { toggleMap } from './map.js';
+import { toggleMap, mapOpen } from './map.js';
 
 const keys = {};
 const touch = { left: false, right: false, brake: false, drift: false, nitro: false };
@@ -23,9 +23,12 @@ export function initInput() {
   window.addEventListener('keydown', e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
     keys[e.code] = true;
-    if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
-    if (e.code === 'KeyM') sfx.toggle();
-    if (e.code === 'KeyN' && !e.repeat) toggleMap();                 // the city map (js/map.js)
+    // P pauses and resumes; Escape does the same, unless the map is open, in which case it closes the map
+    if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) {
+      if (e.code === 'Escape' && mapOpen()) toggleMap(); else togglePause();
+    }
+    if (e.code === 'KeyM' && !e.repeat && game.state === 'playing') toggleMap();   // the city map (js/map.js)
+    if (e.code === 'KeyB' && !e.repeat) sfx.toggle();                              // sound on / off
     if (e.code === 'Tab' && game.state === 'playing' && !game.paused) {
       e.preventDefault();
       if (!e.repeat) {
