@@ -5,6 +5,7 @@ import { sfx } from './audio.js';
 import { weatherSystem } from './weather.js';
 import { toast } from './ui.js';
 import { startGame, togglePause } from './flow.js';
+import { toggleMap } from './map.js';
 
 const keys = {};
 const touch = { left: false, right: false, brake: false, drift: false, nitro: false };
@@ -24,6 +25,7 @@ export function initInput() {
     keys[e.code] = true;
     if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
     if (e.code === 'KeyM') sfx.toggle();
+    if (e.code === 'KeyN' && !e.repeat) toggleMap();                 // the city map (js/map.js)
     if (e.code === 'Tab' && game.state === 'playing' && !game.paused) {
       e.preventDefault();
       if (!e.repeat) {
