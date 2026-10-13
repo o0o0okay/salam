@@ -169,6 +169,8 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
       solid(px, zc, 0.25, 4, 'flyover', 2.0);
     }
     add(box(16, 0.06, 8, mat(0x4b5058), x0, 0.05, zc, false));                       // the bridge deck over the water
+    // what the radar draws (ui.js): the water and the deck, in world metres
+    (ch.radarWater = ch.radarWater || []).push([x0, zc - 4, CHUNK, 8, 'water'], [x0 - 8, zc - 4, 16, 8, 'deck']);
   };
   if (river[2]) riverSide(2);
   if (river[3]) riverSide(3);
@@ -1703,10 +1705,11 @@ function industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, ch, padBox, prop, r,
 // The harbour (js/districts.js, 'harbour'): a basin of water on a stone quay. The basin is 36 m square and its edge is a
 // low quay wall, solid on all four sides, so no car drives in. Two or three small boats lie moored on the water. The water
 // is flat, at the top of the quay's paving. A river with bridges is a later step: it would cross the road grid.
-function harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
+function harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid, ch }) {
   const S = 18, Y0 = 0.25;                                                          // the basin's half-size; the quay's top
   padBox(56, 56, mat(0xb7b2a6), bxo - bx, bzo - bz);                               // the quay's paving
   const water = mat(0x2d6f8c), rim = mat(0x8e8a80), bollard = mat(0x3c434b);
+  ch.radarWater = (ch.radarWater || []).concat([[bxo - S, bzo - S, 2 * S, 2 * S, 'water']]);
   add(box(2 * S, 0.04, 2 * S, water, bxo, Y0 + 0.02, bzo, false));                 // the water, flat
   for (const [x, z, w, d] of [[bxo, bzo - S - 0.5, 2 * S + 1, 1], [bxo, bzo + S + 0.5, 2 * S + 1, 1],
                               [bxo - S - 0.5, bzo, 1, 2 * S + 1], [bxo + S + 0.5, bzo, 1, 2 * S + 1]]) {
@@ -1730,7 +1733,7 @@ function bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
   const HALF_L = 25, HALF_W = 10, WALL_H = 9, RISE = 4;
   padBox(56, 56, mat(0xd8cbb2), bxo - bx, bzo - bz);                               // the paving under the hall
   const wallC = OLD_TOWN_WALLS[Math.floor(rng() * OLD_TOWN_WALLS.length)];
-  const wallM = facadeMat(wallC), roofM = mat(0x7d5a4a), dark = mat(0x3c434b);      // an opaque clay-tile roof, not glass
+  const wallM = facadeMat(wallC), dark = mat(0x3c434b);                            // the roof is opaque tile bands, not glass
   const L = HALF_L * 2;
   for (const side of [-1, 1]) {
     add(box(L, WALL_H, 0.8, wallM, bxo, WALL_H / 2, bzo + side * HALF_W));          // a long wall
@@ -1739,10 +1742,16 @@ function bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid }) {
   }
   // the roof: two tiled slopes meeting at a ridge, the eaves on the long walls
   const ang = Math.atan2(RISE, HALF_W), slopeLen = Math.hypot(HALF_W, RISE) + 0.3;
+  // (each slope is laid in bands of alternating tile colours along its length)
+  const bandC = [0xb5523b, 0xd9a441, 0x2e7d7a, 0xc9b79c, 0x8c3b2e, 0xe0c26a];
+  const NB = 8, pw = (L + 0.6) / NB;
   for (const side of [-1, 1]) {
-    const sl = box(L + 0.6, 0.3, slopeLen, roofM, bxo, WALL_H + RISE / 2 + 0.1, bzo + side * HALF_W / 2);
-    sl.rotation.x = side * ang;
-    add(sl);
+    for (let i = 0; i < NB; i++) {
+      const bx2 = bxo - (L + 0.6) / 2 + pw * (i + 0.5);
+      const st = box(pw + 0.02, 0.3, slopeLen, mat(bandC[(i + (side > 0 ? 3 : 0)) % bandC.length]), bx2, WALL_H + RISE / 2 + 0.1, bzo + side * HALF_W / 2);
+      st.rotation.x = side * ang;
+      add(st);
+    }
   }
   add(box(L + 0.6, 0.4, 0.5, dark, bxo, WALL_H + RISE + 0.1, bzo, false));           // the ridge
   // the stalls: counters with goods on them, and a striped canopy over each
@@ -2225,7 +2234,7 @@ function generateChunk(cx, cz, defer = false) {
   } else if (type === 'shops') {
     shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree });
   } else if (type === 'harbour') {
-    harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
+    harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid, ch });
   } else if (type === 'bazaar') {
     bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
   } else if (type === 'factory') {

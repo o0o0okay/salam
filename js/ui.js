@@ -22,6 +22,10 @@ export function drawRadar() {
   // The streets, as far as they really run: a closed arm (a three-way junction, see segClosed) and a filled one are grass,
   // so they are not drawn, and a junction square shows only while one of its arms is open.
   for (const [x, z, w, d] of radarStreets(gx0, gx1, gz0, gz1)) rctx.fillRect(x, z, w, d);
+  // water (the river, a harbour basin) and bridge decks: closed streets are not in radarStreets, so they come from the chunks
+  for (const ch of nearChunks(player.x, player.z)) for (const [x, z, w, d, k] of ch.radarWater || []) {
+    rctx.fillStyle = k === 'water' ? '#2d6f8c' : '#7a8088'; rctx.fillRect(x, z, w, d);
+  }
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
     if (pk.taken) continue;
     rctx.fillStyle = pk.kind === 'nitro' ? '#4aa8ff' : pk.kind === 'repair' ? '#44ff77' : '#ffd23b';
