@@ -271,16 +271,40 @@ function roadGraph() {
   }
   return (adjCache = adj);
 }
-// the junction corners of the block a point stands in that have a street, with the straight leg to each
-function accessNodes(p, adj) {
-  const cx = Math.floor(p.x / CHUNK), cz = Math.floor(p.z / CHUNK), out = [];
-  for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    const i = cx + di, j = cz + dj;
-    if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
-    const n = nid(i, j);
-    if (adj[n].length) out.push({ n, acc: Math.hypot(p.x - i * CHUNK, p.z - j * CHUNK) });
+// The ways from a point onto the streets: for each junction a street reaches, the nearest point P of that street to the
+// point, and the leg (point -> P, then along the street to the junction). The legs are taken only from the streets that
+// bound the point's own block (ring 0); if the block has no open street at all (a closed estate or park), the next ring
+// of blocks is tried, and so on up to three rings. So a car on a street starts from that street, and no leg runs across
+// a block to a far street. Returns a Map: junction node -> { acc, x, z } (the best leg per junction).
+function accessLegs(p, adj) {
+  const bi = Math.floor(p.x / CHUNK), bj = Math.floor(p.z / CHUNK);
+  for (let r = 0; r <= 3; r++) {
+    const best = new Map();
+    const put = (n, acc, x, z) => { const b = best.get(n); if (!b || acc < b.acc) best.set(n, { acc, x, z }); };
+    for (let i = bi - r - 1; i <= bi + r + 1; i++) for (let j = bj - r - 1; j <= bj + r + 1; j++) {
+      if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
+      if (j < CORE && !segClosed('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
+        const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
+        if (ring <= r) {
+          const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
+          const leg = Math.hypot(p.x - px, p.z - zc);
+          put(nid(i, j), leg + (zc - j * CHUNK), px, zc);
+          put(nid(i, j + 1), leg + ((j + 1) * CHUNK - zc), px, zc);
+        }
+      }
+      if (i < CORE && !segClosed('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
+        const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
+        if (ring <= r) {
+          const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
+          const leg = Math.hypot(p.x - xc, p.z - pz);
+          put(nid(i, j), leg + (xc - i * CHUNK), xc, pz);
+          put(nid(i + 1, j), leg + ((i + 1) * CHUNK - xc), xc, pz);
+        }
+      }
+    }
+    if (best.size) return best;
   }
-  return out;
+  return new Map();
 }
 // Dijkstra from the start nodes (each with its leg length): returns the distance and the predecessor of every node
 function shortest(starts) {
@@ -313,26 +337,32 @@ function shortest(starts) {
   }
   return { dist, prev };
 }
-// The road route from one point to another: { len, pts } (pts are world points along the streets), or null if there is no
-// street route between them.
+// The road route from one point to another: { len, pts, street }. `pts` is the whole way (the point, its first step onto
+// the street, the junctions along the streets, the last step, the point); `street` is only the junctions. Returns null if
+// no street is near enough to either point.
 function roadRoute(from, to) {
   const adj = roadGraph();
-  const A = accessNodes(from, adj), B = accessNodes(to, adj);
-  if (!A.length || !B.length) return null;
-  const { dist, prev } = shortest(A);
+  const A = accessLegs(from, adj), B = accessLegs(to, adj);
+  if (!A.size || !B.size) return null;
+  const { dist, prev } = shortest([...A].map(([n, l]) => ({ n, acc: l.acc })));
   let best = null;
-  for (const b of B) {
-    const len = dist[b.n] + b.acc;
-    if (isFinite(len) && (!best || len < best.len)) best = { len, end: b.n };
+  for (const [n, l] of B) {
+    const len = dist[n] + l.acc;
+    if (isFinite(len) && (!best || len < best.len)) best = { len, end: n };
   }
   if (!best) return null;
   const nodes = [];
   for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
   nodes.reverse();
+  const worldOf = n => [(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK];
+  const first = A.get(nodes[0]), last = B.get(best.end);
+  const street = nodes.map(worldOf);
   const pts = [[from.x, from.z]];
-  for (const n of nodes) pts.push([(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK]);
+  if (first) pts.push([first.x, first.z]);
+  pts.push(...street);
+  if (last) pts.push([last.x, last.z]);
   pts.push([to.x, to.z]);
-  return { len: best.len, pts };
+  return { len: best.len, pts, street };
 }
 // the route for the current mark from the car, recomputed when the mark changes or the car has moved 8 m
 let routeCache = { from: null, to: null, res: null };

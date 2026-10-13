@@ -1,6 +1,6 @@
 /* The route on the road: flashing arrows on the asphalt along the route to the marked place (js/map.js), so the way is
- * seen in the game itself and not only on the map. The arrows follow the street part of the route (the first and the
- * last leg, across a block to its corner, are not on a street and get none). Only the first few arrows ahead are shown,
+ * seen in the game itself and not only on the map. The arrows follow the junctions of the route (its street part; the short
+ * steps onto the street at either end get none). Only the first few arrows ahead are shown,
  * and they light up in turn, moving towards the destination. Hidden when there is no mark or no street route. */
 import * as THREE from 'three';
 import { scene } from './renderer.js';
@@ -33,8 +33,8 @@ function ensurePool() {
 }
 
 // The points every STEP metres along the street part of a route, with the direction of travel at each.
-function samplesOf(pts) {
-  const out = [], seg = pts.slice(1, -1);            // the junction points: the first and last are the access legs
+function samplesOf(seg) {
+  const out = [];                                     // seg: the junctions of the route, along the streets
   let next = STEP, total = 0;
   for (let k = 0; k < seg.length - 1 && out.length < POOL; k++) {
     const [ax, az] = seg[k], [bx, bz] = seg[k + 1];
@@ -55,7 +55,7 @@ export function updateRouteArrows() {
   ensurePool();
   const route = currentMark() ? currentRoute() : null;
   if (!route) { for (const m of pool) m.visible = false; lastRoute = null; samples = []; return; }
-  if (route !== lastRoute) { lastRoute = route; samples = samplesOf(route.pts); }
+  if (route !== lastRoute) { lastRoute = route; samples = samplesOf(route.street); }
   const t = performance.now() / 1000;
   const lit = Math.floor(t * 5);                     // the light moves on five times a second
   for (let k = 0; k < POOL; k++) {
