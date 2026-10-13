@@ -7,6 +7,8 @@ import { initInput } from './input.js';
 import { resetWorld, startGame, togglePause } from './flow.js';
 import { update } from './update.js';
 import { chunks } from './world.js';
+import { mapDataReady } from './map.js';
+import { toast } from './ui.js';
 import { PERF_ON, perfFrame } from './perf.js';
 
 // the debug overlay's extra lines (only read when ?debug is on)
@@ -20,6 +22,10 @@ setDiff(cfg.diffKey);
 
 // Start / restart / auto-pause
 $('startBtn').addEventListener('click', startGame);
+// The first start checks that the baked map data (map-data/, made by npm run bake:map) is there, and says so if it is not.
+$('startBtn').addEventListener('click', () => {
+  mapDataReady().then(ok => { if (!ok) toast('Map data missing. Run npm run bake:map in the project folder, then reload.', 12000); });
+}, { once: true });
 $('restartBtn').addEventListener('click', startGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing' && !game.paused) togglePause(); });
 

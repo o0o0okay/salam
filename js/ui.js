@@ -8,8 +8,8 @@ import { helicopter } from './helicopter.js';
 import { radarStreets } from './flyover.js';
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { currentMark, currentRoute } from './map.js';
-export function toast(text) {
-  const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), 1500);
+export function toast(text, ms = 1500) {
+  const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), ms);
   if ($('toasts').children.length > 3) $('toasts').firstChild.remove();
 }
 const radar = $('radar'), rctx = radar.getContext('2d');

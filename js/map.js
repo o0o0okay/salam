@@ -254,10 +254,12 @@ function* allKnown() {
 // is not there. Without the index (no map-data/ here), nothing is asked for beyond the index itself, and the map shows what
 // the car has seen.
 let preloadP = null;
+let mapDataOk = false;   // true when the index lists at least one tile
 function preloadMap() {
   if (preloadP) return preloadP;
-  preloadP = fetch('map-data/index.json').then(r => (r.ok ? r.json() : null)).then(j => {
+  preloadP = fetch('map-data/index.json').then(r => (r.ok ? r.json() : null)).catch(() => null).then(j => {
     const names = j && Array.isArray(j.tiles) ? j.tiles : [];
+    mapDataOk = names.length > 0;
     return Promise.all(names.map(name => fetch(`map-data/${name}.json`).then(r => (r.ok ? r.json() : null)).then(t => {
       if (!t) return;
       for (const [key, rec] of Object.entries(t)) {
@@ -269,6 +271,8 @@ function preloadMap() {
   return preloadP;
 }
 if (typeof window !== 'undefined') preloadMap();
+// Resolves to true when the baked map data is there (npm run bake:map); the game asks this once it starts.
+export function mapDataReady() { return preloadMap().then(() => mapDataOk); }
 
 function learn() {
   for (const [key, ch] of chunks) {
