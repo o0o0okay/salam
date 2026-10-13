@@ -10,7 +10,7 @@
  * Controls on the map: drag to move, the wheel (or + / -) to zoom, a left click to mark a place, a right click or
  * "Clear" to remove the mark, "Me" to centre on the car. M or Escape closes it. The game keeps running behind it.
  */
-import { player } from './state.js';
+import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW, segClosed } from './flyover.js';
 import { AVENUES, AVENUE_W } from './avenues.js';
@@ -470,12 +470,15 @@ function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.ro
 export function mapOpen() { return open; }
 // the marked place (or null): the radar shows it too (js/ui.js)
 export function currentMark() { return mark; }
+let pausedByMap = false;
 // A new game starts the map afresh: no mark, no route, and the parts of the city it had seen are forgotten.
 export function resetMap() {
+  pausedByMap = false;                       // a new game does not inherit the map's pause
   if (open) toggleMap();
   mark = null; routeCache = { to: null, base: null, view: null, from: null }; seen.clear();
 }
 
+// The map stops the game while it is open: nothing runs behind it. The map only undoes a pause it made itself.
 export function toggleMap() {
   if (!overlay) build();
   open = !open;
@@ -485,7 +488,10 @@ export function toggleMap() {
     view.cx = player.x; view.cz = player.z;
     draw();
     timer = setInterval(draw, 100);
+    if (game.state === 'playing' && !game.paused) { game.paused = true; pausedByMap = true; }
   } else {
     clearInterval(timer); timer = 0;
+    if (pausedByMap && game.paused) game.paused = false;
+    pausedByMap = false;
   }
 }
