@@ -153,8 +153,9 @@ const shade = (hex, f) => {
   const c = v => Math.max(0, Math.min(255, Math.round(v * f)));
   return `rgb(${c(n >> 16 & 255)},${c(n >> 8 & 255)},${c(n & 255)})`;
 };
-// a building as a raised block: the ground shadow, the two walls that face the viewer (bottom and right), the roof on top
-function block(x, z, w, d, roof, hm) {
+// one box as a raised block: the ground shadow, the two walls that face the viewer (bottom and right), the roof on top.
+// A gable roof is two pitched halves with a ridge along the long side; a flat roof is one plain top.
+function box(x, z, w, d, roof, hm, gable) {
   const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;   // the footprint, top-left corner on screen
   const h = Math.max(3, hm * view.s * 1.4), dx = h * 0.6, dy = h * 0.6;   // at least 3 px, so the height reads at any zoom
   const c = C.roofs[roof];
@@ -166,11 +167,51 @@ function block(x, z, w, d, roof, hm) {
   ctx.beginPath(); ctx.moveTo(X + W2, Y); ctx.lineTo(X + W2, Y + D2); ctx.lineTo(X + W2 - dx, Y + D2 - dy); ctx.lineTo(X + W2 - dx, Y - dy); ctx.closePath(); ctx.fill();
   ctx.fillStyle = c;                                               // the roof
   ctx.fillRect(X - dx, Y - dy, W2, D2);
-  ctx.fillStyle = shade(c, 1.12);                                  // a light edge on the top of the roof
-  ctx.fillRect(X - dx, Y - dy, W2, Math.max(0.8, 0.12 * D2));
+  if (gable) {
+    const along = w >= d;                                          // the ridge runs along the long side
+    ctx.fillStyle = shade(c, 0.84);                                // the half in shadow
+    if (along) ctx.fillRect(X - dx, Y - dy + D2 / 2, W2, D2 / 2);
+    else ctx.fillRect(X - dx + W2 / 2, Y - dy, W2 / 2, D2);
+    ctx.strokeStyle = shade(c, 0.55); ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    if (along) { ctx.moveTo(X - dx, Y - dy + D2 / 2); ctx.lineTo(X - dx + W2, Y - dy + D2 / 2); }
+    else { ctx.moveTo(X - dx + W2 / 2, Y - dy); ctx.lineTo(X - dx + W2 / 2, Y - dy + D2); }
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = shade(c, 1.12);                                // a light edge on the top of the roof
+    ctx.fillRect(X - dx, Y - dy, W2, Math.max(0.8, 0.12 * D2));
+  }
   ctx.strokeStyle = shade(c, 0.5); ctx.lineWidth = 0.6;
   ctx.strokeRect(X - dx, Y - dy, W2, D2);
 }
+// a building: a plain box, a pitched-roof box, an L-shaped building, or a box with a rooftop unit (by its place)
+function building(x, z, w, d, roof, hm, st) {
+  if (st === 2 && w > 14 && d > 14) {                              // an L: a leg at the bottom left, a bar along the top
+    box(x, z, w * 0.5, d * 0.5, roof, hm, false);
+    box(x, z + d * 0.5, w, d * 0.5, roof, hm, false);
+    return;
+  }
+  box(x, z, w, d, roof, hm, st === 1);
+  if (st === 3 && w > 8 && d > 8) {                                // a rooftop unit: a small grey box on the roof
+    const X = sx(x) - Math.max(3, hm * view.s * 1.4) * 0.6, Y = sy(z + d) - Math.max(3, hm * view.s * 1.4) * 0.6;
+    ctx.fillStyle = shade(C.roofs[roof], 0.7);
+    ctx.fillRect(X + w * view.s * 0.55, Y + d * view.s * 0.2, w * view.s * 0.22, d * view.s * 0.26);
+  }
+}
+// a pool in a yard: a free corner of the block (clear of the buildings), and only in some blocks
+function poolSpot(cx, cz, blds) {
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+  if (hash2(cx * 7 + 3, cz * 13 + 5) % 3 !== 0) return null;
+  const spots = [[x0 + 8, z0 + 8], [x0 + CHUNK - 24, z0 + 8], [x0 + 8, z0 + CHUNK - 20], [x0 + CHUNK - 24, z0 + CHUNK - 20]];
+  const start = hash2(cx * 11 + 1, cz * 5 + 9) % 4;
+  for (let i = 0; i < 4; i++) {
+    const [px, pz] = spots[(start + i) % 4];
+    const clear = blds.every(([x, z, w, d]) => !(px - 4 < x + w && px + 18 > x && pz - 4 < z + d && pz + 13 > z));
+    if (clear) return [px, pz];
+  }
+  return null;
+}
+
 // a tree as a crown: a shadow, a dark round crown, a light patch on its top-left
 function crown(tx, tz) {
   const r = Math.max(2.4, 3.4 * view.s), x = sx(tx), y = sy(tz);
@@ -217,7 +258,12 @@ function draw() {
     if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
     else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
     // each building is a raised block; its height is a fixed value for its place, so it does not change between redraws
-    for (const [x, z, w, d, roof] of k.blds) block(x, z, w, d, roof, 6 + (Math.abs(Math.round(x * 5 + z * 11)) % 5) * 3);
+    for (const [x, z, w, d, roof] of k.blds) {
+      const st = Math.abs(Math.round(x * 13 + z * 29)) % 4;          // the style of the building: flat, pitched, L, flat with a unit
+      building(x, z, w, d, roof, 6 + (Math.abs(Math.round(x * 5 + z * 11)) % 5) * 3, st);
+    }
+    const pool = poolSpot(cx, cz, k.blds);
+    if (pool) { rect(pool[0] - 1.5, pool[1] - 1.5, 17, 12, '#f4f1ea'); rect(pool[0], pool[1], 14, 9, '#5bbde9'); }
     if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
   }
 
