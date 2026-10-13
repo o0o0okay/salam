@@ -93,7 +93,7 @@ function build() {
     if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
     if (drag.moved) {
       canvas.style.cursor = 'grabbing';
-      view.cx = drag.cx - dx / view.s; view.cz = drag.cz + dy / view.s;
+      view.cx = drag.cx + dx / view.s; view.cz = drag.cz + dy / view.s;   // the map is mirrored in x (see sx), so the pan is too
       draw();
     }
   });
@@ -119,8 +119,11 @@ function size() {
 }
 
 // screen point -> world point, north (+z) up
-function worldAt(px, py) { return { x: view.cx + (px - W / 2) / view.s, z: view.cz - (py - H / 2) / view.s }; }
-const sx = x => W / 2 + (x - view.cx) * view.s;
+function worldAt(px, py) { return { x: view.cx - (px - W / 2) / view.s, z: view.cz - (py - H / 2) / view.s }; }
+// The map is north up (+z up the screen), and x is turned round: +x is on the LEFT. This is the driver's view: the car's
+// right-hand side is -x when it drives +z (the 3D camera and the radar agree), so the right-hand street is on the right.
+// A rectangle with its left edge at x (w wide) is therefore drawn from sx(x + w), its left edge on the screen.
+const sx = x => W / 2 - (x - view.cx) * view.s;
 const sy = z => H / 2 - (z - view.cz) * view.s;
 
 // zoom by f, keeping the world point under (px, py) where it is on screen
@@ -135,7 +138,7 @@ function zoomAt(px, py, f) {
 // a rectangle in world metres (x, z = its lower-left corner, w, d) filled in colour c
 // a rounded rectangle in world metres (a street: round ends and corners, as in the reference)
 function rrect(x, z, w, d, c) {
-  const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;
+  const X = sx(x + w), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;
   ctx.beginPath(); ctx.roundRect(X, Y, W2, D2, Math.min(W2, D2) * 0.4); ctx.fillStyle = c; ctx.fill();
 }
 // a real place of the city (hospital, school, bank, ...): a white badge with its name, when the map is zoomed in enough
@@ -154,7 +157,7 @@ function landmark(x, z, name) {
 }
 function rect(x, z, w, d, c) {
   ctx.fillStyle = c;
-  ctx.fillRect(sx(x), sy(z + d), w * view.s, d * view.s);
+  ctx.fillRect(sx(x + w), sy(z + d), w * view.s, d * view.s);
 }
 
 // the open streets in the visible range, from radarStreets; cached while the range of chunks is the same
@@ -178,7 +181,7 @@ const shade = (hex, f) => {
 };
 // one box seen from above: its roof, flat. A gable roof is two halves with a ridge along the long side.
 function box(x, z, w, d, roof, hm, gable) {
-  const X = sx(x), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;   // the footprint, top-left corner on screen
+  const X = sx(x + w), Y = sy(z + d), W2 = w * view.s, D2 = d * view.s;   // the footprint, top-left corner on screen
   const c = C.roofs[roof];
   ctx.fillStyle = c;
   ctx.fillRect(X, Y, W2, D2);
@@ -205,7 +208,7 @@ function building(x, z, w, d, roof, hm, st) {
   }
   box(x, z, w, d, roof, hm, st === 1);
   if (st === 3 && w > 8 && d > 8) {                                // a rooftop unit: a small grey box on the roof
-    const X = sx(x), Y = sy(z + d);
+    const X = sx(x + w), Y = sy(z + d);
     ctx.fillStyle = shade(C.roofs[roof], 0.7);
     ctx.fillRect(X + w * view.s * 0.55, Y + d * view.s * 0.2, w * view.s * 0.22, d * view.s * 0.26);
   }
@@ -439,7 +442,7 @@ function draw() {
       ctx.stroke();
     }
   }
-  const fx = Math.sin(player.h), fy = -Math.cos(player.h);      // forward on the map (at h = 0 the car faces up)
+  const fx = -Math.sin(player.h), fy = -Math.cos(player.h);     // forward on the map (at h = 0 the car faces up; the map is mirrored in x)
   const px = sx(player.x), py = sy(player.z);
   ctx.fillStyle = C.you; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
   ctx.beginPath();
