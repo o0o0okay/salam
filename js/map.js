@@ -581,3 +581,7 @@ export function toggleMap() {
     pausedByMap = false;
   }
 }
+
+// The map remembers the blocks as the car drives past them, not only while the map is open (so a route driven
+// through a block is on the map afterwards).
+setInterval(learn, 500);
