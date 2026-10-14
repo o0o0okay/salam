@@ -34,13 +34,26 @@ function prepared(geo, m) {
   g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
   return { g, key: VERTEX_MAT };
 }
+// ---- small props cast no shadow ----
+// A small decorative piece (a bollard, a bin, a sign, a hydrant, a lamp head...) whose world-space box is under
+// SMALL_PROP metres in every direction does not cast a shadow. Nobody sees its shadow at street scale, and each
+// shadow caster costs the shadow pass. Buildings and anything larger keep their shadows.
+export const SMALL_PROP = 1.0;
+export function smallPiece(g) {
+  if (!g.attributes || !g.attributes.position || typeof g.computeBoundingBox !== 'function') return false;
+  g.computeBoundingBox();
+  const b = g.boundingBox;
+  if (!b || !b.min || !b.max) return false;
+  return Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) < SMALL_PROP;
+}
 // the bag of gathered pieces: key (material) -> { c: [geometries that cast], n: [geometries that do not] }
 function gather(bag, b) {
   const { g, key } = prepared(b.geo, b.mat);
   g.applyMatrix4(b.m);
+  const cast = b.cast !== false && !smallPiece(g);
   let byCast = bag.get(key);
   if (!byCast) { byCast = { c: [], n: [] }; bag.set(key, byCast); }
-  byCast[b.cast === false ? 'n' : 'c'].push(g);
+  byCast[cast ? 'c' : 'n'].push(g);
 }
 export function finishChunk(ch) {
   const bag = new Map();
@@ -164,8 +177,9 @@ function mergeInside(ch, root) {
     const rel = new THREE.Matrix4().multiplyMatrices(inv, c.matrixWorld);
     const { g, key: m } = prepared(c.geometry, c.material);   // a plain colour is written into the vertices (see above)
     g.applyMatrix4(rel);
-    const key = m.uuid + '|' + (c.castShadow ? 1 : 0) + (c.receiveShadow ? 1 : 0);
-    if (!buckets.has(key)) buckets.set(key, { m, cast: c.castShadow, recv: c.receiveShadow, items: [] });
+    const cast = c.castShadow && !smallPiece(g);            // a small piece casts no shadow (see smallPiece)
+    const key = m.uuid + '|' + (cast ? 1 : 0) + (c.receiveShadow ? 1 : 0);
+    if (!buckets.has(key)) buckets.set(key, { m, cast, recv: c.receiveShadow, items: [] });
     buckets.get(key).items.push({ c, g });
   }
   for (const b of buckets.values()) {
