@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ESCAPE ROAD — Low-Poly Police Chase</title>
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
@@ -23,25 +22,53 @@
     <div class="lbl">SCORE</div>
     <div class="big display" id="score">0</div>
     <div class="lbl" style="margin-top:4px" id="timeDist">0:00 · 0.00 km</div>
-    <canvas id="radar" width="260" height="260"></canvas>
   </div>
   <div class="panel" id="tc">
-    <div class="lbl" style="text-align:left">VEHICLE HEALTH</div>
-    <div class="bar"><div id="hpFill"></div></div>
-    <div class="lbl" style="text-align:left;margin-top:6px">NITRO <span style="opacity:.7">[SHIFT]</span></div>
-    <div class="bar" style="height:11px"><div id="nitroFill" style="width:60%"></div></div>
     <div id="pinWrap"><div class="lbl display" style="color:#7fb0ff">⚠ BEING BUSTED ⚠</div><div class="bar"><div id="pinFill"></div></div></div>
     <div id="flatWarn" class="display">⚠ FLAT TIRES ⚠</div>
-    <div id="alertLine" class="lbl display" style="margin-top:4px;font-size:12px;letter-spacing:.08em"></div>
-    <div id="heat" class="display">WANTED ★☆☆☆☆</div>
-    <div class="lbl" id="wantedDetail">LEVEL 1 · PATROL SEDANS</div>
   </div>
   <div class="panel" id="tr">
     <div class="lbl" id="clock">☀ 08:00</div>
-    <div class="lbl" style="margin-top:6px">SPEED</div>
-    <div class="big display"><span id="speed">0</span><span style="font-size:14px"> km/h</span></div>
+    <div id="heat" class="display">WANTED ★☆☆☆☆</div>
+    <div class="lbl" id="wantedDetail">LEVEL 1 · PATROL SEDANS</div>
+    <div class="lbl hpLbl">VEHICLE HEALTH</div>
+    <div class="bar hpBar"><div id="hpFill"></div></div>
     <div class="mid display" style="color:#7dff7a;margin-top:6px">$<span id="cash">0</span></div>
     <div class="mid display" style="margin-top:2px">🚓 <span id="takedowns">0</span></div>
+  </div>
+  <div class="panel" id="mapBox">
+    <canvas id="radar" width="260" height="260"></canvas>
+    <div id="alertLine" class="lbl display"></div>
+  </div>
+  <div class="panel" id="gauge">
+    <div class="dial">
+      <svg viewBox="0 0 200 200" class="dialSvg" aria-hidden="true">
+        <defs>
+          <radialGradient id="faceGrad" cx="46%" cy="34%" r="72%">
+            <stop offset="0" stop-color="#2e333b"/><stop offset="0.6" stop-color="#16191e"/><stop offset="1" stop-color="#090a0c"/>
+          </radialGradient>
+          <linearGradient id="nitroGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#12c4e6"/><stop offset="1" stop-color="#6ff6ff"/>
+          </linearGradient>
+          <linearGradient id="nitroOn" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#ff6a1a"/><stop offset="1" stop-color="#ffe14a"/>
+          </linearGradient>
+          <clipPath id="dialClip"><circle cx="100" cy="100" r="97"/></clipPath>
+        </defs>
+        <circle cx="100" cy="100" r="99" fill="#070809"/>
+        <circle cx="100" cy="100" r="97" fill="url(#faceGrad)"/>
+        <g clip-path="url(#dialClip)"><path class="dialPanel" d="M 112.5 124.5 L 200 124.5 L 200 200 L 128 200 L 128 188 Z"/></g>
+        <line class="dialSep" x1="112.5" y1="124.5" x2="196" y2="124.5"/>
+        <g id="gaugeTicks"></g>
+        <g id="needle">
+          <path class="needleBody" d="M 100 21 L 102.1 92 L 102.1 100 L 97.9 100 L 97.9 92 Z"/>
+          <path class="needleTail" d="M 98.8 100 L 101.2 100 L 101.2 112 L 98.8 112 Z"/>
+        </g>
+        <circle class="hub" cx="100" cy="100" r="5.5"/>
+      </svg>
+      <div class="gearRow"><span class="gearTri"></span><span id="gear">1</span></div>
+      <div class="dialText"><span id="speed">0</span><small>KM/H</small></div>
+    </div>
   </div>
   <div id="toasts"></div>
 </div>
@@ -63,7 +90,7 @@
   </div>
   <button class="btn" id="startBtn">PRESS START</button>
   <div class="keys">
-    <span><b>W</b><b>↑</b> Gas</span><span><b>A</b><b>D</b> / <b>←</b><b>→</b> Steer</span><span><b>S</b><b>↓</b> Brake / Reverse</span><span><b>SPACE</b> Drift</span><span><b>SHIFT</b> Nitro</span><span><b>P</b> Pause</span><span><b>M</b> Mute</span>
+    <span><b>W</b><b>↑</b> Gas</span><span><b>A</b><b>D</b> / <b>←</b><b>→</b> Steer</span><span><b>S</b><b>↓</b> Brake / Reverse</span><span><b>SPACE</b> Drift</span><span><b>SHIFT</b> Nitro</span><span><b>P</b> Pause</span><span><b>M</b> Map</span><span><b>B</b> Sound</span>
   </div>
   <div class="sub" style="margin-top:12px;font-size:13px">Touch devices: tap Start — gas is automatic. Best: <b id="menuBest">0</b></div>
 </div>
@@ -81,7 +108,7 @@
   <div class="sub" style="font-size:12px;margin-top:10px">or press ENTER</div>
 </div>
 <div class="overlay hide" id="pauseScreen"><h1 class="title">PAUSED</h1><div class="sub">Press P to resume</div></div>
-<div id="muteHint">M: mute · P: pause · SHIFT: nitro</div>
+<div id="muteHint">M: map · B: sound · P: pause · SHIFT: nitro</div>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
