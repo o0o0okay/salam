@@ -22,6 +22,7 @@ node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight 
 node tools/sidewalk-checks/plan-roadworks.mjs  # one closed lane: the slabs as laid, the kit around them, the old slab
 node tools/sidewalk-checks/plan-flyover.mjs  # grade-separated interchange: plan + two sections
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
+node tools/sidewalk-checks/car-digest.mjs  # hashes the body buildCar() builds for every kind/colour (--write to re-record, --verbose for every case)
 ```
 
 node tools/sidewalk-checks/boot-check.mjs  # imports every game module in order (catches load-time breakage)
