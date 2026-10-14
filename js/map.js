@@ -16,10 +16,10 @@
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW, segClosed, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
+import { known, allKnown, learn, forgetSeen } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
-import { chunks } from './chunkState.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
@@ -38,8 +38,8 @@ const view = { cx: 0, cz: 0, s: 0.45 };     // centre (world metres), screen pix
 let mark = null;                           // { x, z } or null
 let open = false, timer = 0, W = 0, H = 0, dpr = 1;
 let overlay, canvas, ctx, infoBox;
-const seen = new Map();                    // chunk key -> { type, water, blds, trees, lm } for chunks the car has been near
-const baked = new Map();                   // chunk key -> the same, for every block of the island (tiles of map-data/, see tools/map-data)
+
+
 let streetKey = '', streetCache = [];      // the open streets for the visible range, cached while the range is unchanged
 
 function el(tag, css, text) {
@@ -174,8 +174,6 @@ function streetsIn(gx0, gx1, gz0, gz1) {
 // and the cross street (z = 0: the streets with z = -8 and d = 16). Nothing else has either coordinate.
 const isMain = ([x, z, w, d]) => (x === -8 && w === 16) || (z === -8 && d === 16);
 
-// the roof colour of a building, from where it stands (the same colour every time it is drawn)
-const roofOf = (x, z) => Math.abs(Math.round(x * 3 + z * 7)) % 7;
 // a colour darker (f < 1) or lighter (f > 1) than a #rrggbb colour
 const shade = (hex, f) => {
   const n = parseInt(hex.slice(1), 16);
@@ -239,52 +237,6 @@ function crown(tx, tz) {
   ctx.fillStyle = shade(C.tree, 0.8); ctx.fill();
   ctx.beginPath(); ctx.arc(x - r * 0.25, y - r * 0.25, r * 0.66, 0, Math.PI * 2);
   ctx.fillStyle = C.treeLight; ctx.fill();
-}
-
-// The island's blocks, baked ahead of time (tools/map-data/bake.mjs) in tiles of 10 x 10 blocks. The tile of a part on
-// screen is fetched the first time it is shown, so scrolling the map loads it. A block the car has been near is used as
-// the game made it (seen); any other block is the baked one.
-function known(key) { return seen.get(key) || baked.get(key); }
-function* allKnown() {
-  for (const v of seen.values()) yield v;
-  for (const [key, v] of baked) if (!seen.has(key)) yield v;
-}
-// The baked tiles (map-data/, written by tools/map-data/bake.mjs with an index.json that lists them). They are loaded once,
-// in the background, when the game starts, so opening the map (M) does not wait for them and does not ask for a tile that
-// is not there. Without the index (no map-data/ here), nothing is asked for beyond the index itself, and the map shows what
-// the car has seen.
-let preloadP = null;
-let mapDataOk = false;   // true when the index lists at least one tile
-function preloadMap() {
-  if (preloadP) return preloadP;
-  preloadP = fetch('map-data/index.json').then(r => (r.ok ? r.json() : null)).catch(() => null).then(j => {
-    const names = j && Array.isArray(j.tiles) ? j.tiles : [];
-    mapDataOk = names.length > 0;
-    return Promise.all(names.map(name => fetch(`map-data/${name}.json`).then(r => (r.ok ? r.json() : null)).then(t => {
-      if (!t) return;
-      for (const [key, rec] of Object.entries(t)) {
-        const [cx, cz] = key.split(',').map(Number);
-        baked.set(ck(cx, cz), rec);
-      }
-    }).catch(() => {})));
-  }).catch(() => {});
-  return preloadP;
-}
-if (typeof window !== 'undefined') preloadMap();
-// Resolves to true when the baked map data is there (npm run bake:map); the game asks this once it starts.
-export function mapDataReady() { return preloadMap().then(() => mapDataOk); }
-
-function learn() {
-  for (const [key, ch] of chunks) {
-    if (ch.mapType !== undefined && !seen.has(key)) {
-      // the real buildings of the block (its solids of kind 'building'; thin walls and banks are not buildings), and its trees
-      const blds = ch.solids.filter(so => so.kind === 'building' && Math.min(so.hx, so.hz) >= 2)
-        .map(so => [so.x - so.hx, so.z - so.hz, 2 * so.hx, 2 * so.hz, roofOf(so.x, so.z)]);
-      const trees = (ch.trees || []).map(t => [t.x, t.z]);
-      const lm = (ch.landmarks || []).map(l => [l.x, l.z, l.name]);
-      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm });
-    }
-  }
 }
 
 // ---- the interchanges (flyovers) and the roundabouts (junction plazas), exact from the rules in js/flyover.js ----
@@ -703,7 +655,7 @@ let pausedByMap = false;
 export function resetMap() {
   pausedByMap = false;                       // a new game does not inherit the map's pause
   if (open) toggleMap();
-  mark = null; routeCache = { to: null, base: null, view: null, from: null, at: 0 }; seen.clear();
+  mark = null; routeCache = { to: null, base: null, view: null, from: null, at: 0 }; forgetSeen();
 }
 
 // The map stops the game while it is open: nothing runs behind it. The map only undoes a pause it made itself.
@@ -724,6 +676,3 @@ export function toggleMap() {
   }
 }
 
-// The map remembers the blocks as the car drives past them, not only while the map is open (so a route driven
-// through a block is on the map afterwards).
-setInterval(learn, 500);

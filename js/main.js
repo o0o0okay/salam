@@ -7,7 +7,7 @@ import { initInput } from './input.js';
 import { resetWorld, startGame, togglePause } from './flow.js';
 import { update } from './update.js';
 import { chunks } from './world.js';
-import { mapDataReady } from './map.js';
+import { mapDataReady } from './mapData.js';
 import { toast } from './ui.js';
 import { PERF_ON, perfFrame } from './perf.js';
 
