@@ -632,14 +632,15 @@ function flyRole(i, j) {
 // The height of a structure's driving surface (a ramp or the deck) over the point, or 0 off the structure. Below UP_MIN a
 // place is on the ground: the last few centimetres of a ramp's foot are at grade, and a car there still steers out of it.
 const UP_MIN = 0.05;
-function structureAt(x, z) {
+export function structureAt(x, z) {
   const f = flyoverNear(x, z);
   return f ? bridgeHeight(f, alongOf(f, x, z)) : 0;
 }
 // Is the place up on a structure? A car is when it rides the surface of a ramp or the deck (from there the parapets hold
 // it in); a car at grade under a deck is on the ground. A mark has no height: inside the structure's outline as the map
-// draws it (the ramps and the deck) it is up on the structure, and anywhere else it is on the ground.
-function onDeck(p) {
+// draws it (the ramps and the deck) it is up on the structure, and anywhere else it is on the ground. (Exported with
+// structureAt for the mark's light, js/markBeam.js: it stands on the mark's level, and the car arrives only on that level.)
+export function onDeck(p) {
   const h = structureAt(p.x, p.z);
   if (h <= UP_MIN) return false;
   return p.y === undefined || p.y > Math.max(UP_MIN, h - FLY.on);

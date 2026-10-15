@@ -19,6 +19,7 @@ node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, hous
 node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
+node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -334,6 +335,21 @@ changes level only at grade and never runs through a ramp's embankment; a car on
 (it used to get none: the lane is further than the 12 m a car may step onto a street); the live route is given up when
 the car is on the other level; the 3D arrows lie on the road the route is on; and away from interchanges the route
 lengths are the plain grid's.
+
+### The mark's light and its circle
+
+The marked place stands in the world as a column of red light (`js/markBeam.js`) with a circle of light on the road
+round its foot. The circle breathes: it grows from 3.2 m to 5.6 m and shrinks back once every 1.4 s. It is the place to
+drive to. Once the car's centre is inside the circle at its largest, the mark is done: it is cleared everywhere (the
+map, the radar, the road arrows), and the light goes out in 0.6 s (the circle opens out and fades, the column narrows and
+fades). The light stands on the mark's own level, using the same rule as the route (`onDeck` in `js/map.js`): on the
+ground for a mark on the street under a deck, on the deck for a mark on the deck, and on a ramp's surface with the circle
+tilted to the slope. The car arrives only on that level. `mark-ring.mjs` checks the breathing (range, period,
+smoothness), that the mark is finished exactly when the car reaches the circle and not before, and the flourish. It also
+checks that a car parked just outside does not finish the mark, and that a fast car crossing the circle between two
+frames does (a jump across the map does not). A mark set with the car already on its circle waits until the car has been
+off it. Finally it covers the deck, under-deck and ramp levels, and that clearing the mark on the map puts the light out
+at once.
 
 ### Flyover approach nose protection
 
