@@ -155,15 +155,24 @@ function ensureHUD() {
   document.body.appendChild(hud);
   return hud;
 }
-const _p = new THREE.Vector3();
+// The pointer aims at a point this far along the route ahead of the car: a point a little way on gives a steady direction
+const POINTER_AHEAD = 20;
+let pointerTarget = null;                             // the arrow the pointer aims at (for the tests)
+const _v = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _b = new THREE.Vector3();
+// The direction of the target as the camera sees it: its right, up and back axes (the camera looks along -back).
+// Behind the camera the direction is turned round. This is the direction on the screen, from its middle, to the target.
 function updateHUD(target) {
   const h = ensureHUD();
+  pointerTarget = target;
   if (!target) { h.style.display = 'none'; return; }
-  _p.set(target.x, ARROW_Y, target.z).project(camera);
-  let dx = _p.x, dy = _p.y;
-  if (_p.z > 1) { dx = -dx; dy = -dy; }                    // behind the camera: the direction is flipped
+  camera.updateMatrixWorld();
+  const e = camera.matrixWorld.elements;
+  _r.set(e[0], e[1], e[2]); _u.set(e[4], e[5], e[6]); _b.set(e[8], e[9], e[10]);
+  _v.set(target.x - camera.position.x, ARROW_Y - camera.position.y, target.z - camera.position.z);
+  let dx = _v.dot(_r), dy = _v.dot(_u);
+  if (_v.dot(_b) > 0) { dx = -dx; dy = -dy; }          // behind the camera
   const W = window.innerWidth, H = window.innerHeight;
-  const th = Math.atan2(-dy, dx);                          // screen angle (y down)
+  const th = Math.atan2(-dy, dx);                      // the screen angle (y goes down the screen)
   const R = Math.min(W, H) / 2 - 70;
   h.style.display = 'block';
   h.style.transform = `translate(${W / 2 + Math.cos(th) * R}px, ${H / 2 + Math.sin(th) * R}px) rotate(${th}rad)`;
@@ -181,7 +190,8 @@ export function updateRouteArrows() {
     if (ahead.length >= POOL) break;
     ahead.push(s);
   }
-  updateHUD(ahead[0] || null);
+  // the pointer: the first arrow ahead that is at least POINTER_AHEAD metres on along the route (or the last one ahead)
+  updateHUD(ahead.find(q => q.arc >= carArc + POINTER_AHEAD) || ahead[ahead.length - 1] || null);
   const t = performance.now() / 1000;
   const lit = Math.floor(t * 5);                     // the flash moves on five times a second
   for (let k = 0; k < POOL; k++) {
