@@ -157,6 +157,7 @@ function ensureHUD() {
 }
 // The pointer aims at a point this far along the route ahead of the car: a point a little way on gives a steady direction
 const POINTER_AHEAD = 20;
+const BACK_MIN = 0.5;                                 // the pointer stays at least this far (radians) below the horizontal, so it is never up
 let pointerTarget = null;                             // the arrow the pointer aims at (for the tests)
 const _v = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _b = new THREE.Vector3();
 // The direction of the target as the camera sees it: its right, up and back axes (the camera looks along -back).
@@ -172,9 +173,12 @@ function updateHUD(target) {
   _r.set(e[0], e[1], e[2]); _u.set(e[4], e[5], e[6]); _b.set(e[8], e[9], e[10]);
   _v.set(target.x - camera.position.x, ARROW_Y - camera.position.y, target.z - camera.position.z);
   let dx = _v.dot(_r), dy = _v.dot(_u);
-  if (_v.dot(_b) > 0) { dx = -dx; dy = -dy; }          // behind the camera
+  if (_v.dot(_b) > 0) dx = -dx;                        // behind the camera: turning round mirrors left and right, not up and down
   const W = window.innerWidth, H = window.innerHeight;
-  const th = Math.atan2(-dy, dx);                      // the screen angle (y goes down the screen)
+  let th = Math.atan2(-dy, dx);                        // the screen angle (y goes down the screen)
+  // the pointer never points up the screen (that reads as forward): it points back, back-left or back-right
+  if (Math.sin(th) < 0) th = Math.cos(th) >= 0 ? BACK_MIN : Math.PI - BACK_MIN;
+  th = Math.min(Math.PI - BACK_MIN, Math.max(BACK_MIN, th));
   const R = Math.min(W, H) / 2 - 70;
   h.style.display = 'block';
   h.style.transform = `translate(${W / 2 + Math.cos(th) * R}px, ${H / 2 + Math.sin(th) * R}px) rotate(${th}rad)`;
