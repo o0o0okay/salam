@@ -33,10 +33,11 @@ const C = {
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
-// The map shows the island and no more: it cannot be zoomed out past the whole island in view. The view may be moved
-// up to PAST_COAST metres beyond the coast (the sea), and no further.
+// The map shows the island and the sea up to PAST_COAST metres beyond its coast, and no further: it cannot be zoomed out
+// past that, and the view cannot be moved past it.
 const PAST_COAST = 1000;
-function minZoom() { return W ? Math.max(ZOOM_MIN, Math.min(W, H) / (ISLAND_MAX - ISLAND_MIN)) : ZOOM_MIN; }
+// the most the view can show: the island and PAST_COAST of sea on each side. At this zoom the view is centred and cannot move.
+function minZoom() { return W ? Math.min(W, H) / (ISLAND_MAX - ISLAND_MIN + 2 * PAST_COAST) : ZOOM_MIN; }
 function clampView() {
   view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s));
   const hx = W / 2 / view.s, hz = H / 2 / view.s;
