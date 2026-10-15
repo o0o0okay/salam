@@ -13,6 +13,7 @@ import { scene, camera } from './renderer.js';
 import { player } from './state.js';
 import { currentMark, currentRoute } from './map.js';
 import { known } from './mapData.js';
+import { flyoverNear, alongOf, bridgeHeight } from './flyover.js';
 import { CHUNK, ck } from './utils.js';
 
 const POOL = 70;          // arrows shown at once: about 630 m of route ahead (the whole way to the head of the street)
@@ -23,6 +24,7 @@ const SIZE = 9.0;         // the arrow's square on the road, in metres; the bloo
 const LEVELS = 3;         // brightness steps along the route: near, middle, far
 const LIT = [1.0, 0.85, 0.65], DIM = [0.42, 0.34, 0.26];   // opacity of a lit / unlit arrow in each step
 let pool = null, samples = [], lastBase = null, path = [], cum = [];
+const _b4 = new THREE.Matrix4(), _tv = new THREE.Vector3(), _nv = new THREE.Vector3(), _rv = new THREE.Vector3();
 
 // The chevron, drawn once on a canvas: an outline pointing up the texture (the arrow's forward), with a bloom.
 // World metres map to the texture: x in [-SIZE/2, SIZE/2] across, z in [-SIZE/2, SIZE/2] along (up = forward).
@@ -104,6 +106,14 @@ function smoothPath(P) {
   return out;
 }
 
+// The height of the road at a place on the route, in metres: the deck or ramp of a flyover when the route runs along
+// that flyover (so the arrows lie on the bridge and not under it), otherwise the ground. A route that runs under a deck
+// (the crossing street) is at grade, so it is not lifted up onto the deck.
+function roadHeight(x, z, ux, uz) {
+  const f = flyoverNear(x, z);
+  if (!f || f.axis !== (Math.abs(ux) >= Math.abs(uz) ? 'x' : 'z')) return 0;
+  return bridgeHeight(f, alongOf(f, x, z));
+}
 // The arrows sit every STEP metres along the smoothed route, at fixed places on the road (they do not move with the car).
 // The distance along the path is the arc; the car's own place on the path is found from its position, so the arrows
 // ahead of the car are the ones with a larger arc.
@@ -120,7 +130,10 @@ function prepare(base) {
     const f = (g - cum[k]) / L;
     const [ax, az] = path[k], [bx, bz] = path[k + 1];
     const x = ax + (bx - ax) * f, z = az + (bz - az) * f;
-    out.push({ x, z, ux: (bx - ax) / L, uz: (bz - az) / L, arc: g, blocked: onBuilding(x, z) });
+    const ux = (bx - ax) / L, uz = (bz - az) / L;
+    // the road's height here, and its slope along the route (the arrow is tilted to lie along a ramp)
+    const y = roadHeight(x, z, ux, uz), slope = (roadHeight(x + ux, z + uz, ux, uz) - roadHeight(x - ux, z - uz, ux, uz)) / 2;
+    out.push({ x, z, ux, uz, arc: g, blocked: onBuilding(x, z), y: ARROW_Y + y, slope });
   }
   return out;
 }
@@ -171,7 +184,7 @@ function updateHUD(target) {
   camera.updateMatrixWorld();
   const e = camera.matrixWorld.elements;
   _r.set(e[0], e[1], e[2]); _u.set(e[4], e[5], e[6]); _b.set(e[8], e[9], e[10]);
-  _v.set(target.x - camera.position.x, ARROW_Y - camera.position.y, target.z - camera.position.z);
+  _v.set(target.x - camera.position.x, (target.y ?? ARROW_Y) - camera.position.y, target.z - camera.position.z);
   let dx = _v.dot(_r), dy = _v.dot(_u);
   if (_v.dot(_b) > 0) dx = -dx;                        // behind the camera: turning round mirrors left and right, not up and down
   const W = window.innerWidth, H = window.innerHeight;
@@ -203,9 +216,13 @@ export function updateRouteArrows() {
   for (let k = 0; k < POOL; k++) {
     const m = pool[k], s = ahead[k];
     if (!s) { m.visible = false; continue; }
-    m.position.set(s.x, ARROW_Y, s.z);
-    // the plane lies flat with its top towards +z, then turns to the road's direction (YXZ order: yaw after the lay)
-    m.rotation.set(Math.PI / 2, Math.atan2(s.ux, s.uz), 0, 'YXZ');
+    m.position.set(s.x, s.y, s.z);
+    // the arrow lies on the road with its top along the route: flat on the ground, and tilted up the slope on a ramp
+    const L = Math.hypot(1, s.slope);
+    _tv.set(s.ux / L, s.slope / L, s.uz / L);
+    _nv.set(s.ux * s.slope / L, -1 / L, s.uz * s.slope / L);
+    _rv.set(s.uz, 0, -s.ux);
+    m.quaternion.setFromRotationMatrix(_b4.makeBasis(_rv, _tv, _nv));
     const level = Math.min(LEVELS - 1, Math.floor(k / (POOL / LEVELS)));   // near, middle, far
     const isLit = ((k - lit) % 4 + 4) % 4 === 0;     // every fourth arrow is lit, the group running forward
     m.material = isLit ? mats.lit[level] : mats.dim[level];

@@ -5,11 +5,11 @@ import { player, police, cars, civs } from './state.js';
 import { CAR_DIMS } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
-import { onIsland } from './island.js';
+import { onIsland, CORE } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
-import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet } from './flyover.js';
+import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet, FLY, nodeAt, bridgeHeight, alongOf } from './flyover.js';
 
 const CIV_KINDS = [
   'sedan', 'sedan', 'sedan',
@@ -287,25 +287,58 @@ export function isJamLane(axis, road, dir) {
 }
 // One civilian car at a lane position, with the checks the spawn always made (clear of the junctions, of a closed
 // street, of the player by 55 m, and of anything that stands there). Returns the car or null.
-function placeCiv(axis, road, dir, off, along, cruise) {
+function placeCiv(axis, road, dir, off, along, cruise, y = 0) {
   const x = axis === 'z' ? road - dir * off : along, z = axis === 'z' ? along : road + dir * off;
-  if (Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) return null;   // keep clear of the wide junctions
+  // keep clear of the wide junctions at grade; a deck car may sit over one (no crossing traffic runs under the deck there)
+  if (!y && Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) return null;
   if (nearClosedStreet(x, z, 10)) return null;                                  // nor on a street closed for a T junction
   if (Math.hypot(x - player.x, z - player.z) < 55) return null;
   const h = laneHeading(axis, dir), kind = CIV_KINDS[Math.floor(Math.random() * CIV_KINDS.length)], dims = CAR_DIMS[kind];
-  const tmp = { x, z, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };
+  const tmp = { x, z, y, ux: Math.sin(h), uz: Math.cos(h), vx: -Math.cos(h), vz: Math.sin(h), e1: dims.e1 + 2, e2: dims.e2 };
   if (overlapsAnything(tmp, null)) return null;
   // not on a track a tram is about to use, nor about to cross one: the car would be in the way of the tram from the start
   if (tramTrackAhead({ x, z, h, box: { e1: dims.e1 + 2, e2: dims.e2 } }) < Infinity) return null;
   const color = civColor(kind);
   const params = civParams(kind);
   const c = createCar(kind, x, z, h, params, color);
+  c.y = y;                                                    // on a deck: the deck's height (the car rides it from there)
   c.axis = axis; c.dir = dir; c.road = road; c.off = off; c.cruise = cruise ?? civCruise(kind);
   c.vx = Math.sin(h) * c.cruise; c.vz = Math.cos(h) * c.cruise;
   civs.push(c); cars.push(c);
   return c;
 }
+// A share of the new cars start up on a flyover's deck, so the bridges carry traffic as the streets do. A deck is
+// chosen from the flyovers whose junction is 70 to 220 m from the player (out of sight, as the ground spawns are),
+// and the car is placed on the deck's flat part, in one of its two lanes, at the deck's height.
+const DECK_SHARE = 0.3, DECK_NEAR = 70, DECK_FAR = 220;
+export function spawnDeckCiv() {
+  const near = [];
+  for (let b = FLY.minGap; b <= CORE - 1; b++) {
+    for (const s of [1, -1]) {
+      for (const f of [nodeAt(0, s * b), nodeAt(s * b, 0)]) {
+        if (!f) continue;
+        const jx = f.axis === 'z' ? 0 : f.node, jz = f.axis === 'z' ? f.node : 0;
+        const d = Math.hypot(jx - player.x, jz - player.z);
+        if (d >= DECK_NEAR && d <= DECK_FAR) near.push(f);
+      }
+    }
+  }
+  if (!near.length) return false;
+  for (let a = 0; a < 6; a++) {
+    const f = near[Math.floor(Math.random() * near.length)];
+    // the flat deck runs from the start junction's extent less the deck's overhang to the far end's, plus the overhang
+    const lo = f.node + f.lo - FLY.deckHalf, hi = f.node + f.hi + FLY.deckHalf;
+    const along = lo + Math.random() * (hi - lo);
+    const dir = Math.random() < 0.5 ? 1 : -1, off = Math.random() < 0.5 ? 2.5 : 5.0;
+    const x = f.axis === 'z' ? f.road - dir * off : along, z = f.axis === 'z' ? along : f.road + dir * off;
+    const y = bridgeHeight(f, alongOf(f, x, z));
+    if (y <= 0) continue;
+    if (placeCiv(f.axis, f.road, dir, off, along, null, y)) return true;
+  }
+  return false;
+}
 export function spawnCiv() {
+  if (Math.random() < DECK_SHARE && spawnDeckCiv()) return true;
   for (let a = 0; a < 10; a++) {
     const ang = Math.random() * PI * 2, dist = rnd(70, 135);
     const x = player.x + Math.sin(ang) * dist, z = player.z + Math.cos(ang) * dist;
