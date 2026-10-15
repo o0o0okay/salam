@@ -33,6 +33,7 @@ const C = {
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
+const START_ZOOM = 2.5;   // the map opens at the zoom where its scale bar reads 50 m (the largest zoom)
 // The map shows the island and the sea up to PAST_COAST metres beyond its coast, and no further: it cannot be zoomed out
 // past that, and the view cannot be moved past it.
 const PAST_COAST = 1000;
@@ -807,7 +808,7 @@ export function toggleMap() {
   overlay.style.display = open ? 'block' : 'none';
   if (open) {
     size();
-    view.cx = player.x; view.cz = player.z;
+    view.cx = player.x; view.cz = player.z; view.s = START_ZOOM;
     draw();
     timer = setInterval(draw, 250);                     // the game is paused: only the map's own data (learned or loaded) can change
     if (game.state === 'playing' && !game.paused) { game.paused = true; pausedByMap = true; }
