@@ -21,7 +21,7 @@ import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tra
 const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
-import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
+import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE, onIsland } from './island.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
@@ -37,6 +37,7 @@ const DIST_NAMES = { centre: 'City centre', old: 'Old town', industrial: 'Indust
 
 const view = { cx: 0, cz: 0, s: 0.45 };     // centre (world metres), screen pixels per metre
 let mark = null;                           // { x, z } or null
+let seaNoteAt = -1e9;                       // when a click in the sea was refused (the map says so for a moment)
 let open = false, timer = 0, W = 0, H = 0, dpr = 1;
 let overlay, canvas, ctx, infoBox;
 
@@ -103,7 +104,11 @@ function build() {
   });
   const release = e => {
     if (drag && !drag.moved) {
-      if (drag.btn === 0) { const w = worldAt(e.clientX, e.clientY); mark = { x: w.x, z: w.z }; }
+      if (drag.btn === 0) {
+        const w = worldAt(e.clientX, e.clientY);
+        if (onIsland(w.x, w.z, 2)) mark = { x: w.x, z: w.z };
+        else seaNoteAt = performance.now();                 // no pin in the sea
+      }
       else if (drag.btn === 2) mark = null;
       draw();
     }
@@ -444,6 +449,17 @@ function draw() {
       ctx.stroke();
     }
   }
+  if (mark && route) {
+    // the pin to the street nearest it: a dashed line, and a dot on the street at its nearest point
+    const e = route.pts[route.pts.length - 1];
+    ctx.save();
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = C.route; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx(mark.x), sy(mark.z)); ctx.lineTo(sx(e[0]), sy(e[1])); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(sx(e[0]), sy(e[1]), 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = C.route; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+  }
   const fx = -Math.sin(player.h), fy = -Math.cos(player.h);     // forward on the map (at h = 0 the car faces up; the map is mirrored in x)
   const px = sx(player.x), py = sy(player.z);
   ctx.fillStyle = C.you; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
@@ -475,7 +491,8 @@ function draw() {
   const bw = 200 * view.s;
   ctx.fillStyle = '#222'; ctx.fillRect(W - 32 - bw, H - 34, bw, 4);
   ctx.font = '13px monospace'; ctx.fillStyle = '#222'; ctx.fillText('200 m', W - 32 - bw, H - 40);
-  infoBox.textContent = mark
+  infoBox.textContent = performance.now() - seaNoteAt < 2500 ? 'No pin in the sea: choose a place on the island.'
+    : mark
     ? (route ? 'Mark: ' + fmtDist(route.len) + ' by road' : 'Mark: ' + fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z)) + ' straight (no street route)')
     : 'Left click: mark a place · Right click: clear';
 }
@@ -586,23 +603,38 @@ function routeOf(from, to, list) {
   for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
   return { len: cum[cum.length - 1], pts, street, sIdx, cum };
 }
+// The street nearest the point: the nearest of the street segments the point can reach (accessLegs), and the ways to its
+// two corners, along the segment to the point. The way to the mark ends on this street, at the point nearest the mark.
+function nearestLegs(segs) {
+  let nb = null;
+  for (const s of segs) if (!nb || s.leg < nb.leg) nb = s;
+  const legs = new Map();
+  if (!nb) return { legs, key: null };
+  const m = /^([xz])(-?\d+),(-?\d+)$/.exec(nb.key);
+  const i = +m[2], j = +m[3];
+  const a = nid(i, j), b = m[1] === 'z' ? nid(i, j + 1) : nid(i + 1, j);
+  legs.set(a, { acc: nb.leg + nb.t, x: nb.x, z: nb.z });
+  legs.set(b, { acc: nb.leg + (CHUNK - nb.t), x: nb.x, z: nb.z });
+  return { legs, key: nb.key };
+}
 function roadRoute(from, to) {
   const adj = roadGraph();
   const A = accessLegs(from, adj), B = accessLegs(to, adj);
   if (!A.legs.size || !B.legs.size) return null;
+  const nearest = nearestLegs(B.segs);
   // (a) both ends on one street: walk along it, without going out to a corner and back
   let direct = null;
   const bseg = new Map(B.segs.map(s => [s.key, s]));
   for (const a of A.segs) {
     const b = bseg.get(a.key);
-    if (!b) continue;
+    if (!b || a.key !== nearest.key) continue;
     const len = a.leg + b.leg + Math.abs(a.t - b.t);
     if (!direct || len < direct.len) direct = { len, a, b };
   }
   // (b) through the corners of the street network
   const { dist, prev } = shortest([...A.legs].map(([n, l]) => ({ n, acc: l.acc })));
   let best = null;
-  for (const [n, l] of B.legs) {
+  for (const [n, l] of nearest.legs) {
     const len = dist[n] + l.acc;
     if (isFinite(len) && (!best || len < best.len)) best = { len, end: n };
   }
@@ -614,7 +646,7 @@ function roadRoute(from, to) {
   for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
   nodes.reverse();
   const worldOf = n => [(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK];
-  const first = A.legs.get(nodes[0]), last = B.legs.get(best.end);
+  const first = A.legs.get(nodes[0]), last = nearest.legs.get(best.end);
   const list = [];
   if (first) list.push({ x: first.x, z: first.z, st: false });
   for (const n of nodes) { const [x, z] = worldOf(n); list.push({ x, z, st: true }); }

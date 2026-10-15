@@ -1,22 +1,25 @@
 /* The route on the road: flashing arrows on the asphalt along the route to the marked place (js/map.js), so the way is
- * seen in the game itself and not only on the map. The arrows follow the street part of the planned route (its corners; the
- * short steps onto the street at either end get none). Only the first few arrows ahead are shown.
+ * seen in the game itself and not only on the map. The arrows follow the whole planned route: from the car's front, along
+ * the street, round each corner (curved through the junction), to the street nearest the mark. Only the first arrows ahead
+ * are shown; when the next one is off the screen a chevron at the edge of the screen points to it.
  *
  * Each arrow is a neon chevron: a rounded blue-white outline with a bright core and a wide soft bloom, drawn once on a canvas
  * and laid flat on the road. They are stacked closely up the road. The group lit by the flash runs forward towards the
  * destination, and the arrows further ahead are dimmer than the ones near the car. Hidden when there is no mark or no street
  * route. */
 import * as THREE from 'three';
-import { scene } from './renderer.js';
+import { scene, camera } from './renderer.js';
+import { player } from './state.js';
 import { currentMark, currentRoute } from './map.js';
 
 const POOL = 70;          // arrows shown at once: about 630 m of route ahead (the whole way to the head of the street)
 const STEP = 9;           // metres between arrows (they are stacked closely, as on the reference)
-const ARROW_Y = 0.09;     // just above the asphalt (the decks and the road surface are at 0.05 to 0.08)
+const ARROW_Y = 0.3;      // above the asphalt, the kerbs and the grass, so an arrow on a sidewalk or in a park is seen
+const CORNER_R = 8;       // the radius, in metres, of a turn: the route is curved through a junction, not cut straight
 const SIZE = 9.0;         // the arrow's square on the road, in metres; the bloom reaches to its edge
 const LEVELS = 3;         // brightness steps along the route: near, middle, far
 const LIT = [1.0, 0.85, 0.65], DIM = [0.42, 0.34, 0.26];   // opacity of a lit / unlit arrow in each step
-let pool = null, samples = [], lastBase = null;
+let pool = null, samples = [], lastBase = null, path = [], cum = [];
 
 // The chevron, drawn once on a canvas: an outline pointing up the texture (the arrow's forward), with a bloom.
 // World metres map to the texture: x in [-SIZE/2, SIZE/2] across, z in [-SIZE/2, SIZE/2] along (up = forward).
@@ -70,42 +73,107 @@ function ensurePool() {
   }
 }
 
-// The arrows sit every STEP metres of the planned route, at fixed places on the road (they do not move with the car).
-// Each one knows its distance `arc` along the planned route, so the ones ahead of the car can be picked out.
-function samplesOf(base) {
-  const out = [], st = base.street, si = base.sIdx, cum = base.cum;
-  if (st.length < 2) return out;
+// The planned way as a smooth path. Each corner (a junction, or the step on or off a street) is rounded into a short
+// curve of CORNER_R metres, so an arrow that goes round a corner bends with the road.
+function smoothPath(P) {
+  const out = [P[0]];
+  for (let k = 1; k + 1 < P.length; k++) {
+    const [px, pz] = P[k - 1], [x, z] = P[k], [nx, nz] = P[k + 1];
+    const l1 = Math.hypot(x - px, z - pz), l2 = Math.hypot(nx - x, nz - z);
+    if (l1 < 1e-6 || l2 < 1e-6) continue;
+    const d1x = (x - px) / l1, d1z = (z - pz) / l1, d2x = (nx - x) / l2, d2z = (nz - z) / l2;
+    if (d1x * d2x + d1z * d2z > 0.97) { out.push([x, z]); continue; }        // (almost) straight on: no curve
+    const r = Math.min(CORNER_R, 0.45 * l1, 0.45 * l2);
+    const ax = x - d1x * r, az = z - d1z * r, bx = x + d2x * r, bz = z + d2z * r;
+    for (let t = 0; t <= 1.0001; t += 0.25) {                               // a quadratic curve a -> corner -> b
+      out.push([(1 - t) * (1 - t) * ax + 2 * (1 - t) * t * x + t * t * bx, (1 - t) * (1 - t) * az + 2 * (1 - t) * t * z + t * t * bz]);
+    }
+  }
+  out.push(P[P.length - 1]);
+  return out;
+}
+
+// The arrows sit every STEP metres along the smoothed route, at fixed places on the road (they do not move with the car).
+// The distance along the path is the arc; the car's own place on the path is found from its position, so the arrows
+// ahead of the car are the ones with a larger arc.
+function prepare(base) {
+  path = smoothPath(base.pts);
+  cum = [0];
+  for (let k = 1; k < path.length; k++) cum.push(cum[k - 1] + Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]));
+  const out = [];
   let k = 0;
-  for (let g = Math.ceil(cum[si[0]] / STEP) * STEP; ; g += STEP) {
-    while (k < st.length - 2 && g > cum[si[k + 1]]) k++;
-    if (g > cum[si[k + 1]]) break;                    // past the last corner of the way
-    const [ax, az] = st[k], [bx, bz] = st[k + 1];
-    const L = cum[si[k + 1]] - cum[si[k]];
-    if (L <= 0) continue;
-    const f = (g - cum[si[k]]) / L;
+  for (let g = 0; g <= cum[cum.length - 1]; g += STEP) {
+    while (k < path.length - 2 && g > cum[k + 1]) k++;
+    const L = cum[k + 1] - cum[k];
+    if (L <= 1e-9) continue;
+    const f = (g - cum[k]) / L;
+    const [ax, az] = path[k], [bx, bz] = path[k + 1];
     out.push({ x: ax + (bx - ax) * f, z: az + (bz - az) * f, ux: (bx - ax) / L, uz: (bz - az) / L, arc: g });
   }
   return out;
+}
+// the arc along the path of the point nearest to the car
+function arcOfCar(x, z) {
+  let best = { d: Infinity, arc: 0 };
+  for (let k = 0; k + 1 < path.length; k++) {
+    const [ax, az] = path[k], [bx, bz] = path[k + 1];
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const t = L2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2)) : 0;
+    const qx = ax + dx * t, qz = az + dz * t, d = Math.hypot(x - qx, z - qz);
+    if (d < best.d) best = { d, arc: cum[k] + Math.hypot(qx - ax, qz - az) };
+  }
+  return best.arc;
+}
+
+// The pointer for an arrow that is not on the screen (the car faces away from the route, or it is behind): a chevron at
+// the edge of the screen, turned to the arrow, so the way is always shown.
+let hud = null;
+function ensureHUD() {
+  if (hud) return hud;
+  hud = document.createElement('div');
+  hud.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:5;display:none';
+  hud.innerHTML = '<svg width="46" height="34" viewBox="-23 -17 46 34" style="position:absolute;left:-23px;top:-17px;overflow:visible">'
+    + '<path d="M-14,-12 L14,0 L-14,12 L-7,0 Z" fill="#8fd4ff" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" '
+    + 'style="filter:drop-shadow(0 0 6px #2f7dff)"/></svg>';
+  document.body.appendChild(hud);
+  return hud;
+}
+const _p = new THREE.Vector3();
+function updateHUD(target) {
+  const h = ensureHUD();
+  if (!target) { h.style.display = 'none'; return; }
+  _p.set(target.x, ARROW_Y, target.z).project(camera);
+  const onScreen = _p.z < 1 && Math.abs(_p.x) < 0.92 && Math.abs(_p.y) < 0.92;
+  if (onScreen) { h.style.display = 'none'; return; }
+  let dx = _p.x, dy = _p.y;
+  if (_p.z > 1) { dx = -dx; dy = -dy; }                    // behind the camera: the direction is flipped
+  const W = window.innerWidth, H = window.innerHeight;
+  const th = Math.atan2(-dy, dx);                          // screen angle (y down)
+  const R = Math.min(W, H) / 2 - 70;
+  h.style.display = 'block';
+  h.style.transform = `translate(${W / 2 + Math.cos(th) * R}px, ${H / 2 + Math.sin(th) * R}px) rotate(${th}rad)`;
 }
 
 export function updateRouteArrows() {
   ensurePool();
   const route = currentMark() ? currentRoute() : null;
-  if (!route) { for (const m of pool) m.visible = false; lastBase = null; samples = []; return; }
-  if (route.base !== lastBase) { lastBase = route.base; samples = samplesOf(route.base); }
+  if (!route) { for (const m of pool) m.visible = false; lastBase = null; samples = []; updateHUD(null); return; }
+  if (route.base !== lastBase) { lastBase = route.base; samples = prepare(route.base); }
+  const carArc = arcOfCar(player.x, player.z);
   const ahead = [];                                   // the arrows in front of the car, nearest first
   for (const s of samples) {
-    if (s.arc <= route.s) continue;
-    if (s.arc > route.s + POOL * STEP || ahead.length >= POOL) break;
+    if (s.arc <= carArc) continue;
+    if (ahead.length >= POOL) break;
     ahead.push(s);
   }
+  updateHUD(ahead[0] || null);
   const t = performance.now() / 1000;
   const lit = Math.floor(t * 5);                     // the flash moves on five times a second
   for (let k = 0; k < POOL; k++) {
     const m = pool[k], s = ahead[k];
     if (!s) { m.visible = false; continue; }
     m.position.set(s.x, ARROW_Y, s.z);
-    // the plane lies flat with its top towards +z, then turns to the street's direction (YXZ order: yaw after the lay)
+    // the plane lies flat with its top towards +z, then turns to the road's direction (YXZ order: yaw after the lay)
     m.rotation.set(Math.PI / 2, Math.atan2(s.ux, s.uz), 0, 'YXZ');
     const level = Math.min(LEVELS - 1, Math.floor(k / (POOL / LEVELS)));   // near, middle, far
     const isLit = ((k - lit) % 4 + 4) % 4 === 0;     // every fourth arrow is lit, the group running forward
