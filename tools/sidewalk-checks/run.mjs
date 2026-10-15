@@ -2,11 +2,13 @@
    Run:  node tools/sidewalk-checks/run.mjs      (exits non-zero when a check fails) */
 import { modulePath } from './harness.mjs';
 import { heliModulePath } from './heli-harness.mjs';
+import { districtOf, DISTRICTS, DIST_NB } from '../../js/districts.js';
+import { CORE, onIsland } from '../../js/island.js';
 
 const world = await import(modulePath);
-const { __merge, __checked, textBlocks, generateChunk, disposeChunk, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
+const { __merge, __checked, textBlocks, generateChunk, disposeChunk, chunkKey, SHOP_TYPES, buildShopParadeMesh, buildSchoolMesh, chunks, updateChunks, swCapture, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, WALK_Y, BORDER_W, BED, SLAB, ck, lotCars, FONT3D, ambulanceTarget, RELIEF_DELAY, isHeavyParked, parkedShove, parkedDamage, FLY, RAMP_RUN, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, alongOf, latOf, isFlyoverNode, atGradeSide, onAtGradeLane, roadEdge, nearestNode, solidAt } = world;
 // every vehicle kind the game can build (js/carModels.js); a bay asking for anything else is a bug
-const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'taxi', 'pickup', 'bus', 'schoolbus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
+const KNOWN_KINDS = new Set(['player', 'police1', 'police2', 'police3', 'police4', 'police5', 'policeMoto', 'policeUnmarked', 'policeVan', 'civ', 'sedan', 'semi', 'semibox', 'flatbed', 'lowboy', 'logtruck', 'taxi', 'pickup', 'bus', 'schoolbus', 'hatchback', 'suv', 'van', 'sportscar', 'oldclassic', 'limo', 'cementtruck', 'fueltanker', 'ambulance', 'firetruck', 'firesmall']);
 
 let fails = 0;
 const bad = m => { console.log('  x ' + m); fails++; };
@@ -30,17 +32,36 @@ const edgeDist = (v, o) => { const l = v - o; return Math.min(l, CHUNK - l); };
 
 // Splitter-nose delineators intentionally stand in the approach, not on a sidewalk. Exempt only
 // registered posts in the narrow nose footprint; unrelated furniture still obeys the clear-road checks.
-const isNosePost = (ch, p) => p.kind === 'delineator' && (ch.flyover?.guards || []).some(g =>
-  Math.abs(g.v) + 0.21 < FLY.halfW && g.posts.some(d => d.x === p.x && d.z === p.z)
-  && Math.abs(alongOf(g, p.x, p.z)) > FLY.rampEnd
-  && Math.abs(alongOf(g, p.x, p.z)) < FLY.rampEnd + 6);
+// The nose drum (kind 'nosedrum') is the same registered nose assembly: it is exempt at its own registered position.
+const isNosePost = (ch, p) => (ch.flyover?.guards || []).some(g =>
+  (p.kind === 'nosedrum' && p.x === g.x && p.z === g.z)
+  || (p.kind === 'delineator' && Math.abs(g.v) + 0.21 < FLY.halfW && g.posts.some(d => d.x === p.x && d.z === p.z)
+    && Math.abs(alongOf(g, p.x, p.z)) > FLY.rampEnd
+    && Math.abs(alongOf(g, p.x, p.z)) < FLY.rampEnd + 6));
 
 // ---- 1) generate a lattice of blocks: nothing may throw, and no coordinate may be NaN ----
 let spawnStreetTrees = -1;
+// The coverage checks below (styles and street furniture) read every place visited here, not only the resident blocks,
+// so that a district the spawn does not stand in (the city centre) is still seen. One block of each district is visited
+// too: the one nearest the spawn whose district is that kind.
+const districtVisits = [];
+for (const d of DISTRICTS) {
+  let found = null;
+  for (let r = 0; r < 60 && !found; r++) for (let cx = -r; cx <= r && !found; cx++) for (const cz of [-r, r]) {
+    if (districtOf(cx, cz) === d) { found = [cx * CHUNK, cz * CHUNK]; break; }
+  }
+  if (found) districtVisits.push(found);
+}
+const visitedStyles = new Set(), visitedProps = new Set(), visitedShops = new Set(), districtStyles = {};
 // The spawn district is visited last, so the resident 25-block lattice afterwards is the district the player
 // actually starts in: two shopping centres and the pinned hospital, which the car-park checks below inspect.
-for (const [x, z] of [[80, 0], [0, 80], [-80, -80], [160, -160], [400, 240], [-320, 640], [0, 0]]) {
+for (const [x, z] of [[80, 0], [0, 80], [-80, -80], [160, -160], [400, 240], [-320, 640], ...districtVisits, [0, 0]]) {
   updateChunks(x, z, 999);
+  for (const ch of chunks.values()) {
+    const sw = swCapture.get(ch); if (sw) { visitedStyles.add(sw.style); (districtStyles[districtOf(ch.cx, ch.cz)] ||= []).push(sw.style); }
+    for (const pr of ch.props) visitedProps.add(pr.kind);
+    if ((ch.shops || []).length) visitedShops.add(ch);
+  }
   if (x === 0 && z === 0) {
     const home = [...chunks.values()].find(c => c.cx === 0 && c.cz === 0);
     spawnStreetTrees = home.trees.filter(t => radialOf(t.x, t.z, 0, 0) >= 0).length;
@@ -147,10 +168,10 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     if (!H.heliBeacons || H.heliBeacons.length < 2) bad('the air ambulance has no beacons');
     console.log(`hospital model: ${parts(H.group)} parts + air ambulance with ${parts(H.heliMain)}-part main rotor`);
   }
-  const pinned = chunks.get(ck(-1, 0));
-  if (!pinned) bad('the pinned hospital block next to the spawn was not generated');
-  else if (!(pinned.ambulanceSlots || []).length) bad('the pinned block next to the spawn is not a hospital');
-  else console.log(`hospital: ${hospitals.length} campus(es), pinned block (-1,0) has ${pinned.ambulanceSlots.filter(sl => sl.car).length} of ${pinned.ambulanceSlots.length} ambulance bays taken, ${pinned.parkingTotal} bays in total`);
+  const pinned = chunks.get(ck(-2, 0));
+  if (!pinned) bad('the pinned hospital block by the spawn was not generated');
+  else if (!(pinned.ambulanceSlots || []).length) bad('the pinned block by the spawn is not a hospital');
+  else console.log(`hospital: ${hospitals.length} campus(es), pinned block (-2,0) has ${pinned.ambulanceSlots.filter(sl => sl.car).length} of ${pinned.ambulanceSlots.length} ambulance bays taken, ${pinned.parkingTotal} bays in total`);
   // the lettering must cover every character a sign uses
   for (const ch2 of 'HOSPITAL EMERGENCY 12345') if (!FONT3D[ch2]) bad(`FONT3D is missing the glyph '${ch2}'`);
   // every hospital rooftop carries a helipad with an air ambulance on it, rotors and all
@@ -280,8 +301,8 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
   // ---- 2d-3) fuel station: canopy over the pumps, a store, a price pylon, destrctible dispensers ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fuelBrand);
-    const pinnedFuel = chunks.get(ck(-1, -1));
-    if (!pinnedFuel || !pinnedFuel.fuelBrand) bad('the filling station pinned at (-1,-1) was not generated');
+    const pinnedFuel = chunks.get(ck(-2, -2));
+    if (!pinnedFuel || !pinnedFuel.fuelBrand) bad('the filling station pinned at (-2,-2) was not generated');
     let pumpCount = 0;
     for (const ch of stations) {
       const C = ch.fuelCanopy, baySet = ch.lotStanding.concat(ch.parking.map(sl => ({ slot: sl })));
@@ -323,7 +344,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       if ((ch.parkingFloor || 0) < 2) bad(`chunk ${ch.cx},${ch.cz}: fewer than two cars ever stand at the pumps`);
     }
     if (!stations.length) bad('no filling station was generated');
-    else console.log(`fuel stations: ${stations.length} block(s), ${pumpCount} dispensers total; pinned (-1,-1) is ${pinnedFuel.fuelBrand} with ${pinnedFuel.pumps.length} pumps and ${pinnedFuel.lotStanding.length} cars on ${pinnedFuel.parkingTotal} bays`);
+    else console.log(`fuel stations: ${stations.length} block(s), ${pumpCount} dispensers total; pinned (-2,-2) is ${pinnedFuel.fuelBrand} with ${pinnedFuel.pumps.length} pumps and ${pinnedFuel.lotStanding.length} cars on ${pinnedFuel.parkingTotal} bays`);
   }
   // ---- 2c-2) school: a fenced yard with a playground, and the yellow bus fleet in the lot ----
   {
@@ -336,6 +357,14 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
       const bx0 = ch.cx * CHUNK, bz0 = ch.cz * CHUNK;
       const yard = ch.schoolYard;
       if (!yard) { bad(`chunk ${ch.cx},${ch.cz}: a school has no yard at all`); continue; }
+      // the play equipment is breakable: swing, slide, climbing frame, see-saw, sandbox, two spring riders and two
+      // hoops, each its own solid and mesh, wired back to its solid, and none of them broken on a fresh block
+      const plays = ch.solids.filter(o => o.playPiece);
+      if (plays.length !== 9) bad(`chunk ${ch.cx},${ch.cz}: ${plays.length} breakable play pieces in the school (want 9)`);
+      for (const o of plays) {
+        const pc = o.playPiece;
+        if (pc.solid !== o || !pc.mesh || pc.broken) bad(`chunk ${ch.cx},${ch.cz}: a play piece (${pc.kind}) is not wired to a standing solid and mesh`);
+      }
       // the fence must close the yard, with only the two gates open
       const fence = ch.schoolFence || [];
       const fenceLen = fence.reduce((n, f) => n + 2 * Math.max(f.hx, f.hz), 0);
@@ -395,7 +424,10 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     const S = buildSchoolMesh(0, 0, Math.random);
     const parts = o => { let n = 0; const walk = x => { n++; for (const c of x.children || []) walk(c); }; walk(o); return n; };
-    if (parts(S.group) < 130) bad(`the school model is too thin (${parts(S.group)} parts)`);
+    // The play equipment is breakable now, so it is held in its own groups (S.playPieces), not in the baked model:
+    // the model is the building plus those pieces.
+    const playParts = (S.playPieces || []).reduce((n, p) => n + parts(p.group), 0);
+    if (parts(S.group) + playParts < 130) bad(`the school model is too thin (${parts(S.group) + playParts} parts)`);
     if (S.fence.length !== 7) bad(`the school model draws ${S.fence.length} fence runs, want 7 (two gates in the front line)`);
     if ((S.fenceRuns || []).length !== 7) bad(`the school model hands back ${(S.fenceRuns || []).length} fence runs, want 7`);
     let tearOff = 0, longest = 0;
@@ -487,7 +519,60 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     for (let ix = -13; ix <= 13; ix++) for (let iz = -13; iz <= 13; iz++) { const f = nodeAt(ix, iz); if (f) nodes.push(f); }
     if (!nodes.length) bad('no grade-separated interchange anywhere near the start of the game');
     if (nodeAt(0, 0)) bad('the junction the player starts at is a flyover');
+    // The junctions a flyover opens beside: one block either way from the start, or for a long bridge the block in
+    // front of its start and the one past its far end (the blocks between are on the deck, with no cut corners).
+    const besideAlong = f => { const s = Math.sign(f.node); return f.ext ? [-s, s * (f.ext + 1)] : [-1, 1]; };
+    // A long bridge (ext > 0) is checked on its own. Its deck is flat over the whole span, so the per-junction ramp rules
+    // below do not describe it. What is checked here: the deck tiles the span on both sides with no gaps and sits at the
+    // driving height; the start and the far end each carry a ramp on the side away from the span; no ramp stands over
+    // the span; and nothing reaches past the span plus one ramp run at either end.
+    const checkLongBridge = f => {
+      const s = Math.sign(f.node), far = f.node + s * f.ext * FLY.span, key = `${f.axis}@${f.node}`;
+      const sc = (p) => s * (p.node + p.u);                      // along the road, positive towards the far end
+      const sNode = s * f.node, sFar = s * far;
+      const parts = [], seen = new Set();
+      for (let w = Math.min(f.node, far) - CHUNK; w <= Math.max(f.node, far) + CHUNK; w += CHUNK) {
+        for (const r of [f.road, f.road - CHUNK]) {
+          const cx = f.axis === 'z' ? r / CHUNK : w / CHUNK, cz = f.axis === 'z' ? w / CHUNK : r / CHUNK;
+          for (const ch of [chunks.get(ck(cx, cz)), generateChunk(cx, cz, true)]) {
+            if (!ch || !ch.flyover) continue;
+            for (const p of ch.flyover.pieces) if (p.axis === f.axis && (p.node === f.node || p.node === far)) {
+              const k = `${p.node}|${p.role}|${p.u.toFixed(4)}|${p.v.toFixed(4)}|${p.y.toFixed(4)}`;
+              if (!seen.has(k)) { seen.add(k); parts.push(p); }
+            }
+          }
+        }
+      }
+      if (!parts.length) { bad(`${key}: a long bridge raised no structure at all`); return; }
+      const RAMP = new Set(['embankment', 'approach', 'parapet-ramp', 'coping-ramp']);
+      const DECK = new Set(['deck', 'deck-wear', 'parapet-deck', 'coping-deck', 'dash', 'hazard']);
+      for (const p of parts) {
+        if (Math.abs(p.v) > W + 0.01) bad(`${key}: a piece sits ${Math.abs(p.v).toFixed(2)} m off the road centre line (half width is ${W})`);
+        // the centre of a piece, as the per-junction rule measures it (a ramp's slab is longer than its run)
+        if (sc(p) < sNode - FLY.rampEnd - 0.02 || sc(p) > sFar + FLY.rampEnd + 0.02)
+          bad(`${key}: a ${p.role} stands ${sc(p).toFixed(2)} m along the road, past the far ramp's end (${(sFar + FLY.rampEnd).toFixed(2)})`);
+        if (RAMP.has(p.role) && sc(p) > sNode + 0.01 && sc(p) < sFar - 0.01)
+          bad(`${key}: a ${p.role} stands at ${sc(p).toFixed(2)} m, over the bridge's flat span`);
+        if (DECK.has(p.role) && sc(p) > sNode + 0.01 && sc(p) < sFar - 0.01 && p.role === 'deck' && !near2(p.y + p.h / 2 + 0.08, FLY.deckH))
+          bad(`${key}: a deck's driving surface is at ${(p.y + p.h / 2 + 0.08).toFixed(2)} m, not the ${FLY.deckH} m cars are settled on`);
+      }
+      // the deck over the span, on each side of the centre line: the slabs have to meet end to end
+      for (const sv of [1, -1]) {
+        const slabs = parts.filter(p => p.role === 'deck' && Math.sign(p.v) === sv).map(p => [sc(p) - p.d / 2, sc(p) + p.d / 2]).sort((a, b) => a[0] - b[0]);
+        let cur = sNode, gap = null;
+        for (const [a, b] of slabs) { if (a > cur + 0.01 && gap === null) gap = cur; cur = Math.max(cur, b); }
+        if (gap !== null || cur < sFar - 0.01) bad(`${key}: the deck on side ${sv} does not run unbroken across the ${f.ext + 1}-junction span (${slabs.length} slabs)`);
+      }
+      // a ramp at each end, on the side away from the span, on both sides of the centre line
+      for (const sv of [1, -1]) {
+        const ramps = parts.filter(p => p.role === 'approach' && Math.sign(p.v) === sv);
+        const inner = ramps.filter(p => sc(p) < sNode).length, outer = ramps.filter(p => sc(p) > sFar).length;
+        if (inner < 1) bad(`${key}: no ramp at the start on side ${sv}`);
+        if (outer < 1) bad(`${key}: no ramp at the far end on side ${sv}`);
+      }
+    };
     for (const f of nodes) {
+      if (f.ext > 0) { checkLongBridge(f); continue; }
       const key = `${f.axis}@${f.node}`, at = (u, v) => f.axis === 'z' ? [f.road + v, f.node + u] : [f.node + u, f.road + v];
       // the four blocks that front this junction
       const cxs = f.axis === 'z' ? [f.road, f.road - CHUNK] : [f.node, f.node - CHUNK];
@@ -596,6 +681,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     // ---- the surface the physics hands a car, on both axes ----
     for (const f of nodes) {
+      if (f.ext > 0) continue;
       const [ax, az] = f.axis === 'z' ? [f.road, f.node] : [f.node, f.road];
       const along = (t) => f.axis === 'z' ? [ax, az + t] : [ax + t, az];
       if (Math.abs(surfaceAt(...along(0), FLY.deckH) - FLY.deckH) > 1e-9) bad('a car on a deck over the junction is not handed the deck');
@@ -616,10 +702,11 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     // and never a fixed beat. (The two roads see the same sequence, so a driver meets them at the same rate
     // whichever way he turns at the start.)
     const seq = [];
-    for (let k = 1; k <= 30; k++) { const f = nodeAt(0, k); if (f) seq.push(f.node); }
+    // The island (js/island.js) ends the avenue at its core: the junctions 1..CORE are the whole run of flyovers.
+    for (let k = 1; k <= CORE; k++) { const f = nodeAt(0, k); if (f) seq.push(f.node); }
     const xseq = [];
-    for (let k = 1; k <= 30; k++) { const f = nodeAt(k, 0); if (f) xseq.push(f.node); }
-    if (seq.length < 5) bad(`only ${seq.length} flyovers in the first 30 junctions of the avenue`);
+    for (let k = 1; k <= CORE; k++) { const f = nodeAt(k, 0); if (f) xseq.push(f.node); }
+    if (seq.length < 3) bad(`only ${seq.length} flyovers in the island's core on the avenue (junctions 1..${CORE})`);
     if (seq.join() !== xseq.join()) bad('the two main roads do not carry the same flyover spacing');
     const gaps = seq.slice(1).map((v, i) => v - seq[i]);
     for (const g of gaps) if (g < FLY.minGap * CHUNK) bad(`two flyovers on the avenue are only ${g} m apart`);
@@ -761,7 +848,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
           // `FLY.chamfer` measured from the corner where the two kerbs meet (see js/world.js `cutClear`). Nothing
           // a block around such a junction stands on its own ground — a tree, a tree pit's kerb, a light, a
           // hydrant, a bin, a post-box, a meter, a hedge — may still be inside one of those cuts.
-          for (const along of [-1, 1]) {
+          for (const along of besideAlong(f2)) {
             // the junction one block either way along the flying road, and the four blocks that meet at it
             const jc = (f2.axis === 'z' ? f2.node : f2.road) / CHUNK + along;
             const jx3 = f2.axis === 'z' ? 0 : jc * CHUNK, jz3 = f2.axis === 'z' ? jc * CHUNK : 0;
@@ -808,7 +895,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
         // the carriageway right where the ramp comes down. The chunk records where its poles went; this reads
         // them back, and fails if the junction built none at all (that would make the check pass for free).
         const n = Math.round(f2.node / CHUNK);
-        const endChunks = f2.axis === 'z' ? [[0, n - 1], [0, n + 1]] : [[n - 1, 0], [n + 1, 0]];
+        const endChunks = besideAlong(f2).map(a => f2.axis === 'z' ? [0, n + a] : [n + a, 0]);
         for (const [jx, jz] of endChunks) {
           const jch = generateChunk(jx, jz, false);
           const poles = jch.signalPoles || [];
@@ -820,9 +907,71 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
   }
 
+  // ---- 2d-3a) the diagonal avenues (js/avenues.js): nothing stands on them, and the blocks they cross are still built.
+  // The streamed path is used (generateChunk with defer): the bake list is moved to ch.mergeQ after the clearing.
+  {
+    const A = await import('../../js/avenues.js');
+    if (!A.AVENUES.length) console.log('diagonal avenues: none in the game (js/avenues.js is empty), skipped');
+    else {
+    const av = [];
+    for (let cx = -25; cx < 25; cx++) for (let cz = -25; cz < 25; cz++) {
+      if (A.rectInAvenue(cx * CHUNK, cz * CHUNK, cx * CHUNK + CHUNK, cz * CHUNK + CHUNK, 0)) av.push([cx, cz]);
+    }
+    if (av.length < 20) bad(`the avenues cross only ${av.length} blocks (want at least 20)`);
+    let solidsOn = 0, piecesOn = 0, piecesKept = 0, pickupsOn = 0;
+    for (const [cx, cz] of av) {
+      const ch = generateChunk(cx, cz, true);
+      for (const so of ch.solids) {
+        const R = Math.hypot(so.hx, so.hz);
+        if (A.rectInAvenue(so.x - R, so.z - R, so.x + R, so.z + R, 0)) solidsOn++;
+      }
+      for (const pk of ch.pickups || []) if (A.inAvenue(pk.x, pk.z, 0)) pickupsOn++;
+      for (const bk of ch.mergeQ || []) {
+        const g = bk.geo;
+        if (!g || g.w === undefined) continue;
+        const t = bk.m.t, sc = bk.m.s || [1, 1, 1];
+        const hx = g.w * sc[0] / 2, hy = g.h * sc[1] / 2, hz = g.d * sc[2] / 2;
+        const onAv = A.rectInAvenue(t[0] - hx, t[2] - hz, t[0] + hx, t[2] + hz, 0);
+        if (onAv && t[1] + hy > 0.1) piecesOn++;
+        if (!onAv) piecesKept++;
+      }
+    }
+    if (solidsOn) bad(`${solidsOn} solid(s) stand on a diagonal avenue`);
+    if (pickupsOn) bad(`${pickupsOn} pickup(s) lie on a diagonal avenue`);
+    if (piecesOn) bad(`${piecesOn} built piece(s) stand on a diagonal avenue`);
+    if (!piecesKept) bad('the blocks on the avenues have nothing built off the avenue (the clearing took everything)');
+    }
+  }
+
+  // ---- 2d-3b) the coast: no signal pole stands in the sea. A coast junction's far poles are 13 m past the seawall; they
+  // are not built, and every pole that is built stands on the island (js/trafficLights.js).
+  {
+    const { onIsland, ISLAND_R } = await import('../../js/island.js');
+    const coastChunks = [];                                    // every block along the four coasts
+    for (let t = -ISLAND_R; t < ISLAND_R; t++) coastChunks.push([-ISLAND_R, t], [ISLAND_R - 1, t], [t, -ISLAND_R], [t, ISLAND_R - 1]);
+    let coastPoles = 0;
+    for (const [cx, cz] of coastChunks) {
+      const ch = generateChunk(cx, cz, false);
+      for (const pl of ch.signalPoles || []) {
+        coastPoles++;
+        if (!onIsland(pl.x, pl.z)) bad(`a signal pole at ${pl.x.toFixed(1)},${pl.z.toFixed(1)} stands in the sea (the junction at ${pl.ix},${pl.iz} on the coast)`);
+      }
+    }
+    if (!coastPoles) bad('no signal poles were built on the coast chunks (the check would pass for free)');
+    let coastCoins = 0;
+    for (const [cx, cz] of coastChunks) {
+      for (const pk of generateChunk(cx, cz, false).pickups || []) {
+        coastCoins++;
+        if (!onIsland(pk.x, pk.z, 4)) bad(`a ${pk.kind} pickup at ${pk.x.toFixed(1)},${pk.z.toFixed(1)} is in the sea or on the seawall`);
+      }
+    }
+    if (!coastCoins) bad('no pickups were built on the coast chunks (the check would pass for free)');
+  }
+
   // ---- 2d-4) shops: a shopping street of ten storefronts, all different, none of them in the road ----
   {
-    const shopChunks = [...chunks.values()].filter(ch => (ch.shops || []).length);
+    // every visited shopping block (a parade is only in a shops block, and the spawn district is the city centre)
+    const shopChunks = [...new Set([...visitedShops, ...chunks.values()])].filter(ch => (ch.shops || []).length);
     const pinned = chunks.get(ck(1, -1));
     if (!pinned || !(pinned.shops || []).length) bad('the shopping street pinned at (1,-1) was not generated');
     if (!shopChunks.length) bad('no shops anywhere in the city');
@@ -1096,6 +1245,153 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     }
     console.log(`roadworks: ${sites.length} closed lanes in styles ${[...styles].sort().join('/')}, ${slabs} tarmac slabs (longest ${longest.toFixed(1)} m, lightest ${lightest.toFixed(0)}/255 luminance), every one signed and cone-marked`);
   }
+  // ---- 2d-8) roadworks: nothing a car could never reach. A cone inside a solid is buried (never knocked over), and a
+  // scaffold may not overlap another block's solid. Checked across every registered chunk, so neighbours count.
+  {
+    const all = [...chunks.values(), generateChunk(5, -1, false)];      // (5,-1): a scaffold clipping a later building
+    let buriedCones = 0, cones = 0, clashes = 0;
+    for (const ch of all) for (const pr of ch.props) if (pr.kind === 'cone') {
+      cones++;
+      if (all.some(o => o.solids.some(s => s.hx > 0 && s.hz > 0 && Math.abs(pr.x - s.x) < s.hx && Math.abs(pr.z - s.z) < s.hz))) buriedCones++;
+    }
+    for (const ch of all) for (const sc of ch.solids) if (sc.scaffold && sc.hx > 0) {
+      if (all.some(o => o.solids.some(t => t !== sc && t.hx > 0 && t.hz > 0 && !t.scaffold && !t.parked && Math.abs(sc.x - t.x) < sc.hx + t.hx && Math.abs(sc.z - t.z) < sc.hz + t.hz))) clashes++;
+    }
+    if (buriedCones) bad(`${buriedCones} roadworks cone(s) stand inside a solid (buried, never reachable)`);
+    if (clashes) bad(`${clashes} scaffold(s) overlap another solid`);
+    if (!buriedCones && !clashes) console.log(`roadworks reach: ${cones} cones in the sample, none buried; no scaffold overlaps another solid`);
+  }
+  // ---- 2d-9) every street prop is reachable: cones, the flyover nose-guard drums, the delineators, the lamps, bins,
+  // hydrants and hedges (the driveway gap hedge lines). A prop inside a solid is buried; a prop with no free approach
+  // (a car body, half width 0.95 m, can stop 1.95 m from its centre in some direction) can never be hit.
+  {
+    // Blocks outside the sample: two flyover approaches with nose-guard drums, and four blocks whose scaffolds wall
+    // cones into gaps a car cannot enter. Generated, as 2d-8 does for its scaffold.
+    const extra = [[-6, -1], [0, -6], [5, -6], [5, 6], [8, -8], [10, 0]].map(([x, z]) => generateChunk(x, z, false));
+    const all = [...chunks.values(), ...extra];
+    const ground = all.flatMap(ch => ch.solids.filter(s => s.hx > 0 && (s.maxY === undefined || s.maxY > 0.3)));
+    const inside = (s, x, z, m) => !s.box
+      ? Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m
+      : Math.abs((x - s.x) * s.box.ux + (z - s.z) * s.box.uz) < s.box.e1 + m && Math.abs((x - s.x) * s.box.vx + (z - s.z) * s.box.vz) < s.box.e2 + m;
+    const reach = (x, z) => {
+      const near = ground.filter(s => Math.abs(x - s.x) < 40 && Math.abs(z - s.z) < 40);   // a long solid reaches the point from its far end
+      for (let a = 0; a < 16; a++) if (!near.some(s => inside(s, x + Math.cos(a * Math.PI / 8) * 1.95, z + Math.sin(a * Math.PI / 8) * 1.95, 0.95))) return true;
+      return false;
+    };
+    const counts = {};
+    let buriedP = 0, trappedP = 0;
+    for (const ch of all) for (const pr of ch.props) {
+      counts[pr.kind] = (counts[pr.kind] || 0) + 1;
+      if (ground.some(s => inside(s, pr.x, pr.z, 0))) buriedP++;
+      else if (!reach(pr.x, pr.z)) trappedP++;
+    }
+    if (!counts.nosedrum) bad('no flyover nose-guard drums in the sample: the check would be empty');
+    if (buriedP) bad(`${buriedP} street prop(s) stand inside a solid`);
+    if (trappedP) bad(`${trappedP} street prop(s) have no free approach for a car`);
+    if (!buriedP && !trappedP) console.log(`street props reachable: ${Object.values(counts).reduce((s, v) => s + v, 0)} in the sample (${counts.nosedrum} nose-guard drums, ${counts.hedge} hedges); none buried, none walled in`);
+  }
+  // ---- 2d-10) the power wires meet the poles in the finished world: a relocated pole takes its wire with it, so every
+  // wire end must sit on a utility pole (the blocks of 2d-9, plus two whose poles are relocated). A wire end with no pole there is a wire in the air.
+  {
+    const extra = [[-8, 3], [-1, 6], [-6, -1], [0, -6], [5, -6], [5, 6], [8, -8], [10, 0],
+      // the outermost blocks on each coast: a wire that runs on past the coast would end in the sea
+      // every block on the four coasts (the island is 50 blocks square, cx and cz from -25 to 24)
+      ...Array.from({ length: 50 }, (_, i) => i - 25).flatMap(i => [[24, i], [-25, i], [i, 24], [i, -25]])].map(([x, z]) => generateChunk(x, z, false));
+    const all = [...chunks.values(), ...extra];
+    const poles = all.flatMap(ch => ch.props.filter(pr => pr.kind === 'utilitypole'));
+    const have = new Set(all.map(ch => ch.cx + ',' + ch.cz));       // a wire running into a block outside the sample has no pole to meet
+    let ends = 0, astray = 0, outside = 0, atSea = 0;
+    for (const ch of all) for (const [x, z] of ch.powerEnds || []) {
+      if (!onIsland(x, z)) { atSea++; continue; }                    // a wire end in the sea: it must not be drawn at all
+      if (!have.has(Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK))) { outside++; continue; }
+      ends++;
+      if (!poles.some(pr => Math.abs(pr.x - x) < 1e-6 && Math.abs(pr.z - z) < 1e-6)) astray++;
+    }
+    if (!ends) bad('no power wires in the sample: the check would be empty');
+    if (astray) bad(`${astray} power wire end(s) do not meet a pole in the finished world`);
+    if (atSea) bad(`${atSea} power wire end(s) run out into the sea (past the coast)`);
+    if (ends && !astray) console.log(`power wires meet their poles: ${ends} wire ends in the sample, all on a standing pole (${outside} run into blocks outside it)`);
+  }
+  // ---- 2d-12) trams: the rails lie on the centre line of the routes that carry them. A rail on a closed or filled
+  // street, or one with a solid (a bench, a pole, a parked car) standing on it, is a rail in the wrong place. The overhead
+  // masts are props ('tramMast'): each one must be in the chunks, breakable, and not stand inside a solid (trees aside: they
+  // are placed at random on the verge). A route must have two terminals, and be 1000 to 2000 m long (13 to 24 blocks).
+  // The sample must hold rails, or the check would pass for free. (tramLaid, routeOf, tram.js)
+  {
+    const { segClosed, segFilled } = await import(new URL('../../js/flyover.js', import.meta.url).href);
+    // The rails of a segment belong to its own chunk, and the probes reach into the next chunk along it, so both are generated.
+    const have = new Set([...chunks.values()].map(ch => ch.cx + ',' + ch.cz));
+    const made = new Set(), madeCh = [];
+    const need = (cx, cz) => {
+      const key = cx + ',' + cz;
+      if (have.has(key) || made.has(key)) return;
+      made.add(key); const ch = generateChunk(cx, cz, false); madeCh.push(ch); chunks.set(chunkKey(cx, cz), ch);
+    };
+    let segs = 0, onClosed = 0, probes = 0, under = 0, masts = 0, mastFound = 0, mastUnder = 0, routes = new Set(), badRoute = 0;
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const axis of ['x', 'z']) {
+      if (!world.tramLaid(axis, i, j)) continue;
+      if (segClosed(axis, i, j) || segFilled(axis, i, j)) { onClosed++; continue; }
+      need(i, j); need(axis === 'z' ? i : i + 1, axis === 'z' ? j + 1 : j);
+      segs++;
+      const r = world.routeOf(axis, axis === 'z' ? i : j, axis === 'z' ? j : i);
+      const lenM = r ? (r.hi - r.lo + 1) * CHUNK : 0;                       // a route's length between its terminals, in metres
+      if (!r || r.hi < r.lo || !(lenM > 1000 && lenM < 2000)) badRoute++;
+      else routes.add(r.id);
+      for (let t = 2; t < CHUNK; t += 4) {
+        const x = axis === 'z' ? i * CHUNK : i * CHUNK + t, z = axis === 'z' ? j * CHUNK + t : j * CHUNK;
+        for (const off of [-0.72, 0.72]) {
+          probes++;
+          const px = axis === 'z' ? x + off : x, pz = axis === 'z' ? z : z + off;
+          if (world.solidAt(px, pz, 0.15)) under++;
+        }
+      }
+      for (const q of [0.25, 0.75]) for (const off of [-9, 9]) {       // the poles stand at each quarter of the block
+        masts++;
+        const mx = axis === 'z' ? i * CHUNK + off : i * CHUNK + CHUNK * q, mz = axis === 'z' ? j * CHUNK + CHUNK * q : j * CHUNK + off;
+        // the mast is a prop of its chunk, a breakable one; a tree may stand by it (trees are placed at random on the verge)
+        // the prop may have been moved off a buried spot by freeStreetProps, so the test is at its own position
+        const pr = [...chunks.values()].flatMap(ch => ch.props).filter(q => q.kind === 'tramMast' && !q.broken)
+          .sort((a, b) => Math.hypot(a.x - mx, a.z - mz) - Math.hypot(b.x - mx, b.z - mz))[0];
+        if (!pr || Math.hypot(pr.x - mx, pr.z - mz) > 9) continue;
+        mastFound++;
+        const hits = world.solidsNear(pr.x, pr.z, 0.3).filter(so => so.kind !== 'tree' && Math.abs(pr.x - so.x) < so.hx + 0.3 && Math.abs(pr.z - so.z) < so.hz + 0.3);
+        if (hits.length) mastUnder++;
+      }
+    }
+    for (const ch of madeCh) { chunks.delete(chunkKey(ch.cx, ch.cz)); disposeChunk(ch); }
+    // every route in a wider window (no chunks needed): 1000 to 2000 m between its terminals, and some must exist
+    let wideRoutes = 0, wideBad = 0;
+    for (const axis of ['x', 'z']) for (let k = -20; k <= 20; k++) for (let j = -20; j <= 20; j++) {
+      const r = world.routeOf(axis, k, j);
+      if (!r || r.lo !== j) continue;
+      wideRoutes++;
+      const L = (r.hi - r.lo + 1) * CHUNK;
+      if (!(L > 1000 && L < 2000)) wideBad++;
+    }
+    if (!wideRoutes) bad('no tram routes in the wide window: the length check would be empty');
+    if (wideBad) bad(`${wideBad} tram route(s) in the wide window are not 1000 to 2000 m long`);
+    if (!segs) bad('no tram-laid street segments in the sample: the check would be empty');
+    if (segs && !mastFound) bad('no overhead mast is a tramMast prop in the sample: the masts would not break');
+    if (onClosed) bad(`${onClosed} tram-laid segment(s) lie on a closed or filled street`);
+    if (badRoute) bad(`${badRoute} tram-laid segment(s) belong to no route, or to a route not 1000 to 2000 m long`);
+    if (under) bad(`${under} rail probe(s) stand inside a solid`);
+    if (mastUnder) bad(`${mastUnder} overhead mast(s) stand inside a solid`);
+    if (segs && !onClosed && !under && !mastUnder && !badRoute && mastFound) console.log(`tram routes: ${wideRoutes} routes of 1000 to 2000 m in a 41-block window (${routes.size} in the sample), ${segs} rail segments, ${probes} rail probes, ${mastFound} of ${masts} masts as breakable props, none on a closed street, none under a solid`);
+  }
+  // ---- 2d-11) the radar draws only the streets that run: a closed street (a three-way junction) or a filled one is grass,
+  // so no radar strip may cover one, and the sample must hold some, or the check would pass for free. (radarStreets, flyover.js)
+  {
+    const { radarStreets, segClosed, segFilled } = await import(new URL('../../js/flyover.js', import.meta.url).href);
+    let closed = 0, strips = 0, onClosed = 0;
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) { if (segClosed('z', i, j)) closed++; if (segClosed('x', i, j)) closed++; }
+    for (const [x, z, w, d] of radarStreets(-6, 6, -6, 6)) {
+      if (w === 16 && d === CHUNK) { strips++; const i = Math.round((x + 8) / CHUNK), j = Math.round(z / CHUNK); if (segClosed('z', i, j) || segFilled('z', i, j)) onClosed++; }
+      else if (w === CHUNK && d === 16) { strips++; const i = Math.round(x / CHUNK), j = Math.round((z + 8) / CHUNK); if (segClosed('x', i, j) || segFilled('x', i, j)) onClosed++; }
+    }
+    if (!closed) bad('no closed streets in the radar sample: the check would be empty');
+    if (onClosed) bad(`${onClosed} radar strip(s) lie on a closed or filled street`);
+    if (closed && !onClosed) console.log(`radar streets: ${closed} closed arms in the sample, none drawn (${strips} strips drawn)`);
+  }
   // ---- 2e) fire station: three to five appliances, at least one large engine and one small squad ----
   {
     const stations = [...chunks.values()].filter(ch => ch.fireSlots);
@@ -1216,13 +1512,19 @@ for (const ch of chunks.values()) {
   if (!sw.curb.length) bad(`chunk ${cx},${cz}: no kerb stone baked`);
 }
 console.log(`sidewalk styles in the sample: ${[...styles].map(([k, v]) => `${k}=${v}`).join('  ')}`);
-for (const name of ['slab', 'panel', 'brick', 'verge']) if (!styles.has(name)) bad(`style '${name}' never appeared in 25 blocks`);
+for (const name of ['slab', 'panel', 'brick', 'verge']) if (!visitedStyles.has(name)) bad(`style '${name}' never appeared in the places visited`);
+// The old town is paved in stone (js/sidewalks.js pickSidewalkStyle): most of its visited blocks must be slab or brick.
+{
+  const old = districtStyles.old || [], stone = old.filter(st => st === 'slab' || st === 'brick').length;
+  if (!old.length) bad('no old-town block was visited: the old-town check would be empty');
+  else if (stone / old.length < 0.7) bad(`the old town is not paved in stone: ${stone} of ${old.length} visited blocks are slab or brick`);
+  else console.log(`old town paving: ${stone} of ${old.length} visited blocks in stone or brick`);
+}
 
 // ---- 4) street furniture from the reference photos ----
-const propKinds = new Set();
-for (const ch of chunks.values()) for (const pr of ch.props) propKinds.add(pr.kind);
+const propKinds = visitedProps;
 console.log(`street props present: ${[...propKinds].sort().join(', ')}`);
-for (const k of ['mailbox', 'meter', 'sandwich', 'hedge']) if (!propKinds.has(k)) bad(`new prop '${k}' was never placed`);
+for (const k of ['mailbox', 'meter', 'sandwich', 'hedge']) if (!propKinds.has(k)) bad(`new prop '${k}' was never placed in the places visited`);
 
 // ---- 5) ring geometry of a plain block: band edges must line up with the constants ----
 const p = world.sidewalkPieces(0, 0, 'slab');

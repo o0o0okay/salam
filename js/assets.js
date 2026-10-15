@@ -226,6 +226,8 @@ export const ASSET = {};
   const et = new THREE.CanvasTexture(e); et.colorSpace = THREE.SRGBColorSpace; et.wrapS = et.wrapT = THREE.RepeatWrapping;
   const pal = [0xe9ecef, 0xf8c8a0, 0xa8d5ff, 0xc9b6ff, 0xffd6a5, 0xb9f0c1, 0xffb3b3];
   ASSET.windowMats = pal.map(col => new THREE.MeshLambertMaterial({ color: col, map: wt, flatShading: true, emissive: 0xffffff, emissiveMap: et, emissiveIntensity: 0 }));
+  ASSET.emissiveMap = et;                 // the lit-window layout, shared with the brick facades below
+  ASSET.litMats = [];                     // every material whose windows light up at night (see environment.js)
   ASSET.roofMat = mat(0x8b9099);
   ASSET.lampMat = new THREE.MeshBasicMaterial({ color: 0xfff1a8 });
   ASSET.coinGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.22, 12).rotateX(PI / 2);
@@ -267,6 +269,59 @@ export const ASSET = {};
   ASSET.spikeMat = mat(0xdfe3e8);
   ASSET.spikeLit = new THREE.MeshBasicMaterial({ color: 0xff2020 });
 })();
+
+
+// ---- Brick facades: walk-up / brownstone walls, after the reference street art ----
+// A running-bond brick wall in one paint colour. With `windows`, the wall carries the same 4x4 window grid as the
+// glass facades (same UV layout, same lit-window emissive map and the same pane pattern, so the lit windows land on
+// the right panes), each opening in a stone surround with a sill and sash bars. Without it the wall is plain brick,
+// for a house whose windows are separate geometry.
+const facadeCache = new Map();
+export function facadeMat(color, windows = true) {
+  const key = color + (windows ? 'w' : 'p');
+  let m = facadeCache.get(key);
+  if (m) return m;
+  const px = 256, c = document.createElement('canvas'); c.width = c.height = px;
+  const g = c.getContext('2d'), rr = mulberry32(color ^ (windows ? 0x51 : 0x7a));
+  const base = new THREE.Color(color);
+  const mortar = base.clone().lerp(new THREE.Color(0xd8d2c6), 0.45);
+  const trim = base.clone().lerp(new THREE.Color(0xf1ebdd), 0.6);
+  g.fillStyle = '#' + mortar.getHexString(); g.fillRect(0, 0, px, px);
+  // A brick is 1 m x 0.5 m at the 16 m tile scale: stylised, but it reads as brick from the street.
+  const bw = 16, bh = 8, col = new THREE.Color();
+  for (let row = 0; row < px / bh; row++) {
+    const off = row % 2 ? bw / 2 : 0;
+    for (let x = 0; x < px; x += bw) {
+      col.copy(base).offsetHSL(0, 0, (rr() - 0.5) * 0.08);
+      g.fillStyle = '#' + col.getHexString();
+      // the wrap copies (dx = ±px) keep the half-shifted courses seamless across the tile edge
+      for (const dx of [-px, 0, px]) g.fillRect(x + off + dx + 1, row * bh + 1, bw - 2, bh - 2);
+    }
+  }
+  if (windows) {
+    // The same draw order and thresholds as the glass texture (mulberry32(99)), so each pane is the one the
+    // emissive map lights. Tile coordinates are the glass ones doubled: the windows sit at q*64+10, r*64+14.
+    const wr = mulberry32(99), ww = 44, wh = 36;
+    const sash = trim.getHexString(), sillCol = trim.clone().multiplyScalar(0.8).getHexString();
+    for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) {
+      const k = wr(), x = q * 64 + 10, y = r * 64 + 14;
+      g.fillStyle = '#' + sash; g.fillRect(x - 5, y - 5, ww + 10, wh + 10);                       // stone surround
+      g.fillStyle = k < 0.2 ? '#ffe08a' : k < 0.65 ? '#2d4261' : '#4f7fb5'; g.fillRect(x, y, ww, wh);
+      g.fillStyle = '#' + sash; g.fillRect(x + ww / 2 - 1.5, y, 3, wh); g.fillRect(x, y + wh / 2 - 1.5, ww, 3);
+      g.fillStyle = '#' + sillCol; g.fillRect(x - 8, y + wh + 5, ww + 16, 5);                    // sill
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  if (windows) {
+    m = new THREE.MeshLambertMaterial({ map: t, flatShading: true, emissive: 0xffffff, emissiveMap: ASSET.emissiveMap, emissiveIntensity: 0 });
+    ASSET.litMats.push(m);
+  } else {
+    m = new THREE.MeshLambertMaterial({ map: t, flatShading: true });
+  }
+  facadeCache.set(key, m);
+  return m;
+}
 
 
 const mixerMatCache = new Map();

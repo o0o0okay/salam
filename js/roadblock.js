@@ -7,6 +7,7 @@ import { POLICE_TIERS } from './config.js';
 import { CAR_DIMS } from './carModels.js';
 import { makePoliceUnit } from './police.js';
 import { solidAt } from './world.js';
+import { onClosedStreet } from './spikes.js';
 import { overlapsAnything } from './collisions.js';
 import { toast } from './ui.js';
 import { sfx } from './audio.js';
@@ -24,7 +25,7 @@ export function deployRoadblock() {
     const node = Math.round(along / CHUNK) * CHUNK;
     if (Math.abs(along - node) < 22) along = node + (along >= node ? 24 : -24); // stay clear of intersections
     const cx = axisZ ? rc : along, cz = axisZ ? along : rc;
-    if (Math.hypot(cx - player.x, cz - player.z) < 75) continue;
+    if (Math.hypot(cx - player.x, cz - player.z) < 75 || onClosedStreet(cx, cz, axisZ)) continue;
     const tier = Math.max(3, Math.min(5, game.wanted));          // SWAT-tier or better — fits the roadblock tactic
     const info = POLICE_TIERS[tier - 1], kindPool = info.kinds || [info.kind];
     const h = axisZ ? PI / 2 : 0;                                // cars laid sideways: their length spans the road

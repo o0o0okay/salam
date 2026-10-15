@@ -27,6 +27,11 @@ export const CAR_DIMS = {
   limo:       { e1: 3.4,  e2: 0.95, mass: 1.8,  hp: 55 },
   cementtruck:{ e1: 4.5,  e2: 1.35, mass: 5.0,  hp: 170 },
   fueltanker: { e1: 5.6,  e2: 1.35, mass: 5.6,  hp: 45 },
+  semi:    { e1: 4.1, e2: 1.3, mass: 3.6, hp: 170 },   // tractor unit alone (rigid body)
+  semibox: { e1: 6.1, e2: 1.35, mass: 6.0, hp: 170 }, // tractor with a 7.6 m box container (rigid body)
+  flatbed: { e1: 6.1, e2: 1.35, mass: 6.0, hp: 170 }, // tractor with a dropside flatbed
+  lowboy:  { e1: 6.1, e2: 1.4,  mass: 6.4, hp: 170 }, // tractor with a lowboy trailer
+  logtruck:{ e1: 6.1, e2: 1.35, mass: 6.4, hp: 170 }, // tractor with a log trailer
   ambulance:  { e1: 2.75, e2: 1.2,  mass: 3.4,  hp: 180 },
   firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
@@ -71,6 +76,40 @@ function busSignGeometry(str, h, depth, gap) {
   geos.forEach(g => g.dispose());
   busSignCache.set(key, geo);
   return geo;
+}
+// ---- merged body geometry ----
+// A car is some dozens of boxes and cylinders, and each of them was its own draw call (and, in the shadow pass,
+// its own caster). The static pieces that share a material are merged into one geometry per material and shadow
+// flags. The merged geometry is cached by its exact content (every piece's geometry, transform and material), so
+// cars built the same way share one geometry and nothing is merged twice. Light materials are not merged: each
+// car owns its own (update.js changes their colour for the police flash and vehicle.js disposes them), so those
+// pieces stay separate meshes.
+const mergedBodyCache = new Map();
+function consolidateBody(inner, ownMats) {
+  const items = inner.children.filter(o => o.isMesh && o.children.length === 0 && Object.keys(o.userData).length === 0 && !ownMats.has(o.material));
+  const groups = new Map();
+  for (const o of items) {
+    o.updateMatrix();
+    const k = o.material.uuid + (o.castShadow ? '|c' : '|-') + (o.receiveShadow ? 'r' : '-');
+    let list = groups.get(k); if (!list) groups.set(k, list = []);
+    list.push(o);
+  }
+  for (const [k, list] of groups) {
+    if (list.length < 2) continue;
+    const sig = k + '#' + list.map(o => o.geometry.uuid + ':' + o.matrix.elements.join(',')).join(';');
+    let geo = mergedBodyCache.get(sig);
+    if (geo === undefined) {
+      const parts = list.map(o => o.geometry.clone().applyMatrix4(o.matrix));
+      geo = mergeGeometries(parts, false) || null;           // null when the pieces do not share attributes: keep them apart
+      parts.forEach(p => p.dispose());
+      mergedBodyCache.set(sig, geo);
+    }
+    if (!geo) continue;
+    for (const o of list) inner.remove(o);
+    const m = new THREE.Mesh(geo, list[0].material);
+    m.castShadow = list[0].castShadow; m.receiveShadow = list[0].receiveShadow;
+    inner.add(m);
+  }
 }
 export function buildCar(kind, color, detail = true) {
   if (!CAR_DIMS[kind]) kind = 'civ';                            // never throw on an unknown vehicle type
@@ -374,6 +413,68 @@ export function buildCar(kind, color, detail = true) {
     dualWheel(-1, -4.3); dualWheel(1, -4.3); dualWheel(-1, -5.0); dualWheel(1, -5.0); dualWheel(-1, -5.7); dualWheel(1, -5.7);
 
 
+  // ===== Semi tractor with an optional trailer (reference: cab-over tractor with chrome stacks and tandem drive) =====
+  } else if (kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') {
+    const trailer = { semi: null, semibox: 'box', flatbed: 'flat', lowboy: 'low', logtruck: 'logs' }[kind];
+    const hasTrailer = trailer !== null;
+    const s = hasTrailer ? 2.05 : 0;                       // with a trailer the tractor moves forward so the trailer front meets the sleeper
+    const zf = s - 0.6, zr = zf - 7.6, zc = zf - 3.8;      // trailer front, rear and centre (7.6 m trailer)
+    const F = 3.9 + s;                                     // nose of the tractor
+    const trimM = mat(0x16171b), cab = mat(color), chassis = mat(0x2a2d33), chrome = mat(0xc9cdd2), grey = mat(0x9aa1a8), tankG = mat(0xb8bec6);
+    const zs = hasTrailer ? [2.8 + s, -2.6 + s, -3.6 + s, zr + 1.7, zr + 0.7] : [2.8, -2.6, -3.6];
+    const dualZ = hasTrailer ? [-2.6 + s, -3.6 + s, zr + 1.7, zr + 0.7] : [-2.6, -3.6];   // twin tyres on the drive and trailer axles
+    wheelZ = zs; wheelX = 1.15; wheelY = 0.52; wheelScale = 1.15; frontZ = F - 0.05; backZ = hasTrailer ? zr : -4.2; lightY = 1.0;
+    // tractor: cab, sleeper, slanted screen, grille with chrome slats, bumper, chassis, tanks, chrome exhaust stacks
+    inner.add(box(2.3, 1.75, 2.5, cab, 0, 1.6, 2.4 + s));
+    inner.add(box(2.2, 0.8, 0.4, cab, 0, 1.05, 3.45 + s));
+    inner.add(box(2.35, 0.14, 2.6, trimM, 0, 2.55, 2.45 + s, false));
+    inner.add(box(2.3, 1.9, 1.6, cab, 0, 1.85, 0.2 + s));
+    const ws = box(2.1, 0.9, 0.08, glass, 0, 2.0, 3.66 + s, false); ws.rotation.x = -0.2; inner.add(ws);
+    inner.add(box(1.5, 0.95, 0.12, trimM, 0, 1.05, 3.85 + s, false));
+    for (let i = 0; i < 4; i++) inner.add(box(1.5, 0.05, 0.05, chrome, 0, 0.72 + i * 0.22, 3.93 + s, false));
+    inner.add(box(2.4, 0.4, 0.3, grey, 0, 0.45, 3.8 + s));
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.08, 0.6, 1.0, glass, sx * 1.17, 2.0, 2.4 + s, false));
+      inner.add(box(0.18, 0.5, 0.1, trimM, sx * 1.3, 2.0, 3.0 + s, false));
+      const tank = cyl(0.4, 0.4, 1.6, 10, tankG, sx * 1.22, 1.05, -1.2 + s); tank.rotation.x = Math.PI / 2; inner.add(tank);
+      inner.add(cyl(0.12, 0.12, 2.4, 10, chrome, sx * 1.05, 2.45, -0.3 + s));
+    }
+    inner.add(box(1.8, 0.3, 6.0, chassis, 0, 0.55, -0.9 + s, false));
+    inner.add(box(1.4, 0.1, 1.0, trimM, 0, 0.8, -0.3 + s, false));     // fifth wheel
+    if (!hasTrailer) {
+      inner.add(box(2.2, 0.3, 0.2, grey, 0, 0.45, -4.15));              // rear bumper
+      for (const sx of [-1, 1]) inner.add(box(0.5, 0.6, 0.04, trimM, sx * 1.0, 0.3, -4.05, false));   // mud flaps
+    } else if (trailer === 'box') {
+      // box container with a dark underframe, a roof edge and a rear door seam
+      const white = mat(0xf2f2f2);
+      inner.add(box(2.3, 2.6, 7.6, white, 0, 1.95, zc));
+      inner.add(box(2.36, 0.28, 7.6, trimM, 0, 0.5, zc, false));
+      inner.add(box(2.36, 0.1, 7.6, grey, 0, 3.27, zc, false));
+      inner.add(box(0.04, 2.4, 0.04, grey, 0, 1.95, zr - 0.02, false));
+    } else if (trailer === 'flat') {
+      // dropside flatbed: a grey deck on a dark frame, low side rails and a drop gate at the back
+      const deck = mat(0x5b6066), rail = mat(0x3a3e45);
+      inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
+      inner.add(box(2.3, 0.12, 7.6, deck, 0, 1.13, zc));
+      for (const sx of [-1, 1]) inner.add(box(0.12, 0.65, 7.6, rail, sx * 1.15, 1.55, zc, false));
+      inner.add(box(2.3, 0.65, 0.12, rail, 0, 1.55, zr + 0.06, false));
+    } else if (trailer === 'low') {
+      // lowboy: a low rear deck, a step up over the tractor and two ramps folded down at the back
+      const deck = mat(0x3a3e45), steel = mat(0x9aa1a8);
+      inner.add(box(2.2, 0.2, 5.2, deck, 0, 0.9, zr + 2.6));
+      inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.2, -0.35));
+      inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.5, 0.85));
+      for (const sx of [-1, 1]) { const ramp = box(0.9, 0.06, 2.12, steel, sx * 0.6, 0.55, zr + 1.0); ramp.rotation.x = -0.34; inner.add(ramp); }
+    } else {
+      // log trailer: a frame, four pairs of tall stakes and six logs stacked in three layers
+      const logA = mat(0xb8733f), logB = mat(0x9c5f30);
+      inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
+      for (const z of [zr + 0.6, zr + 2.4, zr + 4.2, zr + 6.0]) for (const sx of [-1, 1]) inner.add(box(0.12, 1.9, 0.12, trimM, sx * 1.0, 1.85, z, false));
+      const logs = [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]];
+      logs.forEach(([x, y], i) => { const log = cyl(0.3, 0.3, 7.2, 8, i % 2 ? logA : logB, x, y, zc); log.rotation.x = Math.PI / 2; inner.add(log); });
+    }
+    for (const z of dualZ) { dualWheel(-1, z); dualWheel(1, z); }
+
   // ===== NEW: Police Motorcycle =====
   } else if (kind === 'policeMoto') {
     wheelZ = [-0.95, 0.95]; wheelX = 0; frontZ = 1.3; backZ = -1.1; lightY = 0.75;
@@ -482,10 +583,29 @@ export function buildCar(kind, color, detail = true) {
     if (wheelScale !== 1) w.scale.setScalar(wheelScale);
     w.castShadow = true; inner.add(w);
   }
+  if (kind === 'player') {
+    // The player's car gets the finish the traffic does not: chrome rims with dark hubs, a grille with a chrome bar and
+    // an intake, wing mirrors, two exhaust tips and door seams. Every piece is a cached unit box or cylinder, so
+    // spawning the car again adds no geometry, and all of it stays inside the car's own dimensions.
+    const chrome = mat(0xc9cdd2), trim = mat(0x111216), bc = mat(color);
+    for (const sx of [-1, 1]) for (const sz of wheelZ) {
+      const rim = cyl(0.3, 0.3, 0.05, 14, chrome, sx * (wheelX + 0.22), wheelY, sz); rim.rotation.z = Math.PI / 2; inner.add(rim);
+      const hub = cyl(0.12, 0.12, 0.06, 10, trim, sx * (wheelX + 0.25), wheelY, sz); hub.rotation.z = Math.PI / 2; inner.add(hub);
+    }
+    inner.add(box(1.0, 0.26, 0.06, trim, 0, 0.66, 2.12));                 // grille
+    inner.add(box(0.9, 0.04, 0.07, chrome, 0, 0.8, 2.13));                // chrome bar across it
+    inner.add(box(1.3, 0.1, 0.06, trim, 0, 0.42, 2.12));                  // lower intake
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.2, 0.16, 0.3, bc, sx * 0.97, 1.2, 0.5));            // wing mirror
+      const tip = cyl(0.1, 0.1, 0.08, 10, chrome, sx * 0.5, 0.3, -2.08); tip.rotation.x = Math.PI / 2; inner.add(tip);
+      inner.add(box(0.02, 0.4, 2.0, trim, sx * 1.005, 0.85, -0.2, false)); // door seam
+    }
+  }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
+  consolidateBody(inner, new Set(Object.values(lights)));
   g.userData.inner = inner; g.userData.lights = lights;
   return g;
 }

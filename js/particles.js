@@ -39,8 +39,9 @@ export function smoke(x, y, z, n, dark = false, size = 1.4) {
   for (let i = 0; i < n; i++) { const g = dark ? rnd(0.12, 0.25) : rnd(0.65, 0.9); emit(x + rnd(-.5, .5), y, z + rnd(-.5, .5), rnd(-1.2, 1.2), rnd(1.5, 3.5), rnd(-1.2, 1.2), tmpCol.setRGB(g, g, g).getHex(), rnd(size * .6, size * 1.3), rnd(0.7, 1.4), 0, 1); }
 }
 export function debris(x, y, z, color, n) { for (let i = 0; i < n; i++) emit(x, y, z, rnd(-6, 6), rnd(3, 10), rnd(-6, 6), color, rnd(0.2, 0.55), rnd(0.8, 1.6), 24); }
-export function explosion(x, z) {
-  for (let i = 0; i < 40; i++) emit(x, 1, z, rnd(-9, 9), rnd(2, 12), rnd(-9, 9), [0xff5a1a, 0xffb21a, 0xffe14a][i % 3], rnd(0.5, 1.4), rnd(0.5, 1.1), 12);
-  smoke(x, 1.5, z, 14, true, 2.4);
-  for (let i = 0; i < 14; i++) emit(x, 1, z, rnd(-8, 8), rnd(3, 12), rnd(-8, 8), 0x2a2a2d, rnd(0.3, 0.7), rnd(1, 1.8), 24);
+// `y` is the height the blast starts at: a car up on a bridge deck blows up at the deck, not at the ground under it.
+export function explosion(x, z, y = 1) {
+  for (let i = 0; i < 40; i++) emit(x, y, z, rnd(-9, 9), rnd(2, 12), rnd(-9, 9), [0xff5a1a, 0xffb21a, 0xffe14a][i % 3], rnd(0.5, 1.4), rnd(0.5, 1.1), 12);
+  smoke(x, y + 0.5, z, 14, true, 2.4);
+  for (let i = 0; i < 14; i++) emit(x, y, z, rnd(-8, 8), rnd(3, 12), rnd(-8, 8), 0x2a2a2d, rnd(0.3, 0.7), rnd(1, 1.8), 24);
 }

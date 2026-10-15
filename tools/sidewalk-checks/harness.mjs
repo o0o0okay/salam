@@ -18,18 +18,54 @@ export function build() {
   const REAL_DIMS = JSON.parse(JSON.stringify(eval('(' + dimsMatch[1] + ')')));
 
   let src = fs.readFileSync(path.join(repo, 'js/world.js'), 'utf8');
-  src = src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  // js/world.js re-exports the names it moved to the chunk modules (`export { ... };`). Inside the stitched module
+  // they are already in scope, so that line goes, and so do the imports.
+  src = src.replace(/^export \{[^}]*\};?\s*$/gm, '').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  // The chunk modules split out of js/world.js, stitched in front of it in dependency order.
+  const CHUNK_MODULES = ['chunkBake.js', 'chunkState.js', 'solidIndex.js', 'sidewalks.js', 'sites.js', 'flyoverFurniture.js', 'neighbourhoods.js'];
+  let chunkSrc = '';
+  for (const f of CHUNK_MODULES) chunkSrc += fs.readFileSync(path.join(repo, 'js', f), 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\n';
+  src = chunkSrc + src;
   // The interchange's numbers live in their own module (js/flyover.js, no three.js in it) and js/world.js imports
   // them: the stitched module needs its source in front of world.js, the same way the browser gets it.
+  // js/island.js (the island's bounds and the core rule) is imported by js/flyover.js and js/world.js: stitched in front of them.
+  let islandSrc = fs.readFileSync(path.join(repo, 'js/island.js'), 'utf8');
+  islandSrc = islandSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = islandSrc + '\n' + src;
   let flySrc = fs.readFileSync(path.join(repo, 'js/flyover.js'), 'utf8');
   flySrc = flySrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = flySrc + '\n' + src;
+  // ... and the district map (js/districts.js), which js/flyover.js imports (the neighbourhoods are a suburb's thing), so it goes
+  // in front of the interchange too.
+  let distSrc = fs.readFileSync(path.join(repo, 'js/districts.js'), 'utf8');
+  distSrc = distSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = distSrc + '\n' + src;
   // ... and so do the traffic lights: the placement of a junction's signal poles depends on the lane beside a
   // flyover, so the suite has to run the real thing. A stub here used to hide a pole standing in the at-grade
   // lane (it was only a no-op, so nothing could ever notice).
   let lightSrc = fs.readFileSync(path.join(repo, 'js/trafficLights.js'), 'utf8');
   lightSrc = lightSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
   src = lightSrc + '\n' + src;
+  // ... and the campus buildings and the shop kits, split out of world.js: stitched in front of it, in the order
+  // they depend on (campus first: the shops use its text lettering).
+  for (const f of ['shops.js', 'factory.js', 'sports.js', 'campus.js']) {
+    let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
+    part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    src = part + '\n' + src;
+  }
+  // ... and the trams: generateChunk lays their rails through tramRails(), so the rail rules are stitched in too.
+  // Only the rail rules run here; the tram itself (scene, player, cars) is never touched by the chunk checks.
+  let tramSrc = fs.readFileSync(path.join(repo, 'js/tram.js'), 'utf8');
+  tramSrc = tramSrc.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  src = tramSrc + '\n' + src;
+
+  // ... and the diagonal avenues (js/avenues.js: the geometry; js/avenueClear.js: what is taken off them; js/avenueRoad.js:
+  // the road itself). Stitched in dependency order: the geometry first.
+  for (const f of ['avenueRoad.js', 'avenueClear.js', 'avenues.js']) {
+    let part = fs.readFileSync(path.join(repo, 'js', f), 'utf8');
+    part = part.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    src = part + '\n' + src;
+  }
 
   const stubs = `
 // geom counts merged pieces, geosCreated/geosDisposed count BufferGeometry objects: one block must not leave
@@ -53,6 +89,7 @@ function BoxGeometry(w=1,h=1,d=1){ checked.geosCreated++; this.attributes={uv:ma
     const p=[this.w/2,this.h/2,this.d/2];
     for (const v of p) if(!Number.isFinite(v)) checked.nan++;
     this.origin=[m.t[0],m.t[1],m.t[2]]; checked.geom++; return this; };
+  this.computeBoundingBox=()=>{ this.boundingBox={min:{x:-this.w/2,y:-this.h/2,z:-this.d/2},max:{x:this.w/2,y:this.h/2,z:this.d/2}}; };
   this.clone=()=>{const g=new BoxGeometry(this.w,this.h,this.d);g.attributes=this.attributes;g.origin=this.origin;return g;};
   this.dispose=()=>{ checked.geosDisposed++; this.__disposed = true; }; this.translate=()=>this; this.scale=()=>this; this.rotateX=()=>this; this.rotateY=()=>this; this.rotateZ=()=>this; }
 class Obj3D { constructor(){this.children=[];this.userData={};this.pos=[0,0,0];this.visible=true;
@@ -68,13 +105,21 @@ class Obj3D { constructor(){this.children=[];this.userData={};this.pos=[0,0,0];t
   remove(o){const i=this.children.indexOf(o);if(i>=0)this.children.splice(i,1);if(o)o.parent=null;} }
 class Mesh extends Obj3D { constructor(g,m){super();this.isMesh=true;this.geometry=g;this.material=m;} }
 class InstancedMesh extends Obj3D { constructor(g,m,n){super();this.geometry=g;this.material=m;this.count=n;this.instanceMatrix={needsUpdate:false};} setMatrixAt(){} dispose(){} }
+class Box3 { constructor(){ this.min={x:Infinity,y:Infinity,z:Infinity}; this.max={x:-Infinity,y:-Infinity,z:-Infinity}; }
+  copy(b){ this.min={...b.min}; this.max={...b.max}; return this; }
+  applyMatrix4(m){ const s=m.s||[1,1,1], t=m.t||[0,0,0]; for (let i=0;i<3;i++){ const k='xyz'[i]; const lo=this.min[k]*s[i]+t[i], hi=this.max[k]*s[i]+t[i]; this.min[k]=Math.min(lo,hi); this.max[k]=Math.max(lo,hi); } return this; }
+  setFromObject(o){ this.min={x:Infinity,y:Infinity,z:Infinity}; this.max={x:-Infinity,y:-Infinity,z:-Infinity};
+    o.traverse(c=>{ if(!c.isMesh||!c.geometry||c.geometry.w===undefined) return; c.geometry.computeBoundingBox(); const b=new Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld); for(const k of 'xyz'){ this.min[k]=Math.min(this.min[k],b.min[k]); this.max[k]=Math.max(this.max[k],b.max[k]); } }); return this; }
+  isEmpty(){ return this.min.x>this.max.x; } }
 const THREE={Group:Obj3D,Mesh,InstancedMesh,BoxGeometry,Matrix4:M4,
+  Box3,
   Vector3:class{constructor(x,y,z){this.x=x;this.y=y;this.z=z;}set(){return this;}setFromAxisAngle(){return this;}multiply(){return this;}},
   Quaternion:class{setFromAxisAngle(){return this;}},
   Color:class{constructor(c){this.h=c|0;}setHex(v){this.h=v;return this;}getHex(){return this.h;}setRGB(){return this;}},
   MeshBasicMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
   MeshLambertMaterial:class{constructor(o){const c=(o&&o.color);Object.assign(this,o||{});if(c!==undefined)this.color=new THREE.Color(c);}dispose(){}},
-  CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry};
+  CylinderGeometry:BoxGeometry,SphereGeometry:BoxGeometry,TorusGeometry:BoxGeometry,DodecahedronGeometry:BoxGeometry,ConeGeometry:BoxGeometry,PlaneGeometry:BoxGeometry,CircleGeometry:BoxGeometry,LatheGeometry:BoxGeometry,
+  BufferGeometry:function(){BoxGeometry.call(this,1,1,1);this.attributes={};this.index=null;this.setAttribute=(n,a)=>{this.attributes[n]=a;return this;};this.setIndex=a=>{this.index=Array.isArray(a)?{array:a,count:a.length}:a;return this;};this.computeVertexNormals=()=>{};},Float32BufferAttribute:function(a,n){this.array=a;this.count=a.length/n;}};
 const scene=new THREE.Group();
 // the merged result has to behave like a BufferGeometry: js/world.js shares merged text geometries between
 // signs and the chunk/prop mergers clone them, exactly as three.js would
@@ -90,7 +135,8 @@ const cyl=(rt,rb,h,s,m,x,y,z)=>{const r=((rt||1)+(rb||1))/2;const g=new THREE.Me
 const ASSET=new Proxy({windowMats:[{},{},{},{},{},{},{},{}],roofMat:{},pavingMat:{},pavePanelMat:{},paveBrickMat:{},borderMat:{},curbTopMat:{},curbPaintMat:{},curbMat:{},soilMat:{},grassMat:{},roadMat:{},snowRoadMat:{},lampMat:{},coinMat:{},burnt:{},headMat:{},tailMat:{},beamMat:{},spikeMat:{},spikeLit:{},treeMat:{}},
   {get:(t,k)=>k in t?t[k]:(String(k).endsWith('Geo')?new THREE.BoxGeometry(1,1,1):{})});
 const makeBuildingGeo=()=>new THREE.BoxGeometry(1,1,1);
-const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
+const facadeMat=(c,windows)=>({c,o:{windows},clone(){return {...this};},dispose(){}});
+const KNOWN_KINDS=new Set(['player','police1','police2','police3','police4','police5','policeMoto','policeUnmarked','policeVan','civ','sedan','semi','semibox','flatbed','lowboy','logtruck','taxi','pickup','bus','schoolbus','hatchback','suv','van','sportscar','oldclassic','limo','cementtruck','fueltanker','ambulance','firetruck','firesmall']);
 const REAL_DIMS=${JSON.stringify(REAL_DIMS)};
 const CAR_DIMS=new Proxy({},{get:(t,k)=>KNOWN_KINDS.has(k)?(REAL_DIMS[k]||{e1:2,e2:1,mass:1,hp:40}):undefined});
 // strict on purpose: buildCar(undefined) used to slip through a permissive stub and only blew up in the
@@ -112,8 +158,8 @@ const ck=(cx,cz)=>cx*100003+cz;
 
   src = src.replace('  bakeRing(sw.curb', '  swCapture.set(ch, sw);\n  bakeRing(sw.curb');
   const out = stubs + '\n' + src +
-    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, surfaceAt, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim };\n' +
-    'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\n';
+    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, solidsNear, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, bridgeHeight, surfaceAt, structureLevel, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, nbhdPlan, nbhdOf, nbhdInterior, nbhdJunction, siteSpots };\n' +
+    'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\nexport { tramSegment, tramLaid, routeOf, isTramLine, ck as chunkKey };\n';
   const file = path.join(os.tmpdir(), 'salam-world.test.mjs');
   fs.writeFileSync(file, out);
   return file;

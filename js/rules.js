@@ -4,7 +4,8 @@ import { DIFF, WANTED_AT, POLICE_TIERS } from './config.js';
 import { toast } from './ui.js';
 import { sfx } from './audio.js';
 
-export const wantedLevel = () => Math.max(game.debugWanted, WANTED_AT.reduce((level, at, i) => game.time >= at * DIFF.esc ? i + 1 : level, 1));
+// game.hideBonus: the seconds a hiding car has been given on top of the clock (hide.js), so the level climbs faster.
+export const wantedLevel = () => Math.max(game.debugWanted, WANTED_AT.reduce((level, at, i) => game.time + (game.hideBonus || 0) >= at * DIFF.esc ? i + 1 : level, 1));
 
 export function updateWanted() {
   const next = wantedLevel();

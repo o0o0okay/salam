@@ -1,0 +1,383 @@
+/* Trams: a rail route down the middle of some streets, and a tram that runs it end to end.
+ *
+ * THE ROUTES
+ *   A tram line is a whole column (x = k*CHUNK) or row (z = k*CHUNK) of the street grid, chosen by hash. The main roads
+ *   (k = 0, which carry the flyovers) never carry rails. A street segment is tram-eligible only where it is a street: not
+ *   a closed or filled one, not inside a neighbourhood, not at a plaza, and not under a flyover.
+ *   A ROUTE is a maximal run of eligible segments on one line, cut into pieces. Each piece is a route with two terminals,
+ *   at its ends, and is 13 to 24 blocks long (1040 to 1920 m, always between 1000 and 2000 m). A run of 12 blocks or fewer
+ *   carries no route, and neither does a run of 25 blocks, which no cut can make out of pieces of that length. Longer runs
+ *   are cut into the fewest pieces that fit. The rails, the contact wire and the poles are laid by the chunk that owns each
+ *   segment (tramRails, called from generateChunk). Every chunk finds the same route from any of its segments, so the ends
+ *   agree. The contact wire runs the whole length of the route, from one terminal to the other. Each block has a pair of
+ *   poles on the sidewalks at each quarter, and the span wires across the street are laid after the props have settled
+ *   (tramWires), between the poles that still stand. The poles are props, so a car can break one.
+ *   The rails run down the centre line: the civilian lanes are at 2.5 m and 5 m, so the tram does not sit in a lane.
+ *
+ * THE TRAM
+ *   Kinematic, on its route. It runs to one terminal, waits there, runs back to the other, and so on. It stops for a few
+ *   seconds at a station (a third of the blocks have one). It brakes for a car on the track ahead, waits until the track is
+ *   clear, and rings its bell while the car is there. Cars on the track clear it: they accelerate off the rails, and cars
+ *   that are about to cross it brake for it (tramTrackAhead, called from civAI). It is solid for every car (collisions.js:
+ *   collideTrams): a car that is hit is destroyed and thrown off the track, and the tram is not moved. At most one tram runs
+ *   on a route, and at most MAX_TRAMS run at once. A tram spawns near the player and is taken away when it is far from him. */
+import * as THREE from 'three';
+import { CHUNK, rnd, hash2, clamp } from './utils.js';
+import { player, cars } from './state.js';
+import { scene } from './renderer.js';
+import { sfx } from './audio.js';
+import { segClosed, segFilled, nbhdJunction, plazaAt, flyoverNear } from './flyover.js';
+
+export const trams = [];
+const MAX_TRAMS = 3, SPAWN_EVERY = 15, SPAWN_CHANCE = 0.6;
+const CRUISE = 28, ACCEL = 2.8, BRAKE = 4, STOP_DECEL = 2.5;      // 28 m/s is about 100 km/h; it brakes 157 m from cruise
+const STOP_WAIT = 6, TERMINUS_WAIT = 25, STOP_BLOCK_SHARE = 3;
+const HALF_LEN = 15, HALF_W = 1.35, GAUGE = 0.72, REMOVE_R = 320;
+const CLEAR = 200;                                                 // how far ahead the tram looks for a car on its track, and for a station or terminal
+const ROUTE_MIN = 13, ROUTE_LONGEST = 24, RUN_CAP = 120;           // a route is 13 to 24 blocks; a run longer than RUN_CAP is not scanned
+const WIRE_H = 5.8, MAST_X = 9;                                    // overhead wire height, and the masts' distance from the centre line
+let spawnT = 6, nextId = 1;
+
+// Which lines carry rails: a column or row index k. The main roads (0) never do.
+export function isTramLine(axis, k) {
+  return k !== 0 && hash2(k, axis === 'z' ? 77 : 91) % 3 === 0;
+}
+// Whether the street segment from junction (jx, jz) to its next one along the axis may carry rails.
+export function tramSegment(axis, jx, jz) {
+  if (!isTramLine(axis, axis === 'z' ? jx : jz)) return false;
+  if (segClosed(axis, jx, jz) || segFilled(axis, jx, jz)) return false;
+  const ex = axis === 'x' ? jx + 1 : jx, ez = axis === 'x' ? jz : jz + 1;
+  if (nbhdJunction(jx, jz) || nbhdJunction(ex, ez) || plazaAt(jx, jz) || plazaAt(ex, ez)) return false;
+  if (flyoverNear(jx * CHUNK, jz * CHUNK, 25) || flyoverNear(ex * CHUNK, ez * CHUNK, 25)) return false;
+  return true;
+}
+// A station is halfway along a block, and only some blocks have one.
+const isStopBlock = (axis, k, j) => hash2(k * 3 + (axis === 'z' ? 1 : 0), j) % STOP_BLOCK_SHARE === 0;
+
+// ---------- routes ----------
+const routeCache = new Map();
+// How many pieces a run of n blocks is cut into so that every piece is 13 to 24 blocks: the smallest such count, or 0.
+// The pieces then differ in length by at most one block, so each lies between floor(n/p) and ceil(n/p).
+function piecesFor(n) {
+  for (let p = 1; p <= Math.floor(n / ROUTE_MIN); p++) {
+    if (Math.floor(n / p) >= ROUTE_MIN && Math.ceil(n / p) <= ROUTE_LONGEST) return p;
+  }
+  return 0;
+}
+// The route that segment j of line k (on the given axis) belongs to, or null. The maximal run of eligible segments around
+// it is cut into pieces, and the piece holding j is its route. A run that is too long to scan (more than RUN_CAP blocks),
+// or that cannot be cut into pieces of 13 to 24 blocks, has no route. The scan is the same from any segment of the run, so
+// every chunk that lays the rails of a route agrees on its two terminals.
+export function routeOf(axis, k, j) {
+  const key = axis + k + ':' + j;
+  if (routeCache.has(key)) return routeCache.get(key);
+  const on = q => tramSegment(axis, axis === 'z' ? k : q, axis === 'z' ? q : k);
+  let r = null;
+  if (on(j)) {
+    let lo = j, hi = j;
+    while (hi - lo < RUN_CAP && on(hi + 1)) hi++;
+    while (hi - lo < RUN_CAP && on(lo - 1)) lo--;
+    const n = hi - lo + 1, p = hi - lo < RUN_CAP ? piecesFor(n) : 0;
+    for (let q = 0; p && q < p; q++) {
+      const a = lo + Math.floor(q * n / p), b = lo + Math.floor((q + 1) * n / p) - 1;
+      if (j >= a && j <= b) { r = { axis, k, lo: a, hi: b, id: axis + k + ':' + a }; break; }
+    }
+  }
+  routeCache.set(key, r);
+  return r;
+}
+// Whether the street segment from junction (jx, jz) carries rails: it is on a route.
+export function tramLaid(axis, jx, jz) {
+  const k = axis === 'z' ? jx : jz, j = axis === 'z' ? jz : jx;
+  return routeOf(axis, k, j) !== null;
+}
+
+// The rails, the contact wire and the poles of the two street segments this chunk owns: the column at its west edge (x0)
+// and the row at its south edge (z0). `add`, `box` and `mat` are the chunk builder's own, so everything is baked into the
+// chunk. The contact wire runs the length of the block. The poles are props (js/props.js, 'tramMast'), a pair on the two
+// sidewalks at each quarter of the block (20 m and 60 m along), so each pair is 40 m apart. Their brackets reach out over
+// the street. They are recorded in `poles`, and tramWires lays the span wires afterwards, between the poles that survive,
+// so no span hangs from a pole that is gone.
+export function tramRails({ add, box, mat, prop, poles, x0, z0, cx, cz }) {
+  const rail = mat(0xa9afb5), sleeper = mat(0x5e4b38), wire = mat(0x2b2b2b);
+  const mid = CHUNK / 2;
+  if (tramLaid('z', cx, cz)) {
+    add(box(0.14, 0.2, CHUNK, rail, x0 - GAUGE, 0.12, z0 + mid, false));
+    add(box(0.14, 0.2, CHUNK, rail, x0 + GAUGE, 0.12, z0 + mid, false));
+    for (let t = 1.1; t < CHUNK; t += 2.2) add(box(2.6, 0.12, 0.26, sleeper, x0, 0.06, z0 + t, false));
+    add(box(0.06, 0.06, CHUNK, wire, x0, WIRE_H, z0 + mid, false));                       // contact wire along the track
+    for (const q of [0.25, 0.75]) {
+      const zq = z0 + CHUNK * q;
+      poles.push({ axis: 'z', a: prop('tramMast', x0 - MAST_X, zq, 0), b: prop('tramMast', x0 + MAST_X, zq, Math.PI) });
+    }
+  }
+  if (tramLaid('x', cx, cz)) {
+    add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 - GAUGE, false));
+    add(box(CHUNK, 0.2, 0.14, rail, x0 + mid, 0.12, z0 + GAUGE, false));
+    for (let t = 1.1; t < CHUNK; t += 2.2) add(box(0.26, 0.12, 2.6, sleeper, x0 + t, 0.06, z0, false));
+    add(box(CHUNK, 0.06, 0.06, wire, x0 + mid, WIRE_H, z0, false));                       // contact wire along the track
+    for (const q of [0.25, 0.75]) {
+      const xq = x0 + CHUNK * q;
+      poles.push({ axis: 'x', a: prop('tramMast', xq, z0 - MAST_X, -Math.PI / 2), b: prop('tramMast', xq, z0 + MAST_X, Math.PI / 2) });
+    }
+  }
+}
+// The span wires: one across the street between the two poles of each pair, at wire height, from one bracket's insulator to
+// the other's. Called after the chunk's props have settled, so a pole that freeStreetProps moved or removed is not used.
+export function tramWires({ add, box, mat, ch, poles }) {
+  const wire = mat(0x2b2b2b), ARM = 4.2;
+  for (const p of poles) {
+    const a = p.a, b = p.b;
+    if (!a || !b || !ch.props.includes(a) || !ch.props.includes(b)) continue;
+    if (p.axis === 'z') {
+      const x1 = a.x + ARM, x2 = b.x - ARM;
+      if (x2 - x1 > 1) add(box(x2 - x1, 0.05, 0.05, wire, (x1 + x2) / 2, WIRE_H, (a.z + b.z) / 2, false));
+    } else {
+      const z1 = a.z + ARM, z2 = b.z - ARM;
+      if (z2 - z1 > 1) add(box(0.05, 0.05, z2 - z1, wire, (a.x + b.x) / 2, WIRE_H, (z1 + z2) / 2, false));
+    }
+  }
+}
+
+// ---------- the tram's body ----------
+// The model is built once. Each tram is a copy of it that shares the geometry and the materials, so removing a tram must
+// not dispose of them (removeTram).
+let model = null;
+const partMats = {};
+function part(name, c, shininess = 30) {
+  if (!partMats[name]) partMats[name] = new THREE.MeshPhongMaterial({ color: c, shininess });
+  return partMats[name];
+}
+function makeModel() {
+  const g = new THREE.Group();
+  const yellow = part('yellow', 0xf2b233, 50), cream = part('cream', 0xf2efe6), grey = part('grey', 0x9ea4aa);
+  const dark = part('dark', 0x3c434b), roof = part('roof', 0xdfe3e6), glass = part('glass', 0x1f2b36, 90);
+  const steel = part('steel', 0xbfc5cc, 60), black = part('black', 0x1b1b1b), rubber = part('rubber', 0x161616);
+  const red = part('red', 0xc62828, 50);
+  const amber = part('amber', 0xffc247, 0), lamp = part('lamp', 0xfff4d0, 0), tail = part('tail', 0xff3b30, 0);
+  const B = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); g.add(o); };
+  // a wheel on the rail, its axle along x
+  const Wh = (m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.14, 12), m); o.rotation.z = Math.PI / 2; o.position.set(x, y, z); g.add(o); };
+  for (const z of [-10, 0, 10]) {                        // three sections of 10 m, the cab at the front (+z)
+    B(2.5, 0.95, 9.4, yellow, 0, 0.8, z);                // lower body
+    B(2.58, 0.2, 9.4, grey, 0, 0.36, z);                 // skirt
+    B(2.5, 1.0, 9.4, cream, 0, 1.8, z);                  // upper body
+    B(2.52, 0.12, 9.4, red, 0, 1.3, z);                  // red stripe along the side
+    B(2.38, 0.24, 9.2, roof, 0, 2.42, z);                // roof
+    B(2.44, 0.07, 9.4, grey, 0, 2.56, z);                // roof edge
+    for (const s of [-1, 1]) {
+      for (const dz of [-3, 0]) B(0.04, 0.85, 2.3, glass, s * 1.255, 1.9, z + dz);   // windows
+      B(0.04, 1.6, 1.4, steel, s * 1.255, 1.1, z + 3.2);                             // door
+      B(0.04, 0.5, 1.4, glass, s * 1.255, 1.9, z + 3.2);                             // door window
+    }
+    for (const bz of [-3, 3]) {                          // two bogies per section, four wheels each
+      B(2.0, 0.16, 2.4, dark, 0, 0.42, z + bz);
+      for (const wx of [-0.72, 0.72]) for (const wz of [-0.8, 0.8]) Wh(rubber, wx, 0.56, z + bz + wz);
+    }
+  }
+  // the cab at the front
+  B(2.5, 0.95, 1.2, yellow, 0, 0.8, 15.1);               // lower nose
+  B(2.4, 1.0, 1.2, cream, 0, 1.8, 15.1);                 // upper nose
+  B(2.38, 0.24, 1.2, roof, 0, 2.42, 15.1);               // roof over the cab
+  B(2.2, 1.0, 0.06, glass, 0, 1.85, 15.72);              // windscreen
+  B(1.5, 0.24, 0.05, amber, 0, 2.5, 15.72);              // destination sign
+  for (const s of [-1, 1]) B(0.5, 0.26, 0.05, lamp, s * 0.78, 1.05, 15.72);    // headlights
+  for (const s of [-1, 1]) B(0.05, 0.6, 0.04, black, s * 0.4, 1.8, 15.76);     // wipers
+  B(2.5, 0.16, 0.3, black, 0, 0.36, 15.8);               // front bumper
+  // the rear end
+  B(2.2, 1.0, 0.06, glass, 0, 1.85, -15.72);             // rear window
+  for (const s of [-1, 1]) B(0.4, 0.25, 0.05, tail, s * 0.78, 1.05, -15.72);   // tail lights
+  B(2.5, 0.16, 0.3, black, 0, 0.36, -15.8);              // rear bumper
+  // the roof: the pantograph, which reaches the wire, and the air units
+  B(0.9, 0.14, 1.2, black, 0, 2.7, 3.5);                 // pantograph base
+  for (const s of [-1, 1]) B(0.06, 3.0, 0.06, black, s * 0.3, 4.25, 3.5);     // its two arms
+  B(1.7, 0.06, 0.22, black, 0, WIRE_H, 3.5);             // the contact head, on the wire
+  for (const z of [-5, -8]) B(1.4, 0.32, 1.8, grey, 0, 2.86, z);               // air units
+  return g;
+}
+function buildMesh() {
+  if (!model) model = makeModel();
+  return model.clone();                                  // shares the geometry and the materials of the model
+}
+
+// ---------- the tram on its route ----------
+function place(t) {
+  if (t.axis === 'z') { t.x = t.k * CHUNK; t.z = t.s; t.h = t.dir > 0 ? 0 : Math.PI; }
+  else { t.x = t.s; t.z = t.k * CHUNK; t.h = t.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
+  t.box.x = t.x; t.box.z = t.z; t.box.ux = Math.sin(t.h); t.box.uz = Math.cos(t.h);
+  t.box.vx = Math.cos(t.h); t.box.vz = -Math.sin(t.h);
+  t.group.position.set(t.x, 0, t.z); t.group.rotation.y = t.h;
+}
+function makeTram(route, dir, s) {
+  const t = {
+    id: nextId++, route, axis: route.axis, k: route.k, dir, s, speed: CRUISE, wait: 0, turning: false, blocked: false,
+    lastStop: null, dead: false, rollT: 0, bellT: 0, group: buildMesh(),
+    box: { x: 0, z: 0, ux: 0, uz: 0, vx: 0, vz: 0, e1: HALF_LEN, e2: HALF_W },
+  };
+  place(t); scene.add(t.group);
+  return t;
+}
+export function removeTram(t) {
+  t.dead = true; scene.remove(t.group);                  // the model's geometry and materials are shared, so they are not disposed
+  const i = trams.indexOf(t); if (i >= 0) trams.splice(i, 1);
+}
+export function clearTrams() { for (const t of [...trams]) removeTram(t); }
+
+// The next station ahead of the tram, inside its route: its block index and position, or null.
+function nextStop(t) {
+  const r = t.route, j0 = Math.floor(t.s / CHUNK);
+  for (let q = 0; q < 3; q++) {
+    const j = j0 + (t.dir > 0 ? q : -q), mid = (j + 0.5) * CHUNK;
+    if (j < r.lo || j > r.hi) continue;
+    if ((mid - t.s) * t.dir < -0.5) continue;               // passed
+    if (j === t.lastStop) continue;                          // already waited here
+    if (isStopBlock(t.axis, t.k, j)) return { j, mid };
+  }
+  return null;
+}
+
+// The distance from the tram's nose to the nearest car on its track, out to CLEAR metres (0 if a car is at the nose;
+// CLEAR or more if the track ahead is clear). A car is on the track when it overlaps the tram's width and lies ahead of it.
+// A car beside the tram in the next lane (2.5 m off the centre line) is not on the track.
+function gapAhead(t) {
+  const tu = [t.box.ux, t.box.uz], tv = [t.box.vx, t.box.vz];
+  let best = CLEAR;
+  for (const c of cars) {
+    if (c.wrecked) continue;                                                  // a destroyed car is thrown off the track, and is not in the way
+    const dx = c.x - t.x, dz = c.z - t.z;
+    const a = dx * tu[0] + dz * tu[1], l = dx * tv[0] + dz * tv[1];          // the car's centre, along and across the tram
+    const cu = [Math.sin(c.h), Math.cos(c.h)], cv = [-Math.cos(c.h), Math.sin(c.h)];
+    const e1 = c.box.e1, e2 = c.box.e2;
+    const ex = e1 * Math.abs(cu[0] * tu[0] + cu[1] * tu[1]) + e2 * Math.abs(cv[0] * tu[0] + cv[1] * tu[1]);   // the car's half extent along the tram
+    const ey = e1 * Math.abs(cu[0] * tv[0] + cu[1] * tv[1]) + e2 * Math.abs(cv[0] * tv[0] + cv[1] * tv[1]);   // ... and across it
+    if (Math.abs(l) > ey + HALF_W + 0.1) continue;                            // not on the track
+    const fa = a - ex, fb = a + ex;                                           // the car's near and far edges, forward of the tram's centre (tu points the way it runs)
+    if (fb <= HALF_LEN) continue;                                             // behind the nose
+    if (fa >= HALF_LEN + CLEAR) continue;                                     // beyond the look-ahead
+    best = Math.min(best, Math.max(0, fa - HALF_LEN));
+  }
+  return best;
+}
+
+// For a civilian car's driver (civAI). Returns -1 if the car is on a live track, where it must get off: it gives the car
+// gas to clear the rails. Otherwise returns the distance to the nearest track the car is about to cross while a tram is
+// coming to that crossing, so the car brakes for it; Infinity when there is none. The strip of a track is the rails'
+// width, along the route between its two terminals.
+export function tramTrackAhead(c) {
+  let best = Infinity;
+  const sn = Math.sin(c.h), cs = Math.cos(c.h);
+  for (const t of trams) {
+    if (t.dead) continue;
+    const across = t.axis === 'z' ? [1, 0] : [0, 1], along = t.axis === 'z' ? [0, 1] : [1, 0];
+    const P = t.k * CHUNK, A0 = t.route.lo * CHUNK, A1 = (t.route.hi + 1) * CHUNK;
+    const perpC = t.axis === 'z' ? c.x : c.z, alongC = t.axis === 'z' ? c.z : c.x;
+    const cu = [sn, cs], cv = [-cs, sn];
+    const ex = c.box.e1 * Math.abs(cu[0] * along[0] + cu[1] * along[1]) + c.box.e2 * Math.abs(cv[0] * along[0] + cv[1] * along[1]);
+    const ey = c.box.e1 * Math.abs(cu[0] * across[0] + cu[1] * across[1]) + c.box.e2 * Math.abs(cv[0] * across[0] + cv[1] * across[1]);
+    // on the track: its footprint overlaps the rails, and it lies within the route
+    if (Math.abs(perpC - P) < HALF_W + ey && alongC + ex > A0 && alongC - ex < A1) return -1;
+    // about to cross: its heading takes the nose across the rails within 25 m, at a point of this route
+    const fAcross = sn * across[0] + cs * across[1], fAlong = sn * along[0] + cs * along[1];
+    if (Math.abs(fAcross) < 0.2) continue;
+    const s = (P - perpC) / fAcross, dd = s - c.box.e1;                       // distance to the nose reaching the rails
+    if (dd <= -c.box.e1 || dd >= 25) continue;
+    const crossAlong = alongC + fAlong * s;
+    if (crossAlong <= A0 || crossAlong >= A1) continue;
+    // a tram coming to that point: behind it, moving towards it, and near enough to matter
+    const toGo = (crossAlong - t.s) * t.dir;
+    if (toGo > 0 && toGo < CLEAR) best = Math.min(best, Math.max(0, dd));
+  }
+  return best;
+}
+
+function driveTram(t, dt) {
+  const r = t.route;
+  // The tram's body must stay on the route, so its centre stops HALF_LEN + 1 short of each terminal.
+  const lo = r.lo * CHUNK + HALF_LEN + 1, hi = (r.hi + 1) * CHUNK - HALF_LEN - 1;
+  let target = CRUISE;
+
+  // 1. a car on the track ahead: brake short of it, and wait until it has gone
+  const gap = gapAhead(t);
+  t.blocked = gap < CLEAR;
+  if (t.blocked) {
+    target = Math.min(target, Math.sqrt(2 * STOP_DECEL * Math.max(0, gap - 3)));
+    if (gap <= 3) t.speed = 0;
+  }
+
+  // 2. the terminal: brake to a halt at the end of the route, wait there, and run back the other way
+  if (!t.turning) {
+    const toEnd = t.dir > 0 ? hi - t.s : t.s - lo;
+    if (toEnd < CLEAR) target = Math.min(target, Math.sqrt(2 * STOP_DECEL * Math.max(0, toEnd)));
+    if (toEnd <= Math.max(0.03, t.speed * dt)) { t.turning = true; t.wait = TERMINUS_WAIT; t.speed = 0; target = 0; }
+  }
+
+  // 3. waiting (at a station or a terminal), or the next station ahead
+  if (t.wait > 0) {
+    t.wait -= dt; target = 0;
+    if (t.wait <= 0) { t.wait = 0; if (t.turning) { t.turning = false; t.dir = -t.dir; t.lastStop = null; } }
+  } else if (!t.turning) {
+    const st = nextStop(t);
+    if (st) {
+      const dS = (st.mid - t.s) * t.dir;                    // distance still to run to the station
+      if (dS < CLEAR) target = Math.min(target, Math.sqrt(2 * STOP_DECEL * Math.max(0, dS)));   // brake so as to arrive at rest
+      if (dS <= Math.max(0.03, t.speed * dt)) {
+        // at a walking pace it halts here; too fast to stop in time (only just after a spawn), it runs past the station
+        if (t.speed <= 2) { t.wait = STOP_WAIT; t.speed = 0; target = 0; }
+        t.lastStop = st.j;
+      }
+    }
+  }
+
+  t.speed += clamp(target - t.speed, -BRAKE * dt, ACCEL * dt);
+  t.speed = Math.max(0, t.speed);
+  t.s = clamp(t.s + t.dir * t.speed * dt, lo, hi);
+}
+
+// A tram on a route near the player, somewhere within reach of him and not on a route that already has one.
+function spawnTram() {
+  for (let tries = 0; tries < 16; tries++) {
+    const axis = Math.random() < 0.5 ? 'z' : 'x';
+    const near = axis === 'z' ? player.x : player.z, along = axis === 'z' ? player.z : player.x;
+    const k = Math.round(near / CHUNK) + Math.floor(rnd(-2, 3));
+    if (!isTramLine(axis, k)) continue;
+    const r = routeOf(axis, k, Math.floor(along / CHUNK) + Math.floor(rnd(-3, 4)));
+    if (!r || trams.some(t => t.route.id === r.id)) continue;
+    const lo = r.lo * CHUNK + HALF_LEN + 1, hi = (r.hi + 1) * CHUNK - HALF_LEN - 1;
+    const s = clamp(along + (Math.random() < 0.5 ? -1 : 1) * rnd(70, 170), lo, hi);
+    if (Math.abs(s - along) < 50) continue;
+    const t = makeTram(r, Math.random() < 0.5 ? 1 : -1, s);
+    t.speed = 0;                                             // it starts from rest, so it can always stop where it is
+    trams.push(t);
+    return true;
+  }
+  return false;
+}
+
+// The tram's sounds: wheels on the rails and the bell while it runs; the bell rings faster while a car is on the track ahead.
+function tramSound(t, dt) {
+  const d = Math.hypot(t.x - player.x, t.z - player.z), vol = clamp(1 - d / 170, 0, 1);
+  if (vol <= 0) return;
+  t.rollT -= dt; t.bellT -= dt;
+  if (t.speed > 1 && t.rollT <= 0) { t.rollT = 0.42 - Math.min(0.2, t.speed * 0.004); sfx.tramRoll(vol * 0.8); }
+  // the bell: every 5 s while it runs, and every 1.3 s, louder, while a car is on the track ahead
+  if ((t.blocked || t.speed > 1) && t.bellT <= 0) {
+    t.bellT = t.blocked ? 1.3 : 5;
+    sfx.tramBell(t.blocked ? vol : vol * 0.6);
+  }
+}
+
+// Once a frame, before the cars are tested against the trams.
+export function updateTrams(dt) {
+  spawnT -= dt;
+  if (spawnT <= 0) {
+    spawnT = SPAWN_EVERY;
+    if (trams.length < MAX_TRAMS && Math.random() < SPAWN_CHANCE) spawnTram();
+  }
+  for (const t of [...trams]) {
+    driveTram(t, dt);
+    if (t.dead) continue;
+    place(t);
+    tramSound(t, dt);
+    if (Math.hypot(t.x - player.x, t.z - player.z) > REMOVE_R) removeTram(t);
+  }
+}

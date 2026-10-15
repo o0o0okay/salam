@@ -77,19 +77,23 @@ const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => {} });
-const hurtPlayer = () => { fx.hurtPlayer++; };
+const hurtPlayer = amt => { fx.hurtPlayer++; game.hp = Math.max(0, game.hp - (amt > 0 ? amt : 0) * (DIFF.dmg || 1)); };
+const ENV_DMG = 0.3;                                       // js/config.js: scenery hits are scaled before they hurt
+const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
 const ARMOR = [1, .82, .62, .42, .28];
+const hurtCarEnv = (c, amt) => hurtCar(c, amt * ENV_DMG);
 const hurtCar = (c, amt) => { fx.hurtCar++; if (c.wrecked || !(amt > 0)) return; const armor = c.isPolice ? ARMOR[Math.min(4, Math.max(0, (c.tier || 1) - 1))] : 1; c.hp -= amt * armor; if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; } };
 const civPanic = () => {};
 const toast = () => {};
 const wreckTick = (c, dt) => { c.wreckT += dt; };
 const tickHulks = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
-const nearChunks = __world.nearChunks, CAR_DIMS = __world.CAR_DIMS, solidAt = __world.solidAt;
+const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, CAR_DIMS = __world.CAR_DIMS, solidAt = __world.solidAt;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const insideFootprint = __world.insideFootprint, parapetPush = __world.parapetPush;
+const structureLevel = __world.structureLevel;
 const surfaceAt = __world.surfaceAt, flyoverNear = __world.flyoverNear, alongOf = __world.alongOf, latOf = __world.latOf;
-const rampHeight = __world.rampHeight;
+const rampHeight = __world.rampHeight, bridgeHeight = __world.bridgeHeight;
 const laneOffsetOn = __world.laneOffsetOn, rampApproach = __world.rampApproach;
 const rampExit = __world.rampExit, laneAim = __world.laneAim, laneOffset = __world.laneOffset, FLY = __world.FLY;
 const roadEdge = __world.roadEdge;
@@ -104,7 +108,7 @@ const W = M.__world;
 const DT = 1 / 60;
 let seed = 987654321;
 Math.random = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-const reseed = (s = 987654321) => { seed = s; };
+const reseed = (s = +(process.env.CHASE_SEED || 987654321)) => { seed = s; };   // CHASE_SEED=<n> runs the same scenarios on another random stream
 
 function spawnPlayer(x, z, h, y = 0) {
   Object.assign(M.player, M.createCar('player', x, z, h, M.PLAYER_PARAMS, 0));
@@ -123,11 +127,11 @@ function spawnCop(x, z, h, { tier = 2, role = 'chaser', y = null } = {}) {
 /* Runs one chase: the player sits still with the hand brake on (the reported case - hiding, not fleeing) and
    every pursuer is driven by the real policeAI. Returns the per-unit trace. */
 function chase(player, cops, seconds = 26) {
-  M.cars.length = 0; M.police.length = 0; M.sight.t = -99; M.game.time = 0; M.game.t = 0; reseed();
+  M.cars.length = 0; M.police.length = 0; M.sight.t = -99; M.game.time = 0; M.game.t = 0; M.game.hp = 100; reseed();
   spawnPlayer(player.x, player.z, player.h, player.y || 0);
   const units = cops.map(c => spawnCop(c.x, c.z, c.h, c));
   W.updateChunks(player.x, player.z, 999);
-  const trace = units.map(() => []);
+  const trace = units.map(() => []), plTrace = [];
   let budgetT = 0;
   for (let i = 0; i < Math.round(seconds / DT); i++) {
     M.game.time += DT; M.game.t = M.game.time;
@@ -143,8 +147,10 @@ function chase(player, cops, seconds = 26) {
     for (const c of M.cars) { M.collideFlyover(c); M.syncCarMesh(c, DT); }
     budgetT += DT;
     if (budgetT > 1) { budgetT = 0; W.updateChunks(player.x, player.z, 999); }
-    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp }));
+    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role }));
+    plTrace.push({ t: M.game.time, x: M.player.x, z: M.player.z, y: M.player.y, hp: M.game.hp });
   }
+  trace.pl = plTrace;
   return trace;
 }
 
@@ -165,7 +171,9 @@ const bad = m => { fails++; console.log('  X ' + m); };
   else ok('js/police.js imports every flyover helper its AI uses (a stitched copy hides a missing import)');
 }
 
-const NODE = W.nearestNode(0, -1).node;        // the first flyover on the avenue: x = 0, the flying road runs along z
+// The first flyover on the avenue: x = 0, the flying road runs along z. CHASE_BLOCK=<n> puts the same scenarios on the
+// flyover n blocks from the centre instead, e.g. CHASE_BLOCK=11 is the first long bridge in the current city (two junctions).
+const NODE = process.env.CHASE_BLOCK ? +process.env.CHASE_BLOCK * W.FLY.span : W.nearestNode(0, -1).node;
 const FLY = W.FLY, LANE = FLY.halfW + 7;       // middle of the at-grade lane beside the structure's flank
 console.log(`police chase at the flyover on the avenue at z = ${NODE} (deck ±${FLY.deckHalf} m of it, ramp foot at ±${FLY.rampEnd} m, at-grade lane at ±${LANE} m)`);
 
@@ -196,6 +204,137 @@ for (const [name, player, cops, limit] of cases) {
   if (!reach) bad(`${name}: never got to the player (${line})`);
   else if (reach.t > limit) bad(`${name}: took ${reach.t.toFixed(1)} s to reach the player, over the ${limit} s limit (${line})`);
   else ok(`${name}: reached the player in ${reach.t.toFixed(1)} s (${line})`);
+}
+
+// ---- the height probe: is a car on the deck, beneath it, or clear of the structure? ----
+// structureLevel() is what the trap reads, so each probe point is checked against what the level should be.
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  if (!f || f.axis !== 'z') bad('no flyover on the avenue at the block the test uses');
+  else {
+    const at = (u, lat) => ({ x: f.road + lat, z: f.node + u });        // the avenue runs along z here
+    const mid = (f.lo + f.hi) / 2, rampU = f.hi + W.FLY.deckHalf + 10, beyondU = f.hi + W.FLY.rampEnd + 6;
+    const probes = [
+      ['on the deck, mid-span', at(mid, 0), W.FLY.deckH, 'deck'],
+      ['beneath the deck, in the junction box', at(mid, 0), 0, 'under'],
+      ['on the ramp, climbing', at(rampU, 0), W.bridgeHeight(f, rampU) + 0.05, 'deck'],
+      ['beneath the ramp, at grade', at(rampU, 0), 0, 'under'],
+      ['past the ramp foot, at grade', at(beyondU, 0), 0, null],
+      ['beside the structure, at grade', at(mid, W.FLY.halfW + 7), 0, null],
+    ];
+    const bad0 = probes.filter(([, pt, y, want]) => { const L = W.structureLevel(pt.x, y, pt.z); return (L ? L.level : null) !== want; });
+    if (bad0.length) bad(`height probe: ${bad0.map(b => `${b[0]} (wanted ${b[3]})`).join('; ')}`);
+    else ok(`height probe: ${probes.length} of ${probes.length} points read the right level (deck, under, or clear)`);
+  }
+}
+
+// ---- the bridge trap: a player who sits on the deck is closed off at one end, and rammed from the other ----
+// The player sits up on the deck, facing the +z end, with the hand brake on. Three cruisers start beyond the +z end and
+// three beyond the -z end, on the ground. The checkpoint should park across the deck short of the +z end, the -z cruisers
+// should come up their ramp and ram him, and his hp should reach zero within the time limit.
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  if (!f) bad('no flyover at the block the bridge test uses');
+  else {
+    const zA = f.node + f.hi + 150, zB = f.node + f.lo - 150;
+    const player1 = { x: 2.5, z: NODE, h: 0, y: W.FLY.deckH };
+    const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 0, z: zA - 10, h: Math.PI },
+                  { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }, { x: 0, z: zB + 10, h: 0 }];
+    const tr = chase(player1, cops, 60);
+    const lineZ = f.node + f.hi + 8;
+    // the checkpoint: most cruisers stopped on their slots at once, and when two of them first were
+    const onLine = s2 => s2.role === 'bridgeBlock' && s2.speed < 2 && Math.hypot(s2.x - f.road, s2.z - lineZ) < 9 && Math.abs(s2.y - W.FLY.deckH) < 1.5;
+    let parkedAtCP = 0, tPark = null;
+    for (let i = 0; i < tr[0].length; i++) {
+      const n = tr.filter(t => onLine(t[i])).length;
+      parkedAtCP = Math.max(parkedAtCP, n);
+      if (n >= 2 && tPark === null) tPark = tr[0][i].t;
+    }
+    const everAtk = tr.some(t => t.some(s2 => s2.role === 'bridgeAtk'));
+    const dead = tr.pl.find(s2 => s2.hp <= 0);
+    const line = `checkpoint: ${parkedAtCP} cruisers parked on the deck${tPark !== null ? ' (two of them by ' + tPark.toFixed(1) + ' s)' : ''}; attack group used: ${everAtk ? 'yes' : 'no'}; hp ${dead ? 'reached 0 at ' + dead.t.toFixed(1) + ' s' : 'stayed above 0 (' + Math.round(tr.pl[tr.pl.length - 1].hp) + ')'}`;
+    if (dead && dead.t <= 45 && tPark !== null && everAtk) ok(`the player sat on the deck and was trapped: ${line}`);
+    else bad(`the player sat on the deck and the trap did not close and destroy him: ${line}`);
+  }
+}
+
+// ---- beneath the deck is not up on it: a player in the junction box at grade is never trapped ----
+{
+  const k = Math.round(NODE / W.FLY.span), f = W.nodeAt(0, k);
+  const zA = f.node + f.hi + 150, zB = f.node + f.lo - 150;
+  const cops = [{ x: 2.5, z: zA, h: Math.PI }, { x: -2.5, z: zA, h: Math.PI }, { x: 2.5, z: zB, h: 0 }, { x: -2.5, z: zB, h: 0 }];
+  const tr = chase({ x: 2.5, z: f.node, h: 0, y: 0 }, cops, 40);
+  const trapped = tr.some(t => t.some(s2 => s2.role === 'bridgeBlock' || s2.role === 'bridgeAtk'));
+  if (trapped) bad('the player sat in the junction box beneath the deck and was trapped as if he were up on it');
+  else ok('the player in the junction box beneath the deck was never trapped (no unit took a trap role)');
+}
+
+// ---- narrow gaps: a pursuer finds its own way into a gap the road grid does not reach ----
+// Two gaps off the grid (a shop front on one side, a parked car on the other, about 2.8 m between them). The player
+// fits through; the old pursuit stalled against the walls and reached him in 9 of 16 runs. Eight random streams for
+// each gap, 26 s each: at least 10 of the 16 must reach him (the route search reaches 12).
+{
+  const gaps = [{ x: -123, z: -63 }, { x: 103, z: 99 }];
+  const keep = process.env.CHASE_SEED;
+  let reached = 0, total = 0;
+  for (const g of gaps) for (let sd = 1; sd <= 8; sd++) {
+    process.env.CHASE_SEED = String(1000 * sd + 7);
+    const tr = chase({ x: g.x, z: g.z, h: Math.PI / 2, y: 0 }, [{ x: g.x - 30, z: g.z, h: Math.PI / 2, tier: 1, role: 'chaser' }], 26)[0];
+    total++;
+    if (tr.some(p => p.d < 4)) reached++;
+  }
+  if (keep === undefined) delete process.env.CHASE_SEED; else process.env.CHASE_SEED = keep;
+  if (reached >= 10) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+}
+
+// ---- alley mouths: a pursuer on the avenue finds the way into a narrow street where the player hides ----
+// Thirty fixed scenes (a scan of the city's street canyons, 5-14 m wide between solids): the player sits in the street, two
+// pursuers start 22-30 m away on open ground with the line of sight blocked. The old pursuit drove into the street mouth and
+// stalled against its corners. [player x, z, street axis (1 = along x), pursuer x, z]. Each pursuer counts; at least 45 of the
+// 60 must reach him within 30 s (the committed pursuit reached 42 of 60).
+{
+  const scenes = [
+    [-150, -106, 0, -150, -84],
+    [-148, 144, 1, -142, 165],
+    [-142, -56, 1, -136, -35],
+    [-142, -10, 1, -142, -32],
+    [-138, 44, 0, -138, 22],
+    [-122, 106, 1, -106, 122],
+    [-116, -138, 0, -116, -116],
+    [-108, 12, 0, -87, 6],
+    [-102, -94, 1, -86, -78],
+    [-96, -30, 1, -85, -11],
+    [-96, 62, 0, -96, 84],
+    [-68, 124, 1, -90, 124],
+    [-60, 32, 0, -60, 54],
+    [-50, -68, 0, -50, -46],
+    [12, 14, 1, 34, 14],
+    [14, 102, 1, 14, 124],
+    [24, -120, 0, 24, -98],
+    [28, 140, 0, 28, 162],
+    [32, -40, 1, 11, -46],
+    [44, 46, 0, 21, 40],
+    [56, 110, 0, 56, 132],
+    [62, -148, 0, 81, -137],
+    [62, -96, 0, 83, -102],
+    [68, -20, 1, 89, -26],
+    [104, -40, 0, 120, -56],
+    [106, -132, 0, 122, -116],
+    [110, 12, 0, 121, -7],
+    [132, -94, 0, 132, -72],
+    [146, -36, 1, 152, -15],
+    [146, 30, 1, 152, 51]
+  ];
+  let reached = 0, runs = 0;
+  for (const [px, pz, ax, qx, qz] of scenes) {
+    const h = ax ? Math.PI / 2 : 0, hc = Math.atan2(px - qx, pz - qz);
+    const cops = [{ x: qx, z: qz, h: hc, tier: 2, role: 'chaser' }, { x: qx + 3 * Math.cos(hc), z: qz - 3 * Math.sin(hc), h: hc, tier: 2, role: 'chaser' }];
+    const tr = chase({ x: px, z: pz, h, y: 0 }, cops, 30);
+    for (const t of tr) { runs++; if (t.some(p => p.d < 4)) reached++; }
+  }
+  if (reached >= 45) ok(`a pursuer reached the player in ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
 }
 
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');

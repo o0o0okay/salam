@@ -15,12 +15,17 @@ node tools/sidewalk-checks/parking.mjs   # drives the live parking system frame 
 node tools/sidewalk-checks/heavyhit.mjs  # drives a real car into a parked ambulance / fire engine (behavioural)
 node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, clear lanes and repeatable placement
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
+node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
+node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
 node tools/sidewalk-checks/plan-roadworks.mjs  # one closed lane: the slabs as laid, the kit around them, the old slab
 node tools/sidewalk-checks/plan-flyover.mjs  # grade-separated interchange: plan + two sections
+node tools/sidewalk-checks/solid-index.mjs  # the solid index (solidsNear) returns exactly what the old 3x3 scan returned
+node tools/sidewalk-checks/districts.mjs  # district map: all four present, mostly one region each, the block mix per district, estates only in suburbs
+node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -185,6 +190,16 @@ lane it already occupies instead of steering at the parapets. The test hands it 
 at-grade lane, under the deck, and beside the abutment, with pursuers coming from the avenue's own lanes, the far
 at-grade lane, the deck, the ramps and the cross street, and requires the car on the player, at his own height,
 every time.
+
+The bridge trap is the second half of that test. A player who sits on the deck, slow, for five seconds has one end of
+the structure closed by a checkpoint (up to three cruisers parked across the deck, eight metres beyond the span's end,
+on the side he faces) while the cruisers at the other end drive up their ramp and ram him. The harness requires the
+checkpoint to park two cruisers on the deck and his hp to reach zero within 45 s; a player below the deck, in a junction
+box, must never be given a trap role. Each run prints whether the trap closed, how many cruisers parked and when, and
+when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test the trap reads: 'deck' or 'under' or clear,
+from the car's own height. The height probe checks six points against it. A trapped player can still be arrested: the
+existing BUSTED rule in `js/update.js` applies on the deck as anywhere else, and the test does not model it. A few seeds
+still leave one cruiser at the checkpoint, or let the rams push the car off the far ramp.
 
 The shopping streets come from `buildShopParadeMesh()` / `buildShopFrontMesh()` in `js/world.js`: fourteen
 invented businesses (cafe, bakery, pizza, market, pharmacy, books, barber, donuts, flowers, hardware, laundry,

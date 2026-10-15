@@ -40,6 +40,7 @@ export function updateEnvironment(dt = 0, playerX = 0, playerZ = 0, audioEnabled
   moonDisc.position.set(-_sv.x, -_sv.y, -_sv.z); moonDisc.visible = -_sv.y > 8;
   starMat.opacity = env.night * env.night;
   for (const m of ASSET.windowMats) m.emissiveIntensity = env.night * 0.95;
+  for (const m of ASSET.litMats) m.emissiveIntensity = env.night * 0.95;
   ASSET.beamMat.opacity = env.night * 0.55; ASSET.beamMat.visible = env.night > 0.04;
   pMesh.material.color.setScalar(lerp(0.5, 1, day));
   skyGroup.position.copy(camera.position);

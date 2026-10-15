@@ -67,6 +67,22 @@ export const sfx = {
     if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15); o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + 0.16);
   },
+  // tram: two-tone bell, rung while a car is on the track ahead
+  tramBell(vol) {
+    if (!this.ctx || vol <= 0) return; const c = this.ctx, now = c.currentTime;
+    for (const [f, a] of [[1180, 1], [1570, 0.6]]) {
+      const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.16 * a * vol, now + 0.01); g.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      o.connect(g); g.connect(this.master); o.start(now); o.stop(now + 0.95);
+    }
+  },
+  // tram: wheel clatter on the rails while it runs
+  tramRoll(vol) {
+    if (!this.ctx || vol <= 0 || !this.noise) return; const c = this.ctx, now = c.currentTime;
+    const s = c.createBufferSource(); s.buffer = this.noise; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.9;
+    const g = c.createGain(); g.gain.setValueAtTime(0.22 * vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(now); s.stop(now + 0.3);
+  },
   thunder(power = 1) {
     if (!this.ctx || !this.thunderNoise) return;
     const c = this.ctx, now = c.currentTime, source = c.createBufferSource();

@@ -5,78 +5,111 @@ import * as THREE from 'three';
 
 
 export const PROP_DEFS = {
-  streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, make() { const g = new THREE.Group(), m = mat(0x7d838c);
+  streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, soft: true, make() { const g = new THREE.Group(), m = mat(0x7d838c);
     g.add(cyl(0.14, 0.2, 7, 8, m, 0, 3.5, 0, false)); g.add(box(1.8, 0.14, 0.14, m, 0.8, 7, 0, false)); g.add(box(0.7, 0.16, 0.4, ASSET.lampMat, 1.55, 6.88, 0, false)); return g; } },
-  cone: { r: 0.65, drag: 0.97, color: 0xff7a1a, make() { const g = new THREE.Group();
+  // a steel tram pole, on the sidewalk: a round pole with a bracket arm that reaches out (local +x) over the street, and an
+  // insulator at its tip. The span wire hangs from the insulator (js/tram.js tramWires). It breaks like any street prop.
+  tramMast: { r: 0.3, drag: 0.9, color: 0x8a8f96, soft: true, make() { const g = new THREE.Group(), m = mat(0x8a8f96), d = mat(0x4d535b);
+    g.add(cyl(0.12, 0.18, 6.2, 8, m, 0, 3.1, 0, false)); g.add(cyl(0.22, 0.22, 0.5, 8, d, 0, 0.25, 0, false));
+    g.add(box(4.2, 0.12, 0.12, m, 2.1, 5.8, 0, false)); g.add(box(0.3, 0.3, 0.3, d, 4.2, 5.8, 0, false)); return g; } },
+  // a wooden utility pole: a tapered pole, two crossarms across the line with insulators, braces and a transformer.
+  // The wires are not part of the prop; they are laid between poles by js/world.js (utilityLine).
+  utilitypole: { r: 0.3, drag: 0.9, color: 0x5a3d26, soft: true, make() { const g = new THREE.Group(), w = mat(0x4a3322), arm = mat(0x6b4a2f), ins = mat(0x1d1d1d), tr = mat(0x5d636b);
+    g.add(cyl(0.13, 0.2, 8.4, 8, w, 0, 4.2, 0, false));
+    for (const y of [8.0, 7.2]) {
+      g.add(box(2.6, 0.16, 0.16, arm, 0, y, 0, false));
+      for (const x of [-1.1, 1.1]) g.add(cyl(0.08, 0.08, 0.3, 6, ins, x, y + 0.2, 0, false));
+    }
+    for (const x of [-0.6, 0.6]) { const br = box(0.08, 1.2, 0.08, w, x, 7.4, 0, false); br.rotation.z = x > 0 ? -0.6 : 0.6; g.add(br); }
+    g.add(box(0.8, 1.0, 0.7, tr, 0.9, 5.2, 0, false));
+    return g; } },
+  cone: { r: 0.65, drag: 0.97, color: 0xff7a1a, soft: true, make() { const g = new THREE.Group();
     g.add(cyl(0.12, 0.42, 0.95, 8, mat(0xff7a1a), 0, 0.55, 0, false)); g.add(cyl(0.2, 0.28, 0.2, 8, mat(0xffffff), 0, 0.6, 0, false)); g.add(box(0.95, 0.08, 0.95, mat(0x2a2a2a), 0, 0.04, 0, false)); return g; } },
-  barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, make() { const g = new THREE.Group();
+  barrier: { r: 1.5, drag: 0.93, color: 0xf0f0f0, soft: true, make() { const g = new THREE.Group();
     g.add(box(3.4, 0.9, 0.6, mat(0xf2f2f2), 0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), -1.0, 0.75, 0, false)); g.add(box(0.5, 0.92, 0.62, mat(0xe03a3a), 0.2, 0.75, 0, false));
     g.add(box(0.15, 0.5, 0.15, mat(0x444444), -1.4, 0.25, 0, false)); g.add(box(0.15, 0.5, 0.15, mat(0x444444), 1.4, 0.25, 0, false)); return g; } },
-  crate: { r: 1.1, drag: 0.94, color: 0xa87440, make() { const g = new THREE.Group();
+  // a road-works barricade across a barred street's mouth: two yellow boards with black diagonal stripes on white-and-
+  // orange posts and concrete feet (the striped barricade of the construction sites). Soft and breakable like a barrier.
+  barricade: { r: 1.5, drag: 0.93, color: 0xf2c200, soft: true, make() { const g = new THREE.Group();
+    const yel = mat(0xf2c200), blk = mat(0x222222), wht = mat(0xf4f4f4), org = mat(0xf07a1a), base = mat(0xb8bcc0);
+    for (const sx of [-1.25, 1.25]) { g.add(cyl(0.07, 0.07, 1.7, 6, wht, sx, 0.85, 0, false)); g.add(cyl(0.09, 0.09, 0.3, 6, org, sx, 1.72, 0, false)); g.add(box(0.6, 0.12, 0.7, base, sx, 0.06, 0, false)); }
+    for (const by of [0.55, 1.15]) {
+      g.add(box(2.6, 0.32, 0.1, yel, 0, by, 0, false));
+      for (const bx of [-1.1, -0.55, 0, 0.55, 1.1]) { const st = box(0.2, 0.42, 0.12, blk, bx, by, 0, false); st.rotation.z = 0.9; g.add(st); }
+    }
+    return g; } },
+  crate: { r: 1.1, drag: 0.94, color: 0xa87440, soft: true, make() { const g = new THREE.Group();
     g.add(box(1.7, 1.7, 1.7, mat(0xa87440), 0, 0.85, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 0.3, 0, false)); g.add(box(1.76, 0.18, 1.76, mat(0x7b5128), 0, 1.4, 0, false)); return g; } },
-  barrel: { r: 0.8, drag: 0.94, color: 0xd64545, make() { const g = new THREE.Group(); const c = Math.random() < 0.5 ? 0xd64545 : 0x3b7ddd;
+  barrel: { r: 0.8, drag: 0.94, color: 0xd64545, soft: true, make() { const g = new THREE.Group(); const c = Math.random() < 0.5 ? 0xd64545 : 0x3b7ddd;
     g.add(cyl(0.6, 0.6, 1.3, 10, mat(c), 0, 0.65, 0, false)); g.add(cyl(0.62, 0.62, 0.12, 10, mat(0x222222), 0, 0.9, 0, false)); return g; } },
-  fence: { r: 2.1, drag: 0.96, color: 0xf6f2e7, make() { const g = new THREE.Group();
+  fence: { r: 2.1, drag: 0.96, color: 0xf6f2e7, soft: true, make() { const g = new THREE.Group();
     g.add(box(4, 0.9, 0.16, mat(0xf6f2e7), 0, 0.6, 0, false)); g.add(box(4.1, 0.12, 0.22, mat(0xcfc8b4), 0, 1.1, 0, false)); g.add(box(0.2, 1.2, 0.26, mat(0xcfc8b4), -1.95, 0.6, 0, false)); return g; } },
-  bench: { r: 1.2, drag: 0.95, color: 0x9a6a3a, make() { const g = new THREE.Group();
+  bench: { r: 1.2, drag: 0.95, color: 0x9a6a3a, soft: true, make() { const g = new THREE.Group();
     g.add(box(2.2, 0.14, 0.7, mat(0x9a6a3a), 0, 0.55, 0, false)); g.add(box(2.2, 0.5, 0.12, mat(0x9a6a3a), 0, 0.95, -0.3, false));
     g.add(box(0.14, 0.5, 0.6, mat(0x444444), -0.9, 0.25, 0, false)); g.add(box(0.14, 0.5, 0.6, mat(0x444444), 0.9, 0.25, 0, false)); return g; } },
-  hydrant: { r: 0.55, drag: 0.985, color: 0xe53935, make() { const g = new THREE.Group(), m = mat(0xe53935);
+  hydrant: { r: 0.55, drag: 0.985, color: 0xe53935, soft: true, make() { const g = new THREE.Group(), m = mat(0xe53935);
     g.add(cyl(0.28, 0.32, 1.0, 8, m, 0, 0.5, 0, false)); g.add(cyl(0.36, 0.36, 0.14, 8, m, 0, 1.05, 0, false)); g.add(box(0.95, 0.24, 0.24, m, 0, 0.7, 0, false));
     g.add(cyl(0.17, 0.17, 0.3, 6, mat(0xffd23b), 0, 1.22, 0, false)); return g; } },
-  trashcan: { r: 0.5, drag: 0.95, color: 0x4b5660, make() { const g = new THREE.Group();
+  // a wheeled green refuse bin with a flat lid and a yellow band, the kind kept in the back alleys of the blocks
+  dumpster: { r: 1.15, drag: 0.9, color: 0x2f6b3c, soft: true, make() { const g = new THREE.Group(), gr = mat(0x2f6b3c), dk = mat(0x1f2a22), st = mat(0xf2c230), wh = mat(0x1a1a1a);
+    g.add(box(2.0, 1.2, 1.3, gr, 0, 0.75, 0, false));
+    g.add(box(2.06, 0.12, 1.36, dk, 0, 1.4, 0, false));
+    g.add(box(2.02, 0.14, 1.32, st, 0, 0.9, 0, false));
+    for (const x of [-0.8, 0.8]) for (const z of [-0.5, 0.5]) { const w = cyl(0.09, 0.09, 0.08, 6, wh, x, 0.09, z, false); w.rotation.z = Math.PI / 2; g.add(w); }
+    return g; } },
+  trashcan: { r: 0.5, drag: 0.95, color: 0x4b5660, soft: true, make() { const g = new THREE.Group();
     const body = Math.random() < 0.5 ? 0x4b5660 : 0x3f6b4a;
     g.add(cyl(0.38, 0.32, 1.0, 10, mat(body), 0, 0.5, 0, false));
     g.add(cyl(0.42, 0.42, 0.08, 10, mat(0x262b30), 0, 1.0, 0, false));
     g.add(box(0.3, 0.3, 0.3, mat(0xd8d2c0), 0, 1.08, 0, false)); return g; } },
-  trashbag: { r: 0.45, drag: 0.96, color: 0x2e3338, make() { const g = new THREE.Group();
+  trashbag: { r: 0.45, drag: 0.96, color: 0x2e3338, soft: true, make() { const g = new THREE.Group();
     const c = Math.random() < 0.5 ? 0x2e3338 : 0x3a4046;
     g.add(box(0.7, 0.55, 0.65, mat(c), 0, 0.3, 0, false));
     g.add(box(0.42, 0.28, 0.4, mat(c), 0.08, 0.6, -0.05, false)); return g; } },
-  cardboard: { r: 0.45, drag: 0.96, color: 0xb98a55, make() { const g = new THREE.Group();
+  cardboard: { r: 0.45, drag: 0.96, color: 0xb98a55, soft: true, make() { const g = new THREE.Group();
     const c = Math.random() < 0.5 ? 0xb98a55 : 0xc9a06a;
     g.add(box(0.75, 0.5, 0.6, mat(c), 0, 0.25, 0, false));
     g.add(box(0.77, 0.06, 0.62, mat(0x9a6f3f), 0, 0.51, 0, false));
     g.add(box(0.3, 0.07, 0.62, mat(0x9a6f3f), 0, 0.42, 0.31, false)); return g; } },
-  sign: { r: 0.55, drag: 0.93, color: 0xff9a1a, make() { const g = new THREE.Group(), post = mat(0x55575c), board = mat(0xff9a1a), stripe = mat(0x2a2a2a);
+  sign: { r: 0.55, drag: 0.93, color: 0xff9a1a, soft: true, make() { const g = new THREE.Group(), post = mat(0x55575c), board = mat(0xff9a1a), stripe = mat(0x2a2a2a);
     g.add(box(0.1, 1.3, 0.1, post, 0, 0.65, 0, false));
     const b = box(0.95, 0.95, 0.08, board, 0, 1.5, 0, false); b.rotation.z = Math.PI / 4; g.add(b);
     const s1 = box(1.25, 0.16, 0.09, stripe, 0, 1.5, 0.002, false); s1.rotation.z = Math.PI / 4; g.add(s1);
     return g; } },
-  drum: { r: 0.5, drag: 0.94, color: 0xff7a1a, make() { const g = new THREE.Group(), m = mat(0xff7a1a), w = mat(0xf0f0f0);
+  drum: { r: 0.5, drag: 0.94, color: 0xff7a1a, soft: true, make() { const g = new THREE.Group(), m = mat(0xff7a1a), w = mat(0xf0f0f0);
     g.add(cyl(0.34, 0.4, 0.9, 10, m, 0, 0.45, 0, false));
     g.add(cyl(0.345, 0.405, 0.16, 10, w, 0, 0.64, 0, false));
     g.add(cyl(0.345, 0.405, 0.16, 10, w, 0, 0.26, 0, false)); return g; } },
-  mailbox: { r: 0.75, drag: 0.9, color: 0x2f3f6b, make() { const g = new THREE.Group(), body = mat(0x2f3f6b), dark = mat(0x1d2540);
+  mailbox: { r: 0.75, drag: 0.9, color: 0x2f3f6b, soft: true, make() { const g = new THREE.Group(), body = mat(0x2f3f6b), dark = mat(0x1d2540);
     for (const sx of [-1, 1]) g.add(box(0.13, 0.55, 0.13, dark, sx * 0.34, 0.28, 0, false));
     g.add(box(0.98, 0.82, 0.78, body, 0, 0.96, 0, false));
     const lid = cyl(0.39, 0.39, 0.98, 12, body, 0, 1.37, 0, false); lid.rotation.z = Math.PI / 2; g.add(lid);
     g.add(box(1.02, 0.1, 0.82, dark, 0, 0.52, 0, false));
     g.add(box(0.44, 0.3, 0.04, mat(0xd8dde6), -0.22, 1.06, 0.4, false));
     return g; } },
-  meter: { r: 0.3, drag: 0.9, color: 0x9aa0a6, make() { const g = new THREE.Group(), m = mat(0x9aa0a6), dark = mat(0x2a2d33);
+  meter: { r: 0.3, drag: 0.9, color: 0x9aa0a6, soft: true, make() { const g = new THREE.Group(), m = mat(0x9aa0a6), dark = mat(0x2a2d33);
     g.add(cyl(0.05, 0.06, 1.3, 6, m, 0, 0.65, 0, false));
     g.add(box(0.23, 0.36, 0.23, m, 0, 1.45, 0, false));
     g.add(box(0.17, 0.2, 0.03, dark, 0, 1.48, 0.12, false));
     g.add(box(0.32, 0.06, 0.32, dark, 0, 0.05, 0, false));
     return g; } },
-  sandwich: { r: 0.7, drag: 0.97, color: 0xf4f1e6, make() { const g = new THREE.Group(), white = mat(0xf4f1e6), dark = mat(0x2a2a2a);
+  sandwich: { r: 0.7, drag: 0.97, color: 0xf4f1e6, soft: true, make() { const g = new THREE.Group(), white = mat(0xf4f1e6), dark = mat(0x2a2a2a);
     for (const sz of [-1, 1]) { const b = box(0.92, 1.2, 0.07, white, 0, 0.65, sz * 0.24, false); b.rotation.x = sz * 0.2; g.add(b); }
     g.add(box(0.98, 0.08, 0.66, dark, 0, 0.05, 0, false));
     const band = box(0.7, 0.17, 0.03, mat(0xd64545), 0, 1.0, -0.33, false); band.rotation.x = -0.2; g.add(band);
     const band2 = box(0.6, 0.12, 0.03, mat(0x2a4d9c), 0, 0.74, -0.37, false); band2.rotation.x = -0.2; g.add(band2);
     return g; } },
-  hedge: { r: 1.35, drag: 0.98, color: 0x3f8a3c, make() { const g = new THREE.Group(), leaf = mat(0x3f8a3c), leaf2 = mat(0x4e9c48);
+  hedge: { r: 1.35, drag: 0.98, color: 0x3f8a3c, soft: true, make() { const g = new THREE.Group(), leaf = mat(0x3f8a3c), leaf2 = mat(0x4e9c48);
     g.add(box(2.7, 1.0, 0.95, leaf, 0, 0.62, 0, false));
     g.add(box(2.3, 0.34, 1.0, leaf2, 0, 1.22, 0, false));
     g.add(box(1.3, 0.3, 0.95, leaf, 0.45, 1.46, 0, false));
     g.add(box(1.5, 0.26, 0.9, leaf2, -0.6, 1.4, 0, false));
     return g; } },
-  dirtpile: { r: 0.9, drag: 0.9, color: 0x8a6a42, make() { const g = new THREE.Group();
+  dirtpile: { r: 0.9, drag: 0.9, color: 0x8a6a42, soft: true, make() { const g = new THREE.Group();
     g.add(box(1.6, 0.5, 1.6, mat(0x8a6a42), 0, 0.25, 0, false));
     g.add(box(1.1, 0.4, 1.1, mat(0x9c7a4e), 0, 0.55, 0, false));
     g.add(box(0.6, 0.35, 0.6, mat(0xae8a5a), 0, 0.82, 0, false)); return g; } },
-  pipe: { r: 0.9, drag: 0.93, color: 0x6c7580, make() { const g = new THREE.Group(), m = mat(0x6c7580);
+  pipe: { r: 0.9, drag: 0.93, color: 0x6c7580, soft: true, make() { const g = new THREE.Group(), m = mat(0x6c7580);
     const mkPipe = (z, y) => { const p = cyl(0.18, 0.18, 1.7, 10, m, 0, y, z, false); p.rotation.z = Math.PI / 2; return p; };
     g.add(mkPipe(-0.2, 0.18)); g.add(mkPipe(0.2, 0.18)); g.add(mkPipe(0, 0.5)); return g; } },
   // Plaza features: each is a destructible prop — a car that drives into it knocks it down, just like a

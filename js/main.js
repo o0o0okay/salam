@@ -1,11 +1,18 @@
 /* Entry point: bind UI, boot the world, run the loop */
 import { $ } from './utils.js';
 import { renderer, scene, camera, applyQuality, QUALITY } from './renderer.js';
-import { game } from './state.js';
+import { game, cars } from './state.js';
 import { cfg, setDiff } from './config.js';
 import { initInput } from './input.js';
 import { resetWorld, startGame, togglePause } from './flow.js';
 import { update } from './update.js';
+import { chunks } from './world.js';
+import { mapDataReady } from './mapData.js';
+import { toast } from './ui.js';
+import { PERF_ON, perfFrame } from './perf.js';
+
+// the debug overlay's extra lines (only read when ?debug is on)
+const perfExtra = () => ({ cars: cars.length, chunks: chunks.size, 'quality tier': qLevel, wanted: game.wanted });
 
 $('menuBest').textContent = game.best;
 
@@ -15,6 +22,10 @@ setDiff(cfg.diffKey);
 
 // Start / restart / auto-pause
 $('startBtn').addEventListener('click', startGame);
+// The first start checks that the baked map data (map-data/, made by npm run bake:map) is there, and says so if it is not.
+$('startBtn').addEventListener('click', () => {
+  mapDataReady().then(ok => { if (!ok) toast('Map data missing. Run npm run bake:map in the project folder, then reload.', 12000); });
+}, { once: true });
 $('restartBtn').addEventListener('click', startGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing' && !game.paused) togglePause(); });
 
@@ -44,10 +55,13 @@ function frame(now) {
     else if (frameMs < 14 && qLevel > 0) { qLevel = applyQuality(qLevel - 1); lastQ = now; }
   }
   try {
+    const t0 = PERF_ON ? performance.now() : 0;
     update(dt);
+    const t1 = PERF_ON ? performance.now() : 0;
     // shadows refresh on a cadence: every 2nd frame normally, less often when the machine is struggling
     if ((shadowTick++ % QUALITY[qLevel].shadowsEvery) === 0) renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, camera);
+    if (PERF_ON) perfFrame(raw, t1 - t0, performance.now() - t1, renderer, perfExtra);
   } catch (err) {
     loopFaults++;
     if (loopFaults <= 5) console.error('[ESCAPE ROAD] frame error (continuing)', err);

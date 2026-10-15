@@ -4,10 +4,13 @@ import { scene } from './renderer.js';
 import { game, cars, spikes, flying, fallingTrees, geysers, fires, player, sight, calcScore } from './state.js';
 import { PLAYER_PARAMS } from './config.js';
 import { createCar, removeCar } from './vehicle.js';
+import { clearTrams } from './tram.js';
 import { chunks, disposeChunk, updateChunks, warmTextCache } from './world.js';
 import { clearParticles, explosion } from './particles.js';
+import { ASSET } from './assets.js';
 import { sfx } from './audio.js';
 import { resetHudCache } from './ui.js';
+import { resetMap } from './map.js';
 import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
@@ -17,9 +20,12 @@ export function resetWorld() {
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;
   for (const ch of chunks.values()) disposeChunk(ch); chunks.clear();
+  resetMap();                                                    // the mark, the route and the map start afresh
+  clearTrams();
   clearParticles(); $('toasts').innerHTML = '';
   Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
-    nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, roadblockT: 14, roadblockGroup: null, isNight: false });
+    nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, roadblockT: 14, roadblockGroup: null, isNight: false,
+    hideT: 0, hideBonus: 0, hidePen: 0 });
   if (player.mesh) removeCar(player);
   Object.assign(player, createCar('player', 3, -24, 0, PLAYER_PARAMS, 0xffc21a)); cars.push(player);
   player.lastWall = -99;
@@ -31,7 +37,7 @@ export function resetWorld() {
   sight.x = player.x; sight.z = player.z; sight.vx = sight.vz = 0; sight.t = game.t; sight.heliLock = 0; sight.heliOn = false; sight.lostFlag = false;
   ensureHelicopter();
   setHelicopterVisible(false);
-  for (let i = 0; i < 8; i++) spawnCiv();
+  for (let i = 0; i < 30; i++) spawnCiv();   // the streets start full: about a hundred cars, jam platoons included
   resetHudCache();
 }
 export function startGame() {
@@ -39,10 +45,16 @@ export function startGame() {
   sfx.init(); resetWorld();
   game.state = 'playing'; $('startScreen').classList.add('hide'); $('overScreen').classList.add('hide'); $('hud').classList.add('on');
 }
+function burnOut(c) {
+  c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
+  if (c.beam) c.beam.visible = false;
+}
 export function endGame(reason) {
   if (game.state !== 'playing') return;
   game.state = 'over'; game.reason = reason; game.overT = 0; game.overShown = false; game.slow = 0.3;
-  if (reason === 'WASTED') { explosion(player.x, player.z); player.mesh.visible = false; player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
+  // A destroyed car stays where it died as a burnt wreck (on a bridge, on the deck), the way every other wreck does.
+  // It is cleared when the next run starts (removeCar in resetGame).
+  if (reason === 'WASTED') { explosion(player.x, player.z, player.y); burnOut(player); player.dead = true; player.vx = player.vz = 0; sfx.crash(45); }
   game.score = calcScore();
   game.newBest = game.score > game.best;
   if (game.newBest) { game.best = game.score; try { localStorage.setItem('escape_road_best', String(game.best)); } catch (e) {} }

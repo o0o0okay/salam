@@ -8,7 +8,7 @@ const here = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, '../..') + path.sep;
 // three is not vendored in this repo: take it from wherever it can be found (NODE_PATH, a local install, or the
 // scratch install the audit tools use).
-const candidates = [process.env.THREE_DIR, path.join(here, 'node_modules/three'), '/tmp/3t/node_modules/three'].filter(Boolean);
+const candidates = [process.env.THREE_DIR, path.join(REPO, 'node_modules/three'), path.join(here, 'node_modules/three'), '/tmp/3t/node_modules/three'].filter(Boolean);
 const threeDir = candidates.find(d => fs.existsSync(path.join(d, 'build/three.module.js')));
 if (!threeDir) throw new Error('hooks.mjs: three not found — npm i three, or set THREE_DIR to its package root');
 const THREE = path.join(threeDir, 'build/three.module.js');
@@ -54,10 +54,11 @@ export async function load(u, ctx, next) {
   const p = url.fileURLToPath(u);
   if (p === REPO + 'js/renderer.js') return { format: 'module', shortCircuit: true, source: RENDERER_STUB };
   if (p === REPO + 'js/input.js') return { format: 'module', shortCircuit: true, source: INPUT_STUB };
-  if (noMerge && p === REPO + 'js/world.js') {
+  if (noMerge && p === REPO + 'js/chunkBake.js') {
     let src = fs.readFileSync(p, 'utf8');
     const i = src.indexOf('export function flushChunk');
-    const j = src.indexOf('function buildTreeInstances');
+    // cut from the start of buildTreeInstances' own line, so its `export` (it is imported by world.js) stays in place
+    const j = src.lastIndexOf('\n', src.indexOf('function buildTreeInstances')) + 1;
     if (i < 0 || j < 0) throw new Error('hooks: could not find flushChunk');
     src = src.slice(0, i) + WORLD_NO_MERGE + src.slice(j);
     return { format: 'module', shortCircuit: true, source: src };

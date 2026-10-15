@@ -17,7 +17,8 @@ for (const [ix, iz] of [[0, 5], [0, -5], [5, 0], [-5, 0]]) {
       assert(Math.abs(g.v) - g.radius > 6, 'drum blocks the central ramp lanes');
       const out = f.axis === 'z' ? Math.cos(g.heading) : Math.sin(g.heading);
       assert(Math.abs(out - g.su) < 1e-8, 'sign faces away from approaching traffic');
-      assert(ch.solids.some(s => s.kind === 'flyover-guard' && s.x === g.x && s.z === g.z && s.maxY === 1.15), 'missing drum collider');
+      assert(ch.props.some(q => q.kind === 'nosedrum' && q.x === g.x && q.z === g.z && q.maxY === 1.15 && !q.broken), 'missing breakable drum');
+      assert(!ch.solids.some(s => s.kind === 'flyover-guard'), 'drum is still a solid');
       assert.equal(g.posts.length, 3);
       for (const p of g.posts) {
         assert(Math.abs(p.u) > Math.abs(g.u) + g.radius, 'post overlaps drum');

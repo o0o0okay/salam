@@ -2,7 +2,7 @@
 import { $, rnd } from './utils.js';
 import { ASSET } from './assets.js';
 import { game, cars, fires } from './state.js';
-import { DIFF } from './config.js';
+import { DIFF, ENV_DMG } from './config.js';
 import { sparks, smoke, explosion, emit } from './particles.js';
 import { sfx } from './audio.js';
 import { toast } from './ui.js';
@@ -23,11 +23,14 @@ export function hurtCar(c, amt) {
   const armor = c.isPolice ? [1, .82, .62, .42, .28][c.tier - 1] : (c.isTanker ? 2.2 : 1);
   c.hp -= amt * armor; if (c.hp <= 0) wreckCar(c);
 }
+// Hits on the scenery (see ENV_DMG in config.js): the same damage, scaled down.
+export function hurtPlayerEnv(amt) { hurtPlayer(amt * ENV_DMG); }
+export function hurtCarEnv(c, amt) { hurtCar(c, amt * ENV_DMG); }
 export function wreckCar(c) {
   c.wrecked = true; c.wreckT = 0; c.mass = Math.max(1.8, c.mass);
   c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
   if (c.beam) c.beam.visible = false;
-  if (c.isTanker) tankerExplode(c); else explosion(c.x, c.z);
+  if (c.isTanker) tankerExplode(c); else explosion(c.x, c.z, c.y);
   if (game.time - c.lastPlayerHit < 4 && game.state === 'playing') {
     if (c.isPolice) {
       const reward = 75 + c.tier * 50; game.takedowns++; game.cash += reward; toast('TAKEDOWN! +$' + reward); sfx.blip(880);
@@ -39,11 +42,11 @@ export function wreckCar(c) {
 }
 // Fuel tanker: severe chain-reaction explosion on destruction — big fireball, area damage, lingering fire.
 function tankerExplode(c) {
-  explosion(c.x, c.z);
-  explosion(c.x + rnd(-2, 2), c.z + rnd(-2, 2)); // second blast wave = bigger visual fireball
+  explosion(c.x, c.z, c.y);
+  explosion(c.x + rnd(-2, 2), c.z + rnd(-2, 2), c.y); // second blast wave = bigger visual fireball
   game.shake = Math.max(game.shake, 2.2);
   sfx.crash(140);
-  for (let i = 0; i < 60; i++) emit(c.x, 1.3, c.z, rnd(-24, 24), rnd(8, 28), rnd(-24, 24), Math.random() < 0.5 ? 0xff5a1a : 0xffce4a, rnd(1.0, 2.6), rnd(0.8, 1.6), 13);
+  for (let i = 0; i < 60; i++) emit(c.x, c.y + 1.3, c.z, rnd(-24, 24), rnd(8, 28), rnd(-24, 24), Math.random() < 0.5 ? 0xff5a1a : 0xffce4a, rnd(1.0, 2.6), rnd(0.8, 1.6), 13);
   const R = 24;
   for (const o of cars) {
     if (o === c) continue;
@@ -52,12 +55,13 @@ function tankerExplode(c) {
     if (o.isPlayer) hurtPlayer(95 * f);
     else if (!o.wrecked) hurtCar(o, 260 * f);
   }
-  fires.push({ x: c.x, z: c.z, life: 10 });
+  fires.push({ x: c.x, y: c.y, z: c.z, life: 10 });
   if (game.state === 'playing') toast('🔥 FUEL TANKER EXPLOSION!');
 }
-export function impactFx(px, pz, speed, nx, nz, isPlayerInvolved) {
+// `py` is the height of the contact: a crash on a bridge deck sparks and smokes up there, not under the deck.
+export function impactFx(px, pz, speed, nx, nz, isPlayerInvolved, py = 0) {
   if (speed < 2.5) return;
-  sparks(px, 0.9, pz, Math.min(14, Math.floor(speed * 0.45)), nx, nz, Math.min(12, speed * 0.4));
-  if (speed > 10) smoke(px, 1, pz, Math.floor(speed / 8));
+  sparks(px, py + 0.9, pz, Math.min(14, Math.floor(speed * 0.45)), nx, nz, Math.min(12, speed * 0.4));
+  if (speed > 10) smoke(px, py + 1, pz, Math.floor(speed / 8));
   if (isPlayerInvolved) { game.shake = Math.max(game.shake, Math.min(1.1, speed * 0.03)); sfx.crash(speed); }
 }

@@ -62,12 +62,12 @@ const TREE_BREAK_V = 10; const DIFF = {};
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0 };
 const player = { x: 0, z: 0 };
 const cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];
-export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0 };
+export const fx = { sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0, hurtPlayer: 0, hurtCar: 0, impactFx: 0, hurtAmt: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
 const emit = () => {};
 const sfx = new Proxy({}, { get: () => () => { fx.crash++; } });
-const hurtPlayer = () => { fx.hurtPlayer++; };
+const hurtPlayer = amt => { fx.hurtPlayer++; fx.hurtAmt += amt || 0; };   // hurtAmt: total HP the player lost
 // hurtCar mirrors js/damage.js: police carry armor by tier, anything at 0 hp is a wreck. The pump-blast test
 // needs the real numbers so "the blast kills a police car" is measured, not assumed.
 const ARMOR = [1, .82, .62, .42, .28];
@@ -79,11 +79,16 @@ const hurtCar = (c, amt) => {
   if (c.hp <= 0) { c.wrecked = true; c.wreckT = 0; c.lastPlayerHit = game.time; }
 };
 const civPanic = () => {};
+// scenery hits: js/damage.js scales them by ENV_DMG (js/config.js) before they reach the normal hurt functions
+const ENV_DMG = 0.3;
+const hurtPlayerEnv = amt => hurtPlayer(amt * ENV_DMG);
+const hurtCarEnv = (c, amt) => hurtCar(c, amt * ENV_DMG);
 // the interchange's maths, shared with the world module (the stitched sources strip their imports)
 const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
-const nearChunks = __world.nearChunks, addParkedCarToChunk = __world.addParkedCarToChunk;
+const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, addParkedCarToChunk = __world.addParkedCarToChunk;
 const CHUNK = __world.CHUNK;
+const hash2 = (x, y) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return (h ^ (h >>> 16)) >>> 0; };   // js/utils.js's hash2, which flyover.js imports
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
 const CAR_DIMS = __world.CAR_DIMS;
@@ -575,10 +580,16 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   {
     const guardV = F.halfW - 0.70;
     const nose = mk(-F.rampEnd - 8, guardV, alongH);
-    roll(nose, 3);
-    if (mu(nose) + nose.box.e1 > -F.rampEnd - 1.4 - 0.65 + 0.03)
-      bad(`${name}: car penetrated the nose-protection drum`);
-    else ok(`${name}: nose-protection drum stops a frontal approach before the concrete`);
+    // The drum is a breakable prop now (kind 'nosedrum'): a frontal approach knocks it over instead of stopping the car.
+    const drum = [...world.chunks.values()].flatMap(ch => ch.props).find(p => p.kind === 'nosedrum' && Math.hypot(p.x - wx(-F.rampEnd - 1.4, guardV), p.z - wz(-F.rampEnd - 1.4, guardV)) < 0.05);
+    for (let t = 0; t < 3 * 60; t++) {
+      M.driveCar(nose, { throttle: 1, hand: false }, 1 / 60);
+      M.game.time += 1 / 60;
+      M.collideSolids(nose); M.collideFlyover(nose); M.collideProps(nose);
+    }
+    if (!drum) bad(`${name}: no nose drum to test`);
+    else if (!drum.broken) bad(`${name}: nose drum did not break under a frontal approach`);
+    else ok(`${name}: nose drum is breakable and a frontal approach knocks it over`);
     const posts = [...world.chunks.values()].flatMap(ch => ch.props).filter(p => p.kind === 'delineator');
     const post = posts.find(p => Math.hypot(p.x - wx(-F.rampEnd - 5.6, guardV), p.z - wz(-F.rampEnd - 5.6, guardV)) < 0.01);
     if (!post) bad(`${name}: no approach delineator to test`);
@@ -769,6 +780,132 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
   const mesh = update.indexOf('syncCarMesh(c, sdt)', pair);
   if (pair < 0 || wall < pair || mesh < wall) bad('update must resolve parapets after car separation and before rendering');
   else ok('update resolves car-car shoves against the parapet before syncing meshes');
+}
+
+// ---- street props are soft: a bump at city speed is a knock, and a fast hit costs little ----
+// (before: a cone cost 2.4 HP at 10 m/s and a crate 7.2 HP at 30 m/s; a tree costs about 1 HP at 30 m/s)
+{
+  const px = 40, pz = 40;                                   // inside block (0, 0), which the checks above generated
+  const near = world.nearChunks(px, pz);
+  const saved = near.map(ch => ch.props);
+  const hitAt = (kind, speed) => {
+    fx.hurtAmt = 0;
+    near.forEach(ch => { ch.props = []; });                 // only the prop under test can break here
+    const pr = { kind, x: px, z: pz, r: 0.65, drag: 0.95, color: 0xffffff, broken: false, soft: true, mesh: {} };
+    near[0].props.push(pr);
+    const c = { x: px, z: pz, h: 0, y: 0, speed, vx: 0, vz: speed, mass: 1.3, isPlayer: true, wrecked: false, box: { e1: 2.05, e2: 0.95 } };
+    M.collideProps(c);
+    return { hp: fx.hurtAmt, broke: pr.broken };
+  };
+  const results = {};
+  for (const kind of ['cone', 'crate', 'streetlight']) results[kind] = [10, 15, 30].map(v => hitAt(kind, v));
+  near.forEach((ch, i) => { ch.props = saved[i]; });
+  for (const kind of Object.keys(results)) {
+    const [slow, mid, fast] = results[kind];
+    if (!slow.broke || !mid.broke || !fast.broke) bad(`${kind}: must still knock over when it is hit`);
+    if (slow.hp > 0.01) bad(`${kind} hit at 10 m/s costs ${slow.hp.toFixed(2)} HP: a bump at city speed should cost nothing`);
+    if (mid.hp > 0.3) bad(`${kind} hit at 15 m/s costs ${mid.hp.toFixed(2)} HP (limit 0.3)`);
+    if (fast.hp > 1.0) bad(`${kind} hit at 30 m/s costs ${fast.hp.toFixed(2)} HP (limit 1.0, about a tree's)`);
+    if (slow.broke && mid.broke && fast.broke && slow.hp <= 0.01 && mid.hp <= 0.3 && fast.hp <= 1.0)
+      ok(`${kind}: knocked over, 0 HP at 10 m/s, ${mid.hp.toFixed(2)} HP at 15 m/s, ${fast.hp.toFixed(2)} HP at 30 m/s`);
+  }
+}
+// ==== 9) a long bridge: one flyover in three runs its deck over the next one or two junctions ====
+// The same physics as section 8, on a bridge that is two or three junctions long. The deck has to be flat at its own
+// height from one ramp foot to the other, not only over the start junction; a car has to stay on it the whole way
+// and come down at the far end, from either direction; and a car at grade under any junction the deck passes over
+// has to pass underneath, not be lifted onto it. The expected heights are worked out here from the geometry alone.
+{
+  const longs = [];
+  // every long bridge in the first 125 blocks, on both main roads (the city's first few are two and three junctions long)
+  for (const axis of ['z', 'x']) {
+    for (let b = 5; b <= 125; b++) {
+      const f = axis === 'z' ? M.nodeAt(0, b) : M.nodeAt(b, 0);
+      if (f && f.ext > 0) longs.push(f);
+    }
+  }
+  if (!longs.some(f => f.axis === 'z') || !longs.some(f => f.axis === 'x')) bad('no long bridge found on the avenue and on the cross street');
+  if (!longs.some(f => f.ext === 1) || !longs.some(f => f.ext === 2)) bad('the city has no two-junction or no three-junction bridge to test');
+  for (const f of longs) {
+    const F = M.FLY, H = F.deckH, alongX = f.axis === 'x';
+    const wx = (u, v) => alongX ? f.node + u : f.road + v;
+    const wz = (u, v) => alongX ? f.road + v : f.node + u;
+    const mu = c => (alongX ? c.x : c.z) - f.node, mv = c => (alongX ? c.z : c.x) - f.road;
+    const alongH = alongX ? Math.PI / 2 : 0, acrossH = alongX ? 0 : Math.PI / 2;
+    const junctions = f.ext + 1;
+    const name = `long bridge ${f.axis}@${f.node} (${junctions} junctions)`;
+    world.updateChunks(wx(0, 0), wz(0, 0), 999);
+    const mk = (u, v, h) => ({
+      x: wx(u, v), z: wz(u, v), h, y: 0, vy: 0, vx: 0, vz: 0, steer: 0, speed: 0, vf: 0, vl: 0, acc: 0, yaw: 0, gpitch: 0,
+      box: { x: wx(u, v), z: wz(u, v), ux: 1, uz: 0, vx: 0, vz: 1, e1: CAR_DIMS.sedan.e1, e2: CAR_DIMS.sedan.e2 },
+      mass: CAR_DIMS.sedan.mass, params: PLAYER_PARAMS, kind: 'sedan', isPlayer: false, hp: 100, wrecked: false, dead: false,
+      boost: 0, flatT: 0, flatSide: 1,
+    });
+    const roll = (c, seconds, throttle = 1) => {
+      for (let t = 0; t < seconds * 60; t++) {
+        M.driveCar(c, { throttle, hand: false }, 1 / 60);
+        M.game.time += 1 / 60;
+        M.collideSolids(c); M.collideFlyover(c);
+      }
+      return c;
+    };
+    // ---- the deck's profile, over its whole length and out to the ramp feet ----
+    // The height at along-road distance `beyond` outside the span of the junctions: flat for a deck's half-width, then
+    // a straight ramp down to the ground at rampEnd.
+    let profileBad = 0, profileWorst = 0;
+    for (let u = f.lo - F.rampEnd + 1; u <= f.hi + F.rampEnd - 1; u += 1) {
+      const beyond = u < f.lo ? f.lo - u : u > f.hi ? u - f.hi : 0;
+      const want = beyond <= F.deckHalf ? H : beyond >= F.rampEnd ? 0 : H * (F.rampEnd - beyond) / (F.rampEnd - F.deckHalf);
+      const got = M.surfaceAt(wx(u, -4), wz(u, -4), H);
+      const e = Math.abs(got - want);
+      profileWorst = Math.max(profileWorst, e);
+      if (e > 1e-6) profileBad++;
+    }
+    if (profileBad) bad(`${name}: the surface is off the expected profile at ${profileBad} points (worst ${profileWorst.toFixed(3)} m)`);
+    else ok(`${name}: the deck is flat at ${H} m from one ramp foot to the other, and both ramps reach the ground`);
+    // ---- up, across the whole span and down, from either end ----
+    const crossing = (startU, heading, dir) => {
+      const c = mk(startU, -4, heading);
+      const far = dir > 0 ? f.hi + F.rampEnd + 4 : f.lo - F.rampEnd - 4;
+      let worst = 0, drift = 0, samples = 0, backDown = null, peak = 0;
+      for (let i = 0; i < 30 * 60 && backDown === null; i++) {
+        roll(c, 1 / 60);
+        const u = mu(c);
+        peak = Math.max(peak, c.y);
+        if (u > f.lo + 2 && u < f.hi - 2) { samples++; worst = Math.max(worst, Math.abs(c.y - H)); }
+        if (c.y > 3) drift = Math.max(drift, Math.abs(mv(c) + 4));
+        if (dir > 0 ? u > far : u < far) backDown = c.y;
+      }
+      return { worst, drift, samples, backDown, peak };
+    };
+    const sgnNode = Math.sign(f.node);
+    const fwd = crossing(f.lo - F.rampEnd - 12, alongH, +1);
+    const rev = crossing(f.hi + F.rampEnd + 12, alongH + Math.PI, -1);
+    for (const [label, r] of [['driving out from the start', fwd], ['driving back from the far end', rev]]) {
+      if (r.samples < 20) bad(`${name}: ${label} never reached the flat span (${r.samples} samples)`);
+      else if (r.worst > 0.15) bad(`${name}: ${label} rode ${r.worst.toFixed(2)} m off the ${H} m deck`);
+      else if (r.drift > 1.0) bad(`${name}: ${label} wandered ${r.drift.toFixed(2)} m sideways on the bridge`);
+      else if (r.backDown === null || r.backDown > 0.35) bad(`${name}: ${label} did not come back down (y=${r.backDown})`);
+      else if (r.peak > H + 0.5) bad(`${name}: ${label} launched to y=${r.peak.toFixed(2)} m`);
+      else ok(`${name}: ${label}: on the deck for the whole span (within ${r.worst.toFixed(2)} m of ${H} m), down at the far foot`);
+    }
+    // ---- under: a car on the street at grade under each junction the deck passes over ----
+    let worstLift = 0, unthrough = 0;
+    for (let d = 0; d <= f.ext; d++) {
+      const uj = sgnNode * d * F.span;
+      const under = mk(uj, -40, acrossH);
+      let lift = 0, through = false;
+      for (let i = 0; i < 5 * 60; i++) {
+        roll(under, 1 / 60);
+        if (Math.abs(mv(under)) < F.halfW) { lift = Math.max(lift, Math.abs(under.y)); through = true; }
+      }
+      worstLift = Math.max(worstLift, lift);
+      if (!through || mv(under) <= 6) unthrough++;
+    }
+    if (worstLift > 0.01) bad(`${name}: a car crossing the street below was lifted to y=${worstLift.toFixed(2)} m`);
+    else if (unthrough) bad(`${name}: ${unthrough} junction(s) under the deck did not let a car through`);
+    else ok(`${name}: traffic on the street under every junction the deck passes over stays at grade`);
+  }
 }
 
 console.log(fails ? `${fails} CHECK(S) FAILED` : 'ALL CHECKS PASSED');
