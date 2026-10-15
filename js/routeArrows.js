@@ -1,7 +1,8 @@
 /* The route on the road: flashing arrows on the asphalt along the route to the marked place (js/map.js), so the way is
  * seen in the game itself and not only on the map. The arrows follow the whole planned route: from the car's front, along
  * the street, round each corner (curved through the junction), to the street nearest the mark. Only the first arrows ahead
- * are shown, none of them over a building; a chevron at the edge of the screen always points to the next one on open ground.
+ * are shown, none of them over a building. When the car goes against the route, a chevron at the edge of the screen points
+ * back to it.
  *
  * Each arrow is a neon chevron: a rounded blue-white outline with a bright core and a wide soft bloom, drawn once on a canvas
  * and laid flat on the road. They are stacked closely up the road. The group lit by the flash runs forward towards the
@@ -142,8 +143,7 @@ function arcOfCar(x, z) {
   return carArcLast;
 }
 
-// The pointer: a chevron at the edge of the screen, turned to the next arrow on open ground ahead of the car. It is shown
-// whether that arrow is in front of the car or behind it, so the way is always shown.
+// The pointer: a chevron at the edge of the screen, turned to the route, shown only when the car faces away from it.
 let hud = null;
 function ensureHUD() {
   if (hud) return hud;
@@ -164,7 +164,9 @@ const _v = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3
 function updateHUD(target) {
   const h = ensureHUD();
   pointerTarget = target;
-  if (!target) { h.style.display = 'none'; return; }
+  // shown only when the car goes against the route: the target is behind the car (the car's forward is (sin h, cos h))
+  const behindCar = !!target && Math.sin(player.h) * (target.x - player.x) + Math.cos(player.h) * (target.z - player.z) < 0;
+  if (!behindCar) { h.style.display = 'none'; return; }
   camera.updateMatrixWorld();
   const e = camera.matrixWorld.elements;
   _r.set(e[0], e[1], e[2]); _u.set(e[4], e[5], e[6]); _b.set(e[8], e[9], e[10]);
