@@ -65,6 +65,15 @@ function el(tag, css, text) {
   return e;
 }
 
+// the GPS button: a crosshair; it centres the map on the car, at the zoom the map is at
+function gpsButton(onClick) {
+  const b = button('', onClick);
+  b.title = 'Centre on my car'; b.setAttribute('aria-label', 'Centre on my car');
+  b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" style="display:block" fill="none" stroke="#222" stroke-width="2">'
+    + '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="#222"/>'
+    + '<path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>';
+  return b;
+}
 function button(label, onClick) {
   const b = el('button', 'pointer-events:auto;background:#fff;border:1px solid #888;border-radius:4px;padding:6px 12px;'
     + 'font:14px monospace;color:#222;cursor:pointer;', label);
@@ -92,7 +101,7 @@ function build() {
   overlay.appendChild(infoBox);
 
   const bar = el('div', 'position:absolute;right:16px;top:14px;display:flex;gap:8px;');
-  bar.append(button('Me', () => { view.cx = player.x; view.cz = player.z; }),
+  bar.append(gpsButton(() => { view.cx = player.x; view.cz = player.z; }),
     button('Clear mark', () => { mark = null; }),
     button('+', () => zoomAt(W / 2, H / 2, 1.25)),
     button('\u2212', () => zoomAt(W / 2, H / 2, 0.8)),
