@@ -129,7 +129,7 @@ function build() {
     if (drag && !drag.moved) {
       if (drag.btn === 0) {
         const w = worldAt(e.clientX, e.clientY);
-        if (onIsland(w.x, w.z, 2)) mark = { x: w.x, z: w.z };
+        if (onIsland(w.x, w.z, 2)) mark = entryPoint(w.x, w.z);
         else seaNoteAt = performance.now();                 // no pin in the sea
       }
       else if (drag.btn === 2) mark = null;
@@ -794,6 +794,30 @@ function scaleLength() {
     if (m * view.s <= 160 && m > best) best = m;
   }
   return best;
+}
+// The place a click means. On a building the pin goes to its entrance: the middle of the wall that faces the nearest open
+// street, 1 m outside it (the pin is not put inside the building). Anywhere else it is where the click was.
+function entryPoint(x, z) {
+  const k = known(ck(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  const b = k && k.blds.find(([bx, bz, w, d]) => x >= bx && x <= bx + w && z >= bz && z <= bz + d);
+  if (!b) return { x, z };
+  const [bx, bz, w, d] = b, out = 1;
+  const walls = [[bx + w / 2, bz - out], [bx + w / 2, bz + d + out], [bx - out, bz + d / 2], [bx + w + out, bz + d / 2]];
+  let best = null;
+  for (const [px, pz] of walls) {
+    const dd = streetDistance(px, pz);
+    if (!best || dd < best.dd) best = { x: px, z: pz, dd };
+  }
+  return { x: best.x, z: best.z };
+}
+// the distance from a place to the nearest open street (the street's centre line), or Infinity
+function streetDistance(x, z) {
+  let d = Infinity;
+  const jz = Math.round(z / CHUNK), ix = Math.floor(x / CHUNK);
+  if (isOpen('x', ix, jz)) d = Math.min(d, Math.abs(z - jz * CHUNK));
+  const iz = Math.round(x / CHUNK), jx = Math.floor(z / CHUNK);
+  if (isOpen('z', iz, jx)) d = Math.min(d, Math.abs(x - iz * CHUNK));
+  return d;
 }
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 
