@@ -562,10 +562,11 @@ function draw() {
     ctx.fillStyle = '#ffffff'; ctx.fillText(label, bx0 + 9, by0 + 18);
   }
 
-  // the scale bar (200 m) and the distance to the mark
-  const bw = 200 * view.s;
+  // the scale bar: a round length (1, 2 or 5 times a power of ten, in metres or kilometres) that is at most about 160 px
+  const len = scaleLength(), bw = len * view.s;
   ctx.fillStyle = '#222'; ctx.fillRect(W - 32 - bw, H - 34, bw, 4);
-  ctx.font = '13px monospace'; ctx.fillStyle = '#222'; ctx.fillText('200 m', W - 32 - bw, H - 40);
+  ctx.font = '13px monospace'; ctx.fillStyle = '#222';
+  ctx.fillText(len >= 1000 ? (len / 1000) + ' km' : len + ' m', W - 32 - bw, H - 40);
   infoBox.textContent = performance.now() - seaNoteAt < 2500 ? 'No pin in the sea: choose a place on the island.'
     : mark
     ? (route ? 'Mark: ' + fmtDist(route.len) + ' by road' : 'Mark: ' + fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z)) + ' straight (no street route)')
@@ -775,6 +776,15 @@ export function currentRoute() {
   return c.view;
 }
 
+// the length of the scale bar, in metres: the largest round length whose bar is at most 160 px at this zoom
+function scaleLength() {
+  let best = 1;
+  for (let k = 0; k <= 5; k++) for (const f of [1, 2, 5]) {
+    const m = f * 10 ** k;
+    if (m * view.s <= 160 && m > best) best = m;
+  }
+  return best;
+}
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 
 export function mapOpen() { return open; }
