@@ -6,7 +6,7 @@ import { scene } from './renderer.js';
 import { currentMark, clearMark } from './map.js';
 import { player } from './state.js';
 
-const ARRIVE_R = 15;            // within this many metres of the mark the car has arrived: the mark is done and is cleared
+const ARRIVE_R = 2.6;           // the car has arrived once it is on the column (its foot is 1.6 m): the mark is done and is cleared
 
 const HEIGHT = 80;              // the column's height, in metres
 const RADIUS = 1.6;             // its radius

@@ -36,6 +36,8 @@ if (process.argv[2] === '--slice') {
         .map(s => [r1(s.x - s.hx), r1(s.z - s.hz), r1(2 * s.hx), r1(2 * s.hz), Math.abs(Math.round(s.x * 3 + s.z * 7)) % 7]),
       trees: (ch.trees || []).map(t => [r1(t.x), r1(t.z)]),
       lm: (ch.landmarks || []).map(l => [r1(l.x), r1(l.z), l.name]),
+      // a helicopter pad on a roof: its centre and radius (ch.heli, js/world.js)
+      hp: ch.heli ? [[r1(ch.heli.padX), r1(ch.heli.padZ), r1(ch.heli.padR)]] : [],
     };
   }
   fs.mkdirSync(parts, { recursive: true });

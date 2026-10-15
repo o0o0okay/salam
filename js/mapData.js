@@ -50,7 +50,8 @@ export function learn() {
         .map(so => [so.x - so.hx, so.z - so.hz, 2 * so.hx, 2 * so.hz, roofOf(so.x, so.z)]);
       const trees = (ch.trees || []).map(t => [t.x, t.z]);
       const lm = (ch.landmarks || []).map(l => [l.x, l.z, l.name]);
-      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm });
+      const hp = ch.heli ? [[ch.heli.padX, ch.heli.padZ, ch.heli.padR]] : [];
+      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm, hp });
     }
   }
 }

@@ -15,9 +15,10 @@
  */
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW, segClosed, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
+import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
 import { known, allKnown, learn, forgetSeen } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
+const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
@@ -68,8 +69,8 @@ function build() {
   tl.innerHTML = '<b style="font-size:16px">MAP</b>'
     + Object.keys(DIST_NAMES).map(k => `<div><span style="display:inline-block;width:12px;height:12px;background:${LAND[k]};`
       + `border:1px solid #bbb;margin-right:6px;vertical-align:-1px"></span>${DIST_NAMES[k]}</div>`).join('')
-    + `<div><span style="display:inline-block;width:16px;height:4px;background:${TRAM_C};margin-right:6px;vertical-align:middle;`
-    + `box-shadow:0 0 0 1px #fff"></span>Tram line</div>`;
+    + `<div><span style="display:inline-block;width:16px;height:8px;border-top:2px solid #4a4f57;border-bottom:2px solid #4a4f57;margin-right:6px;vertical-align:middle;`
+    + `background:repeating-linear-gradient(90deg,#8b6f47 0 2px,transparent 2px 5px)"></span>Tram line</div>`;
   overlay.appendChild(tl);
   infoBox = el('div', 'position:absolute;left:16px;bottom:14px;background:rgba(255,255,255,.85);padding:8px 12px;'
     + 'border-radius:6px;font-size:13px;pointer-events:none;');
@@ -138,6 +139,17 @@ function zoomAt(px, py, f) {
   draw();
 }
 
+// a helicopter pad on a roof (the hospital's): a white disc with a red H, drawn over the building it stands on
+function helipad(x, z, r) {
+  const X = sx(x), Y = sy(z), R = Math.max(5, r * view.s);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(X, Y, R, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
+  ctx.lineWidth = Math.max(1, R * 0.12); ctx.strokeStyle = '#5b6167'; ctx.stroke();
+  ctx.fillStyle = '#d6342c'; ctx.font = `bold ${Math.max(8, R * 1.3)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', X, Y + 0.5);
+  ctx.restore();
+}
 // a rectangle in world metres (x, z = its lower-left corner, w, d) filled in colour c
 // a rounded rectangle in world metres (a street: round ends and corners, as in the reference)
 function rrect(x, z, w, d, c) {
@@ -288,23 +300,30 @@ function drawFlyovers(gx0, gx1, gz0, gz1) {
   }
 }
 // The tram lines (js/tram.js): a route is a run of street segments that carries rails, and the rails run down the centre line
-// of the street. The map draws each segment on that rule (tramRouteOf), as a purple line with a white edge.
-const TRAM_C = '#6a2c91';
+// of the street. The map draws each segment on that rule (tramRouteOf), as two rails at the game's gauge, with sleepers.
 function drawTramLines(gx0, gx1, gz0, gz1) {
   const segs = [];
   for (let k = gx0; k <= gx1; k++) for (let j = gz0; j < gz1; j++) if (tramRouteOf('z', k, j)) segs.push(['z', k, j]);
   for (let k = gz0; k <= gz1; k++) for (let j = gx0; j < gx1; j++) if (tramRouteOf('x', k, j)) segs.push(['x', k, j]);
   if (!segs.length) return;
-  const lw = Math.max(2, 2.4 * view.s), e = 0.6;                     // the line's width on screen; each segment runs 0.6 m past its ends so they join
+  const rw = Math.max(1.2, 0.3 * view.s), e = 0.6;                   // a rail's width on screen; each segment runs 0.6 m past its ends so they join
   ctx.save(); ctx.lineCap = 'butt';
-  for (const [w, c] of [[lw + 2, '#ffffff'], [lw, TRAM_C]]) {
-    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
-    for (const [a, k, j] of segs) {
-      if (a === 'z') { ctx.moveTo(sx(k * CHUNK), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK), sy((j + 1) * CHUNK + e)); }
-      else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK)); }
+  // the sleepers: a bar across the track every 4 m (when the map is zoomed in far enough to see them)
+  if (view.s > 0.25) {
+    ctx.strokeStyle = '#8b6f47'; ctx.lineWidth = Math.max(1, 0.9 * view.s); ctx.beginPath();
+    for (const [a, k, j] of segs) for (let t = 0; t <= CHUNK; t += 4) {
+      if (a === 'z') { const z = j * CHUNK + t, x = k * CHUNK; ctx.moveTo(sx(x - 1.3), sy(z)); ctx.lineTo(sx(x + 1.3), sy(z)); }
+      else { const x = j * CHUNK + t, z = k * CHUNK; ctx.moveTo(sx(x), sy(z - 1.3)); ctx.lineTo(sx(x), sy(z + 1.3)); }
     }
     ctx.stroke();
   }
+  // the two rails, each RAIL_G from the centre line
+  ctx.strokeStyle = '#4a4f57'; ctx.lineWidth = rw; ctx.beginPath();
+  for (const [a, k, j] of segs) for (const o of [-RAIL_G, RAIL_G]) {
+    if (a === 'z') { ctx.moveTo(sx(k * CHUNK + o), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK + o), sy((j + 1) * CHUNK + e)); }
+    else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK + o)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK + o)); }
+  }
+  ctx.stroke();
   ctx.restore();
 }
 // The roundabouts: a junction with a plaza is a round asphalt island in its 16 m square, with a grass island in the middle
@@ -358,6 +377,7 @@ function draw() {
     const pool = poolSpot(cx, cz, k.blds);
     if (pool) { rect(pool[0] - 1.5, pool[1] - 1.5, 17, 12, '#f4f1ea'); rect(pool[0], pool[1], 14, 9, '#5bbde9'); }
     if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
+    if (view.s > 0.12) for (const [hx, hz, hr] of k.hp || []) helipad(hx, hz, hr);
     if (view.s > 0.9) for (const [lx, lz, name] of k.lm) landmark(lx, lz, name);   // only when the names fit the block
   }
 
@@ -411,11 +431,11 @@ function draw() {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
 
-  // 6. the road route from the car to the mark (a blue line with a white casing, as in a navigation map), the car, the pin.
-  // If there is no street route, the straight line is drawn instead and the distance is the straight one.
+  // 6. the road route from the car to the street nearest the mark (a blue line with a white casing, as in a navigation map),
+  // the car, the pin. With no street route there is no line: a straight line would cross the sea, the blocks or the river.
   const route = currentRoute();
-  if (mark) {
-    const pts = route ? route.pts : [[player.x, player.z], [mark.x, mark.z]];
+  if (mark && route) {
+    const pts = route.pts;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const [w, c] of [[9, '#ffffff'], [5, C.route]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w;
@@ -467,14 +487,16 @@ function draw() {
 // of their own block (the straight leg is drawn across the block to the corner); a point on the same street as the other
 // is joined to it directly.
 const GN = 2 * CORE + 1;
+// A street the route may use: the same streets the map draws (radarStreets): open, and not a filled (grass) street.
+const isOpen = (axis, i, j) => !segClosed(axis, i, j) && !segFilled(axis, i, j);
 const nid = (i, j) => (i + CORE) * GN + (j + CORE);
 let adjCache = null;
 function roadGraph() {
   if (adjCache) return adjCache;
   const adj = Array.from({ length: GN * GN }, () => []);
   for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
-    if (i < CORE && !segClosed('x', i, j)) { adj[nid(i, j)].push([nid(i + 1, j), CHUNK]); adj[nid(i + 1, j)].push([nid(i, j), CHUNK]); }
-    if (j < CORE && !segClosed('z', i, j)) { adj[nid(i, j)].push([nid(i, j + 1), CHUNK]); adj[nid(i, j + 1)].push([nid(i, j), CHUNK]); }
+    if (i < CORE && isOpen('x', i, j)) { adj[nid(i, j)].push([nid(i + 1, j), CHUNK]); adj[nid(i + 1, j)].push([nid(i, j), CHUNK]); }
+    if (j < CORE && isOpen('z', i, j)) { adj[nid(i, j)].push([nid(i, j + 1), CHUNK]); adj[nid(i, j + 1)].push([nid(i, j), CHUNK]); }
   }
   return (adjCache = adj);
 }
@@ -492,7 +514,7 @@ function accessLegs(p, adj) {
     const put = (n, acc, x, z) => { const b = legs.get(n); if (!b || acc < b.acc) legs.set(n, { acc, x, z }); };
     for (let i = bi - r - 1; i <= bi + r + 1; i++) for (let j = bj - r - 1; j <= bj + r + 1; j++) {
       if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
-      if (j < CORE && !segClosed('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
+      if (j < CORE && isOpen('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
         if (ring <= r) {
           const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
@@ -502,7 +524,7 @@ function accessLegs(p, adj) {
           segs.push({ key: 'z' + i + ',' + j, t: zc - j * CHUNK, leg, x: px, z: zc });
         }
       }
-      if (i < CORE && !segClosed('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
+      if (i < CORE && isOpen('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
         if (ring <= r) {
           const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
@@ -558,7 +580,8 @@ function routeOf(from, to, list) {
     if (q.st) { sIdx.push(pts.length); street.push([q.x, q.z]); }
     pts.push([q.x, q.z]);
   }
-  pts.push([to.x, to.z]);
+  const lp = pts[pts.length - 1];
+  if (Math.hypot(to.x - lp[0], to.z - lp[1]) > 0.01) pts.push([to.x, to.z]);   // (the end is the street point itself when it was already the last point)
   const cum = [0];
   for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
   return { len: cum[cum.length - 1], pts, street, sIdx, cum };
@@ -584,7 +607,7 @@ function roadRoute(from, to) {
     if (isFinite(len) && (!best || len < best.len)) best = { len, end: n };
   }
   if (direct && (!best || direct.len <= best.len)) {
-    return routeOf(from, to, [{ x: direct.a.x, z: direct.a.z, st: true }, { x: direct.b.x, z: direct.b.z, st: true }]);
+    return routeOf(from, { x: direct.b.x, z: direct.b.z }, [{ x: direct.a.x, z: direct.a.z, st: true }, { x: direct.b.x, z: direct.b.z, st: true }]);
   }
   if (!best) return null;
   const nodes = [];
@@ -595,8 +618,10 @@ function roadRoute(from, to) {
   const list = [];
   if (first) list.push({ x: first.x, z: first.z, st: false });
   for (const n of nodes) { const [x, z] = worldOf(n); list.push({ x, z, st: true }); }
+  // the way ends on the street, at the point nearest the mark: the last leg is not drawn across the block to the mark
+  const end = last ? { x: last.x, z: last.z } : to;
   if (last) list.push({ x: last.x, z: last.z, st: false });
-  return routeOf(from, to, list);
+  return routeOf(from, end, list);
 }
 // The point of a route nearest to `p`: its distance d, and its place s (the length along the route up to it).
 function nearestOn(route, p) {
