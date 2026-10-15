@@ -617,7 +617,10 @@ function roadGraph() {
 // a block to a far street. Returns { legs, segs }: legs is a Map junction node -> { acc, x, z } (the best leg per
 // junction); segs lists every street the point joins: { key, t, leg, x, z } where t is the distance of P from the
 // street's first junction, so two points on the same street can be joined directly.
-function accessLegs(p, adj) {
+// (maxLeg: the longest leg allowed; the start of a route uses ACCESS_MAX, so the car's own step onto the street is short
+// and the route never runs across a block, the yards and sidewalks beside the car.)
+const ACCESS_MAX = 12;
+function accessLegs(p, adj, maxLeg = Infinity) {
   const bi = Math.floor(p.x / CHUNK), bj = Math.floor(p.z / CHUNK);
   for (let r = 0; r <= 3; r++) {
     const legs = new Map(), segs = [];
@@ -626,7 +629,7 @@ function accessLegs(p, adj) {
       if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
       if (j < CORE && isOpen('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r) {
+        if (ring <= r && Math.hypot(p.x - i * CHUNK, p.z - Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK)) <= maxLeg) {
           const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
           const leg = Math.hypot(p.x - px, p.z - zc);
           put(nid(i, j), leg + (zc - j * CHUNK), px, zc);
@@ -636,7 +639,7 @@ function accessLegs(p, adj) {
       }
       if (i < CORE && isOpen('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r) {
+        if (ring <= r && Math.hypot(p.z - j * CHUNK, p.x - Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK)) <= maxLeg) {
           const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
           const leg = Math.hypot(p.x - xc, p.z - pz);
           put(nid(i, j), leg + (xc - i * CHUNK), xc, pz);
@@ -712,7 +715,7 @@ function nearestLegs(segs) {
 }
 function roadRoute(from, to) {
   const adj = roadGraph();
-  const A = accessLegs(from, adj), B = accessLegs(to, adj);
+  const A = accessLegs(from, adj, ACCESS_MAX), B = accessLegs(to, adj);
   if (!A.legs.size || !B.legs.size) return null;
   const nearest = nearestLegs(B.segs);
   // (a) both ends on one street: walk along it, without going out to a corner and back
