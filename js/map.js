@@ -33,6 +33,15 @@ const C = {
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
+// The map shows the island and no more: it cannot be zoomed out past the whole island in view, and the view stays on it.
+function minZoom() { return W ? Math.max(ZOOM_MIN, Math.min(W, H) / (ISLAND_MAX - ISLAND_MIN)) : ZOOM_MIN; }
+function clampView() {
+  view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s));
+  const hx = W / 2 / view.s, hz = H / 2 / view.s;
+  const mid = (ISLAND_MIN + ISLAND_MAX) / 2;
+  view.cx = 2 * hx >= ISLAND_MAX - ISLAND_MIN ? mid : Math.min(ISLAND_MAX - hx, Math.max(ISLAND_MIN + hx, view.cx));
+  view.cz = 2 * hz >= ISLAND_MAX - ISLAND_MIN ? mid : Math.min(ISLAND_MAX - hz, Math.max(ISLAND_MIN + hz, view.cz));
+}
 const DIST_NAMES = { centre: 'City centre', old: 'Old town', industrial: 'Industrial', suburb: 'Suburbs', harbour: 'Harbour' };
 
 const view = { cx: 0, cz: 0, s: 0.45 };     // centre (world metres), screen pixels per metre
@@ -138,7 +147,7 @@ const sy = z => H / 2 - (z - view.cz) * view.s;
 // zoom by f, keeping the world point under (px, py) where it is on screen
 function zoomAt(px, py, f) {
   const before = worldAt(px, py);
-  view.s = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.s * f));
+  view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s * f));
   const after = worldAt(px, py);
   view.cx += before.x - after.x; view.cz += before.z - after.z;
   draw();
@@ -490,6 +499,7 @@ function drawBase() {
 
 function draw() {
   if (!open || !ctx) return;
+  clampView();
   learn();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
