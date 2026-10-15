@@ -15,7 +15,7 @@
  */
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
+import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge, isFlyoverNode } from './flyover.js';
 import { known, allKnown, learn, forgetSeen, mapVersion } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
 const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
@@ -600,13 +600,21 @@ const GN = 2 * CORE + 1;
 // A street the route may use: the same streets the map draws (radarStreets): open, and not a filled (grass) street.
 const isOpen = (axis, i, j) => !segClosed(axis, i, j) && !segFilled(axis, i, j);
 const nid = (i, j) => (i + CORE) * GN + (j + CORE);
+// Each junction has two route nodes: one for the z-streets through it and one for the x-streets. A car turns between
+// them only at a junction at grade. At a flyover junction the road that flies is up on the deck and the other runs
+// under it, so nobody turns there (the same rule the traffic keeps, js/civilians.js): the route goes on to the next
+// junction and turns there.
+const tid = (i, j, axis) => nid(i, j) * 2 + (axis === 'x' ? 1 : 0);
+const N2 = GN * GN * 2;
 let adjCache = null;
 function roadGraph() {
   if (adjCache) return adjCache;
-  const adj = Array.from({ length: GN * GN }, () => []);
+  const adj = Array.from({ length: N2 }, () => []);
+  const link = (a, b, w) => { adj[a].push([b, w]); adj[b].push([a, w]); };
   for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
-    if (i < CORE && isOpen('x', i, j)) { adj[nid(i, j)].push([nid(i + 1, j), CHUNK]); adj[nid(i + 1, j)].push([nid(i, j), CHUNK]); }
-    if (j < CORE && isOpen('z', i, j)) { adj[nid(i, j)].push([nid(i, j + 1), CHUNK]); adj[nid(i, j + 1)].push([nid(i, j), CHUNK]); }
+    if (i < CORE && isOpen('x', i, j)) link(tid(i, j, 'x'), tid(i + 1, j, 'x'), CHUNK);
+    if (j < CORE && isOpen('z', i, j)) link(tid(i, j, 'z'), tid(i, j + 1, 'z'), CHUNK);
+    if (!isFlyoverNode(i * CHUNK, j * CHUNK)) link(tid(i, j, 'x'), tid(i, j, 'z'), 0);
   }
   return (adjCache = adj);
 }
@@ -632,8 +640,8 @@ function accessLegs(p, adj, maxLeg = Infinity) {
         if (ring <= r && Math.hypot(p.x - i * CHUNK, p.z - Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK)) <= maxLeg) {
           const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
           const leg = Math.hypot(p.x - px, p.z - zc);
-          put(nid(i, j), leg + (zc - j * CHUNK), px, zc);
-          put(nid(i, j + 1), leg + ((j + 1) * CHUNK - zc), px, zc);
+          put(tid(i, j, 'z'), leg + (zc - j * CHUNK), px, zc);
+          put(tid(i, j + 1, 'z'), leg + ((j + 1) * CHUNK - zc), px, zc);
           segs.push({ key: 'z' + i + ',' + j, t: zc - j * CHUNK, leg, x: px, z: zc });
         }
       }
@@ -642,8 +650,8 @@ function accessLegs(p, adj, maxLeg = Infinity) {
         if (ring <= r && Math.hypot(p.z - j * CHUNK, p.x - Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK)) <= maxLeg) {
           const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
           const leg = Math.hypot(p.x - xc, p.z - pz);
-          put(nid(i, j), leg + (xc - i * CHUNK), xc, pz);
-          put(nid(i + 1, j), leg + ((i + 1) * CHUNK - xc), xc, pz);
+          put(tid(i, j, 'x'), leg + (xc - i * CHUNK), xc, pz);
+          put(tid(i + 1, j, 'x'), leg + ((i + 1) * CHUNK - xc), xc, pz);
           segs.push({ key: 'x' + i + ',' + j, t: xc - i * CHUNK, leg, x: xc, z: pz });
         }
       }
@@ -654,7 +662,7 @@ function accessLegs(p, adj, maxLeg = Infinity) {
 }
 // Dijkstra from the start nodes (each with its leg length): returns the distance and the predecessor of every node
 function shortest(starts) {
-  const adj = roadGraph(), dist = new Float64Array(GN * GN).fill(Infinity), prev = new Int32Array(GN * GN).fill(-1);
+  const adj = roadGraph(), dist = new Float64Array(N2).fill(Infinity), prev = new Int32Array(N2).fill(-1);
   const hd = [], hn = [];
   const swap = (a, k, m) => { [a[k], a[m]] = [a[m], a[k]]; };
   const push = (d, n) => {
@@ -708,7 +716,7 @@ function nearestLegs(segs) {
   if (!nb) return { legs, key: null };
   const m = /^([xz])(-?\d+),(-?\d+)$/.exec(nb.key);
   const i = +m[2], j = +m[3];
-  const a = nid(i, j), b = m[1] === 'z' ? nid(i, j + 1) : nid(i + 1, j);
+  const a = tid(i, j, m[1]), b = m[1] === 'z' ? tid(i, j + 1, 'z') : tid(i + 1, j, 'x');
   legs.set(a, { acc: nb.leg + nb.t, x: nb.x, z: nb.z });
   legs.set(b, { acc: nb.leg + (CHUNK - nb.t), x: nb.x, z: nb.z });
   return { legs, key: nb.key };
@@ -741,7 +749,7 @@ function roadRoute(from, to) {
   const nodes = [];
   for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
   nodes.reverse();
-  const worldOf = n => [(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK];
+  const worldOf = n => { const c = n >> 1; return [(Math.floor(c / GN) - CORE) * CHUNK, ((c % GN) - CORE) * CHUNK]; };
   const first = A.legs.get(nodes[0]), last = nearest.legs.get(best.end);
   const list = [];
   if (first) list.push({ x: first.x, z: first.z, st: false });
