@@ -33,14 +33,17 @@ const C = {
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
-// The map shows the island and no more: it cannot be zoomed out past the whole island in view, and the view stays on it.
+// The map shows the island and no more: it cannot be zoomed out past the whole island in view. The view may be moved
+// up to PAST_COAST metres beyond the coast (the sea), and no further.
+const PAST_COAST = 1000;
 function minZoom() { return W ? Math.max(ZOOM_MIN, Math.min(W, H) / (ISLAND_MAX - ISLAND_MIN)) : ZOOM_MIN; }
 function clampView() {
   view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s));
   const hx = W / 2 / view.s, hz = H / 2 / view.s;
-  const mid = (ISLAND_MIN + ISLAND_MAX) / 2;
-  view.cx = 2 * hx >= ISLAND_MAX - ISLAND_MIN ? mid : Math.min(ISLAND_MAX - hx, Math.max(ISLAND_MIN + hx, view.cx));
-  view.cz = 2 * hz >= ISLAND_MAX - ISLAND_MIN ? mid : Math.min(ISLAND_MAX - hz, Math.max(ISLAND_MIN + hz, view.cz));
+  const mid = (ISLAND_MIN + ISLAND_MAX) / 2, span = ISLAND_MAX - ISLAND_MIN + 2 * PAST_COAST;
+  const lo = ISLAND_MIN - PAST_COAST, hi = ISLAND_MAX + PAST_COAST;
+  view.cx = 2 * hx >= span ? mid : Math.min(hi - hx, Math.max(lo + hx, view.cx));
+  view.cz = 2 * hz >= span ? mid : Math.min(hi - hz, Math.max(lo + hz, view.cz));
 }
 const DIST_NAMES = { centre: 'City centre', old: 'Old town', industrial: 'Industrial', suburb: 'Suburbs', harbour: 'Harbour' };
 
