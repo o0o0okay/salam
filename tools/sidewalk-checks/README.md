@@ -18,6 +18,7 @@ node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: namepl
 node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
 node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
+node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -317,6 +318,22 @@ must remain untouched. The existing climb, descent, crest-hop and underpass beha
 The police chase suite retains its original time limits: police brake only for a sharp lateral exit
 into the at-grade lane, rather than relying on the old ability to cut through the wall. No persistent
 maximum-speed change is made.
+
+### Map route across an interchange
+
+The map's road route (`js/map.js`) treats an interchange as two roads, one above the other: the **deck road** (the
+main road's own carriageway, up a ramp, over the deck, down the far ramp) and the **ground road** (the at-grade lane on
+each side of the structure, 15 m from the main road's centre line, which crosses the street under the deck at grade).
+They meet only at the junctions beyond the ramps' feet. A place joins only the road of its own level: a car riding a
+ramp or the deck joins the deck road, a car at grade (beside the structure or under the deck) joins the ground roads,
+and a mark inside the structure's outline joins the deck road, anywhere else the roads at grade.
+`route-levels.mjs` covers all 16 interchanges (4 long bridges), both sides, from cars all round them: a pin on the lane
+beside a ramp is reached along that lane and never from the ramp above it (the old route ran up the ramp); a pin on a
+ramp or the deck is reached over the deck road; a pin on the street under the deck is reached on that street; a route
+changes level only at grade and never runs through a ramp's embankment; a car on the lane or under a deck gets a route
+(it used to get none: the lane is further than the 12 m a car may step onto a street); the live route is given up when
+the car is on the other level; the 3D arrows lie on the road the route is on; and away from interchanges the route
+lengths are the plain grid's.
 
 ### Flyover approach nose protection
 

@@ -15,7 +15,8 @@
  */
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge, isFlyoverNode } from './flyover.js';
+import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge, bridgeAt, besideFlyover,
+  flyoverNear, alongOf, bridgeHeight, laneOffset } from './flyover.js';
 import { known, allKnown, learn, forgetSeen, mapVersion } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
 const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
@@ -129,7 +130,7 @@ function build() {
     if (drag && !drag.moved) {
       if (drag.btn === 0) {
         const w = worldAt(e.clientX, e.clientY);
-        if (onIsland(w.x, w.z, 2)) mark = entryPoint(w.x, w.z);
+        if (onIsland(w.x, w.z, 2)) setMark(w.x, w.z);
         else seaNoteAt = performance.now();                 // no pin in the sea
       }
       else if (drag.btn === 2) mark = null;
@@ -591,40 +592,160 @@ function draw() {
 }
 
 // ---- the road distance ----
-// The streets as a graph of junctions: a junction is a crossing of the core's street lines (x = i * CHUNK, z = j * CHUNK),
-// and an open street (segClosed in js/flyover.js is false) joins two neighbouring junctions. Every street is one block
-// long, so the shortest route is a Dijkstra over that graph. The car and the mark each join the graph at the corners
-// of their own block (the straight leg is drawn across the block to the corner); a point on the same street as the other
-// is joined to it directly.
+// The streets as a graph. A node is a place where roads meet: a junction of the core's street lines (x = i * CHUNK,
+// z = j * CHUNK) and, round an interchange, the places where its at-grade lanes meet the streets. An edge is a stretch of
+// road between two nodes, with its own centre line (`pts`, a polyline) and its length, and the shortest route is a
+// Dijkstra over that graph. The car and the mark each join the graph at the nearest point of a road near them
+// (accessLegs); a point on the same road as the other is joined to it directly.
+//
+// An interchange has two roads, one above the other, and they do not meet (js/flyover.js):
+//   - the deck road: the main road's own carriageway. It climbs a ramp, crosses the junction on the deck (on a long bridge,
+//     two or three junctions) and comes down the far ramp. It meets the other streets only at the junctions beyond the
+//     ramps' feet, one block either side of the bridge (the junctions besideFlyover names). Nobody turns under it;
+//   - the ground road: the at-grade lane on each side of the structure (laneOffset(), 15 m from the main road's centre
+//     line). It runs the whole length of those blocks and through the junction, where it crosses the street that runs
+//     under the deck at grade. The two lanes meet under the deck (the junction box) and at the junctions beside it.
+// So a junction under a deck has three nodes: the deck itself (k = 0), and G+ and G- (k = 1, 2), where the lanes cross the
+// street underneath. A junction beside a bridge has its own node and L+ and L-, where the lanes leave its cross street.
+// The route moves out from the main road's centre into a lane past the nose guards at the ramp's foot (node E, 17 m on
+// from the junction beside the bridge: FLY.rampEnd + 6 from the bridge's junction, the point the police aim at in
+// js/police.js), and it ends on the road it is on, so a mark beside a ramp is reached along the lane, never from the
+// ramp above it.
 const GN = 2 * CORE + 1;
 // A street the route may use: the same streets the map draws (radarStreets): open, and not a filled (grass) street.
 const isOpen = (axis, i, j) => !segClosed(axis, i, j) && !segFilled(axis, i, j);
 const nid = (i, j) => (i + CORE) * GN + (j + CORE);
-// Each junction has two route nodes: one for the z-streets through it and one for the x-streets. A car turns between
-// them only at a junction at grade. At a flyover junction the road that flies is up on the deck and the other runs
-// under it, so nobody turns there (the same rule the traffic keeps, js/civilians.js): the route goes on to the next
-// junction and turns there.
-const tid = (i, j, axis) => nid(i, j) * 2 + (axis === 'x' ? 1 : 0);
-const N2 = GN * GN * 2;
-let adjCache = null;
-function roadGraph() {
-  if (adjCache) return adjCache;
-  const adj = Array.from({ length: N2 }, () => []);
-  const link = (a, b, w) => { adj[a].push([b, w]); adj[b].push([a, w]); };
-  for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
-    if (i < CORE && isOpen('x', i, j)) link(tid(i, j, 'x'), tid(i + 1, j, 'x'), CHUNK);
-    if (j < CORE && isOpen('z', i, j)) link(tid(i, j, 'z'), tid(i, j + 1, 'z'), CHUNK);
-    if (!isFlyoverNode(i * CHUNK, j * CHUNK)) link(tid(i, j, 'x'), tid(i, j, 'z'), 0);
-  }
-  return (adjCache = adj);
+const jid = (i, j, k) => nid(i, j) * 3 + k;
+const LANE = laneOffset();                          // the at-grade lane's centre line, from the main road's centre line
+const LANE_IN = CHUNK - (FLY.rampEnd + 6);          // the route is in the lane this far past the junction beside the bridge
+// A point in a main road's own frame: `u` along the road (the world coordinate along it), `v` across it from its centre
+// line (the main roads run along x = 0 and z = 0).
+const atUV = (axis, u, v) => (axis === 'x' ? [u, v] : [v, u]);
+// What a junction is to an interchange: { role: 'bridge' (under the deck) | 'beside' (one block from it), axis (the main
+// road that flies) }, or null for any other junction.
+function flyRole(i, j) {
+  const b = bridgeAt(i, j);
+  if (b) return { role: 'bridge', axis: b.f.axis };
+  if (besideFlyover(i, j)) return { role: 'beside', axis: i === 0 ? 'z' : 'x' };
+  return null;
 }
-// The ways from a point onto the streets: for each junction a street reaches, the nearest point P of that street to the
-// point, and the leg (point -> P, then along the street to the junction). The legs are taken only from the streets that
-// bound the point's own block (ring 0); if the block has no open street at all (a closed estate or park), the next ring
-// of blocks is tried, and so on up to three rings. So a car on a street starts from that street, and no leg runs across
-// a block to a far street. Returns { legs, segs }: legs is a Map junction node -> { acc, x, z } (the best leg per
-// junction); segs lists every street the point joins: { key, t, leg, x, z } where t is the distance of P from the
-// street's first junction, so two points on the same street can be joined directly.
+// The height of a structure's driving surface (a ramp or the deck) over the point, or 0 off the structure. Below UP_MIN a
+// place is on the ground: the last few centimetres of a ramp's foot are at grade, and a car there still steers out of it.
+const UP_MIN = 0.05;
+function structureAt(x, z) {
+  const f = flyoverNear(x, z);
+  return f ? bridgeHeight(f, alongOf(f, x, z)) : 0;
+}
+// Is the place up on a structure? A car is when it rides the surface of a ramp or the deck (from there the parapets hold
+// it in); a car at grade under a deck is on the ground. A mark has no height: inside the structure's outline as the map
+// draws it (the ramps and the deck) it is up on the structure, and anywhere else it is on the ground.
+function onDeck(p) {
+  const h = structureAt(p.x, p.z);
+  if (h <= UP_MIN) return false;
+  return p.y === undefined || p.y > Math.max(UP_MIN, h - FLY.on);
+}
+// Is the point (x, z) of an edge up on a structure? Only a deck edge climbs, and only where its ramps and deck are: the
+// stretch before a ramp's foot is the main road at grade.
+const edgeUp = (deck, x, z) => deck && structureAt(x, z) > UP_MIN;
+
+let graphCache = null;
+function roadGraph() {
+  if (graphCache) return graphCache;
+  const nodes = [], adj = [], edges = [], blockEdges = new Map();
+  let count = GN * GN * 3;                                   // the ids past the junctions' own: the lane nodes E
+  const node = (id, x, z) => { if (!nodes[id]) { nodes[id] = [x, z]; adj[id] = []; } return id; };
+  // `deck`: the edge is the deck road (it climbs onto the structure); `blocks`: the blocks it runs along, so a point
+  // looks for its roads among the blocks round it (accessLegs)
+  const edge = (a, b, pts, deck, blocks) => {
+    const cum = [0];
+    for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    const id = edges.length, len = cum[cum.length - 1];
+    edges.push({ a, b, pts, cum, len, deck, blocks });
+    adj[a].push([b, len, id]); adj[b].push([a, len, id]);
+    for (const [bi, bj] of blocks) {
+      const key = bi + ',' + bj;
+      if (!blockEdges.has(key)) blockEdges.set(key, []);
+      blockEdges.get(key).push(id);
+    }
+  };
+  const J = (i, j) => node(jid(i, j, 0), i * CHUNK, j * CHUNK);
+  // the lane's node on side s (+1 / -1 across the main road `axis`) at junction (i, j): G at a bridge, L beside one
+  const Lp = (i, j, axis, s) => {
+    const [x, z] = atUV(axis, axis === 'x' ? i * CHUNK : j * CHUNK, s * LANE);
+    return node(jid(i, j, s > 0 ? 1 : 2), x, z);
+  };
+  const line = (a, b) => [nodes[a], nodes[b]];
+  for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) for (const axis of ['x', 'z']) {
+    if (!isOpen(axis, i, j)) continue;
+    const i1 = axis === 'x' ? i + 1 : i, j1 = axis === 'z' ? j + 1 : j;
+    const blocks = axis === 'z' ? [[i - 1, j], [i, j]] : [[i, j - 1], [i, j]];
+    const r0 = flyRole(i, j), r1 = flyRole(i1, j1);
+    const b0 = !!r0 && r0.role === 'bridge' && r0.axis === axis, b1 = !!r1 && r1.role === 'bridge' && r1.axis === axis;
+    if (!b0 && !b1) {
+      // A street. Where it crosses an interchange's main road (it is the street under a deck, or the cross street of the
+      // junction beside one), it ends at the lane on its own side: that is where it meets the ground road.
+      const end = (ii, jj, r, s) => (r && r.axis !== axis ? Lp(ii, jj, r.axis, s) : J(ii, jj));
+      const a = end(i, j, r0, 1), b = end(i1, j1, r1, -1);
+      edge(a, b, line(a, b), false, blocks);
+      continue;
+    }
+    // A block of an interchange's main road: the deck road on the centre line, from one junction to the other (at a bridge
+    // junction that is its deck node, which nothing else meets)...
+    edge(J(i, j), J(i1, j1), line(J(i, j), J(i1, j1)), true, blocks);
+    // ... and the ground road beside it, a lane on each side
+    for (const s of [1, -1]) {
+      if (b0 && b1) { edge(Lp(i, j, axis, s), Lp(i1, j1, axis, s), line(Lp(i, j, axis, s), Lp(i1, j1, axis, s)), false, blocks); continue; }
+      // one end is the junction beside the bridge (P): the lane starts at P's cross street (L), and the main road moves
+      // out into it past the nose guards (E); the other end is the bridge's junction, where the lane meets the street under
+      // the deck (G)
+      const pAt0 = !b0, P = pAt0 ? J(i, j) : J(i1, j1), L = pAt0 ? Lp(i, j, axis, s) : Lp(i1, j1, axis, s);
+      const G = pAt0 ? Lp(i1, j1, axis, s) : Lp(i, j, axis, s);
+      const uP = (axis === 'x' ? (pAt0 ? i : i1) : (pAt0 ? j : j1)) * CHUNK;
+      const [ex, ez] = atUV(axis, uP + (pAt0 ? 1 : -1) * LANE_IN, s * LANE);
+      const E = node(count++, ex, ez);
+      edge(L, E, line(L, E), false, blocks);
+      edge(P, E, line(P, E), false, blocks);
+      edge(E, G, line(E, G), false, blocks);
+    }
+  }
+  for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
+    const r = flyRole(i, j);
+    if (!r) continue;
+    const A = r.axis;
+    if (r.role === 'bridge') {
+      // the junction box under the deck: the street that crosses there, from one lane to the other at grade
+      const gm = Lp(i, j, A, -1), gp = Lp(i, j, A, 1);
+      edge(gm, gp, [nodes[gm], atUV(A, A === 'x' ? i * CHUNK : j * CHUNK, 0), nodes[gp]], false, [[i - 1, j - 1], [i, j - 1], [i - 1, j], [i, j]]);
+    } else {
+      // the junction beside a bridge: its cross street, from the junction out to where each lane starts
+      for (const s of [1, -1]) {
+        const blocks = A === 'x' ? [[i - 1, s > 0 ? j : j - 1], [i, s > 0 ? j : j - 1]] : [[s > 0 ? i : i - 1, j - 1], [s > 0 ? i : i - 1, j]];
+        edge(J(i, j), Lp(i, j, A, s), line(J(i, j), Lp(i, j, A, s)), false, blocks);
+      }
+    }
+  }
+  return (graphCache = { nodes, adj, edges, blockEdges, count });
+}
+// The point of an edge nearest to p: its distance d, the point (x, z), and its place t (the length along the edge to it).
+function nearestOnEdge(e, p) {
+  let best = null;
+  for (let k = 0; k + 1 < e.pts.length; k++) {
+    const [ax, az] = e.pts[k], [bx, bz] = e.pts[k + 1];
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const f = L2 ? Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.z - az) * dz) / L2)) : 0;
+    const x = ax + dx * f, z = az + dz * f, d = Math.hypot(p.x - x, p.z - z);
+    if (!best || d < best.d) best = { d, x, z, t: e.cum[k] + f * (e.cum[k + 1] - e.cum[k]) };
+  }
+  return best;
+}
+// The ways from a point onto the roads: for each node a road reaches, the nearest point P of that road to the point, and
+// the leg (point -> P, then along the road to the node). The legs are taken only from the roads that run along the
+// point's own block (ring 0); if the block has no open road at all (a closed estate or park), the next ring of blocks is
+// tried, and so on up to three rings. So a car on a street starts from that street, and no leg runs across a block to a far
+// street. A place up on a structure joins only the deck road, and a place on the ground only the roads at grade: nothing
+// steps from a lane up onto the ramp beside it or down off the deck. Returns { legs, segs }: legs is a Map node ->
+// { acc, x, z, e, t } (the best leg per node; e is the edge and t the place of P along it); segs lists every road the point
+// joins: { key (the edge), t, leg, x, z }, so two points on the same road can be joined directly.
 // (maxLeg: the longest leg allowed; the start of a route uses ACCESS_MAX, so the car's own step onto the street is short
 // and the route never runs across a block, the yards and sidewalks beside the car.)
 const ACCESS_MAX = 12;
@@ -642,41 +763,36 @@ function legCrossesBuilding(ax, az, bx, bz) {
 // A leg from the point to the street point (px, pz). The start of a route (maxLeg finite) must be short and must not go
 // through a building; the mark's own leg (maxLeg Infinity) is not limited, so a mark in a building still gets its route.
 const legOk = (p, px, pz, maxLeg) => Math.hypot(p.x - px, p.z - pz) <= maxLeg && (maxLeg === Infinity || !legCrossesBuilding(p.x, p.z, px, pz));
-function accessLegs(p, adj, maxLeg = Infinity) {
+function accessLegs(p, maxLeg = Infinity) {
+  const g = roadGraph(), up = onDeck(p);
+  // A car at grade under a deck (in the junction box, or under a long bridge's span) gets out sideways to the lane beside
+  // the structure, which is further than a car's usual step onto a street.
+  const reach = !up && structureAt(p.x, p.z) > UP_MIN ? Math.max(maxLeg, LANE + 2) : maxLeg;
   const bi = Math.floor(p.x / CHUNK), bj = Math.floor(p.z / CHUNK);
   for (let r = 0; r <= 3; r++) {
-    const legs = new Map(), segs = [];
-    const put = (n, acc, x, z) => { const b = legs.get(n); if (!b || acc < b.acc) legs.set(n, { acc, x, z }); };
-    for (let i = bi - r - 1; i <= bi + r + 1; i++) for (let j = bj - r - 1; j <= bj + r + 1; j++) {
-      if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
-      if (j < CORE && isOpen('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
-        const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r && legOk(p, i * CHUNK, Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), maxLeg)) {
-          const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
-          const leg = Math.hypot(p.x - px, p.z - zc);
-          put(tid(i, j, 'z'), leg + (zc - j * CHUNK), px, zc);
-          put(tid(i, j + 1, 'z'), leg + ((j + 1) * CHUNK - zc), px, zc);
-          segs.push({ key: 'z' + i + ',' + j, t: zc - j * CHUNK, leg, x: px, z: zc });
-        }
-      }
-      if (i < CORE && isOpen('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
-        const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r && legOk(p, Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), j * CHUNK, maxLeg)) {
-          const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
-          const leg = Math.hypot(p.x - xc, p.z - pz);
-          put(tid(i, j, 'x'), leg + (xc - i * CHUNK), xc, pz);
-          put(tid(i + 1, j, 'x'), leg + ((i + 1) * CHUNK - xc), xc, pz);
-          segs.push({ key: 'x' + i + ',' + j, t: xc - i * CHUNK, leg, x: xc, z: pz });
-        }
+    const legs = new Map(), segs = [], seen = new Set();
+    const put = (n, acc, q, e) => { const b = legs.get(n); if (!b || acc < b.acc) legs.set(n, { acc, x: q.x, z: q.z, e, t: q.t }); };
+    for (let i = bi - r; i <= bi + r; i++) for (let j = bj - r; j <= bj + r; j++) {
+      for (const id of g.blockEdges.get(i + ',' + j) || []) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const e = g.edges[id], q = nearestOnEdge(e, p);
+        if (edgeUp(e.deck, q.x, q.z) !== up) continue;      // the other level: not a road this place is on
+        if (!legOk(p, q.x, q.z, reach)) continue;
+        put(e.a, q.d + q.t, q, id);
+        put(e.b, q.d + (e.len - q.t), q, id);
+        segs.push({ key: id, t: q.t, leg: q.d, x: q.x, z: q.z });
       }
     }
     if (legs.size) return { legs, segs };
   }
   return { legs: new Map(), segs: [] };
 }
-// Dijkstra from the start nodes (each with its leg length): returns the distance and the predecessor of every node
+// Dijkstra from the start nodes (each with its leg length): returns the distance of every node, and the node and the edge
+// it is reached from
 function shortest(starts) {
-  const adj = roadGraph(), dist = new Float64Array(N2).fill(Infinity), prev = new Int32Array(N2).fill(-1);
+  const g = roadGraph(), adj = g.adj;
+  const dist = new Float64Array(g.count).fill(Infinity), prev = new Int32Array(g.count).fill(-1), prevE = new Int32Array(g.count).fill(-1);
   const hd = [], hn = [];
   const swap = (a, k, m) => { [a[k], a[m]] = [a[m], a[k]]; };
   const push = (d, n) => {
@@ -701,100 +817,116 @@ function shortest(starts) {
   while (hd.length) {
     const [d, n] = pop();
     if (d > dist[n]) continue;
-    for (const [m, w] of adj[n]) if (d + w < dist[m]) { dist[m] = d + w; prev[m] = n; push(d + w, m); }
+    for (const [m, w, e] of adj[n]) if (d + w < dist[m]) { dist[m] = d + w; prev[m] = n; prevE[m] = e; push(d + w, m); }
   }
-  return { dist, prev };
+  return { dist, prev, prevE };
 }
-// The road route from one point to another. Its `pts` is the whole way: the point, its step onto the street, the
-// street's corners, the step off it, the point. `street` lists only the junctions (corners) of the way, and `sIdx` gives
-// the index in `pts` of each of them; `cum` is the length along `pts` up to each point. Returns null if no street is
-// near enough to either point.
-function routeOf(from, to, list) {
-  const pts = [[from.x, from.z]], street = [], sIdx = [];
-  for (const q of list) {
-    if (q.st) { sIdx.push(pts.length); street.push([q.x, q.z]); }
-    pts.push([q.x, q.z]);
+// The point at t along an edge, and the way along it from t0 to t1 (both ends, and the edge's own bends between them).
+function pointAt(e, t) {
+  let k = 0;
+  while (k + 2 < e.pts.length && t > e.cum[k + 1]) k++;
+  const L = e.cum[k + 1] - e.cum[k], f = L ? Math.max(0, Math.min(1, (t - e.cum[k]) / L)) : 0;
+  return [e.pts[k][0] + (e.pts[k + 1][0] - e.pts[k][0]) * f, e.pts[k][1] + (e.pts[k + 1][1] - e.pts[k][1]) * f];
+}
+function stretch(e, t0, t1) {
+  const out = [pointAt(e, t0)], n = e.pts.length;
+  if (t1 >= t0) { for (let k = 1; k < n - 1; k++) if (e.cum[k] > t0 && e.cum[k] < t1) out.push(e.pts[k]); }
+  else { for (let k = n - 2; k >= 1; k--) if (e.cum[k] < t0 && e.cum[k] > t1) out.push(e.pts[k]); }
+  out.push(pointAt(e, t1));
+  return out;
+}
+// The road route, from its pieces (each { pts, deck }: a way along one edge). Its `pts` is the whole way: the point, its
+// step onto the road, along the roads round every corner and bend, to the point on the road nearest the mark. `deck[k]`
+// tells whether the piece pts[k] -> pts[k + 1] is on the deck road (it is up on the structure wherever that is: edgeUp),
+// and `cum` is the length along `pts` up to each point.
+function makeRoute(from, pieces) {
+  const pts = [[from.x, from.z]], deck = [];
+  for (const pc of pieces) for (const [x, z] of pc.pts) {
+    const l = pts[pts.length - 1];
+    if (Math.hypot(x - l[0], z - l[1]) < 0.01) continue;
+    pts.push([x, z]); deck.push(pc.deck);
   }
-  const lp = pts[pts.length - 1];
-  if (Math.hypot(to.x - lp[0], to.z - lp[1]) > 0.01) pts.push([to.x, to.z]);   // (the end is the street point itself when it was already the last point)
   const cum = [0];
   for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
-  return { len: cum[cum.length - 1], pts, street, sIdx, cum };
+  return { len: cum[cum.length - 1], pts, deck, cum };
 }
-// The street nearest the point: the nearest of the street segments the point can reach (accessLegs), and the ways to its
-// two corners, along the segment to the point. The way to the mark ends on this street, at the point nearest the mark.
+// The road nearest the point: the nearest of the roads the point can reach (accessLegs), and the ways to its two ends,
+// along it from the point. The way to the mark ends on this road, at the point nearest the mark.
 function nearestLegs(segs) {
   let nb = null;
   for (const s of segs) if (!nb || s.leg < nb.leg) nb = s;
   const legs = new Map();
-  if (!nb) return { legs, key: null };
-  const m = /^([xz])(-?\d+),(-?\d+)$/.exec(nb.key);
-  const i = +m[2], j = +m[3];
-  const a = tid(i, j, m[1]), b = m[1] === 'z' ? tid(i, j + 1, 'z') : tid(i + 1, j, 'x');
-  legs.set(a, { acc: nb.leg + nb.t, x: nb.x, z: nb.z });
-  legs.set(b, { acc: nb.leg + (CHUNK - nb.t), x: nb.x, z: nb.z });
-  return { legs, key: nb.key };
+  if (!nb) return { legs, key: null, seg: null };
+  const e = roadGraph().edges[nb.key];
+  legs.set(e.a, { acc: nb.leg + nb.t, x: nb.x, z: nb.z, e: nb.key, t: nb.t });
+  legs.set(e.b, { acc: nb.leg + (e.len - nb.t), x: nb.x, z: nb.z, e: nb.key, t: nb.t });
+  return { legs, key: nb.key, seg: nb };
 }
-function roadRoute(from, to) {
-  const adj = roadGraph();
-  const A = accessLegs(from, adj, ACCESS_MAX), B = accessLegs(to, adj);
+// The road route from one point to another (`from` may carry the car's height, y), or null if no road is near enough to
+// either point. (Exported for the Node suite, tools/sidewalk-checks/route-levels.mjs.)
+export function roadRoute(from, to) {
+  const g = roadGraph();
+  const A = accessLegs(from, ACCESS_MAX), B = accessLegs(to);
   if (!A.legs.size || !B.legs.size) return null;
   const nearest = nearestLegs(B.segs);
-  // (a) both ends on one street: walk along it, without going out to a corner and back
+  // (a) both ends on one road: walk along it, without going out to a corner and back
   let direct = null;
-  const bseg = new Map(B.segs.map(s => [s.key, s]));
   for (const a of A.segs) {
-    const b = bseg.get(a.key);
-    if (!b || a.key !== nearest.key) continue;
-    const len = a.leg + b.leg + Math.abs(a.t - b.t);
-    if (!direct || len < direct.len) direct = { len, a, b };
+    if (a.key !== nearest.key) continue;
+    const len = a.leg + nearest.seg.leg + Math.abs(a.t - nearest.seg.t);
+    if (!direct || len < direct.len) direct = { len, a };
   }
-  // (b) through the corners of the street network
-  const { dist, prev } = shortest([...A.legs].map(([n, l]) => ({ n, acc: l.acc })));
+  // (b) through the nodes of the road network
+  const { dist, prev, prevE } = shortest([...A.legs].map(([n, l]) => ({ n, acc: l.acc })));
   let best = null;
   for (const [n, l] of nearest.legs) {
     const len = dist[n] + l.acc;
     if (isFinite(len) && (!best || len < best.len)) best = { len, end: n };
   }
   if (direct && (!best || direct.len <= best.len)) {
-    return routeOf(from, { x: direct.b.x, z: direct.b.z }, [{ x: direct.a.x, z: direct.a.z, st: true }, { x: direct.b.x, z: direct.b.z, st: true }]);
+    const e = g.edges[nearest.key];
+    return makeRoute(from, [{ pts: stretch(e, direct.a.t, nearest.seg.t), deck: e.deck }]);
   }
   if (!best) return null;
   const nodes = [];
   for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
   nodes.reverse();
-  const worldOf = n => { const c = n >> 1; return [(Math.floor(c / GN) - CORE) * CHUNK, ((c % GN) - CORE) * CHUNK]; };
-  const first = A.legs.get(nodes[0]), last = nearest.legs.get(best.end);
-  const list = [];
-  if (first) list.push({ x: first.x, z: first.z, st: false });
-  for (const n of nodes) { const [x, z] = worldOf(n); list.push({ x, z, st: true }); }
-  // the way ends on the street, at the point nearest the mark: the last leg is not drawn across the block to the mark
-  const end = last ? { x: last.x, z: last.z } : to;
-  if (last) list.push({ x: last.x, z: last.z, st: false });
-  return routeOf(from, end, list);
+  const first = A.legs.get(nodes[0]), e0 = g.edges[first.e];
+  const pieces = [{ pts: stretch(e0, first.t, nodes[0] === e0.a ? 0 : e0.len), deck: e0.deck }];
+  for (let k = 1; k < nodes.length; k++) {
+    const e = g.edges[prevE[nodes[k]]];
+    pieces.push({ pts: e.a === nodes[k - 1] ? e.pts : [...e.pts].reverse(), deck: e.deck });
+  }
+  // the way ends on the road, at the point nearest the mark: the last leg is not drawn across the block to the mark
+  const last = nearest.legs.get(best.end), eL = g.edges[last.e];
+  pieces.push({ pts: stretch(eL, best.end === eL.a ? 0 : eL.len, last.t), deck: eL.deck });
+  return makeRoute(from, pieces);
 }
-// The point of a route nearest to `p`: its distance d, and its place s (the length along the route up to it).
+// The point of a route nearest to `p`: its distance d, and its place s (the length along the route up to it). Only the
+// pieces on p's own level count: a car up on a deck is not on a route that runs along the lane beside it or under it, and
+// a car on the lane is not on a route over the ramp beside it, however close they are on the map.
 function nearestOn(route, p) {
+  const up = onDeck(p);
   let best = { d: Infinity, s: 0, k: 0, x: p.x, z: p.z };
-  const { pts, cum } = route;
+  const { pts, cum, deck } = route;
   for (let k = 0; k + 1 < pts.length; k++) {
     const [ax, az] = pts[k], [bx, bz] = pts[k + 1];
     const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
     const t = L2 ? Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.z - az) * dz) / L2)) : 0;
     const qx = ax + dx * t, qz = az + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
-    if (d < best.d) best = { d, s: cum[k] + Math.hypot(qx - ax, qz - az), k, x: qx, z: qz };
+    if (d < best.d && edgeUp(deck[k], qx, qz) === up) best = { d, s: cum[k] + Math.hypot(qx - ax, qz - az), k, x: qx, z: qz };
   }
   return best;
 }
 // The route for the current mark. It is planned once, from where the car was when the mark was set, and then kept
-// while the car stays on it (within 12 m): the route does not change shape as the car drives along it. Only when the car
-// leaves it, or the mark moves, is a new route planned. The returned view is the rest of the route, from the car:
-// { len (what is left), pts (from the car on), base (the planned route), s (the car's place along base) }.
+// while the car stays on it (within 12 m, on the same level): the route does not change shape as the car drives along it.
+// Only when the car leaves it, or the mark moves, is a new route planned. The returned view is the rest of the route,
+// from the car: { len (what is left), pts (from the car on), base (the planned route), s (the car's place along base) }.
 const ON_ROUTE = 12;
 let routeCache = { to: null, base: null, view: null, from: null, at: 0 };
 export function currentRoute() {
   if (!mark) return null;
-  const car = { x: player.x, z: player.z };
+  const car = { x: player.x, z: player.z, y: player.y || 0 };
   const c = routeCache;
   if (c.to !== mark) { c.to = mark; c.base = null; c.view = null; c.from = null; c.at = 0; }
   let near = c.base ? nearestOn(c.base, car) : null;
@@ -814,7 +946,7 @@ export function currentRoute() {
   if (c.view && Math.hypot(c.view.car.x - car.x, c.view.car.z - car.z) < 0.5) return c.view;
   const b = c.base;
   const pts = [[car.x, car.z], [near.x, near.z], ...b.pts.slice(near.k + 1)];
-  c.view = { len: b.len - near.s, pts, street: b.street, base: b, s: near.s, car: { x: car.x, z: car.z } };
+  c.view = { len: b.len - near.s, pts, base: b, s: near.s, car: { x: car.x, z: car.z } };
   return c.view;
 }
 
@@ -858,6 +990,8 @@ export function mapOpen() { return open; }
 export function currentMark() { return mark; }
 // Takes the mark away: the pin on the map, the route, and the pin and route on the radar and the road all go with it.
 export function clearMark() { mark = null; }
+// Puts the mark at (x, z), as a left click on the map does: a click on a building puts the pin at its entrance.
+export function setMark(x, z) { mark = entryPoint(x, z); return mark; }
 let pausedByMap = false;
 // A new game starts the map afresh: no mark, no route, and the parts of the city it had seen are forgotten.
 export function resetMap() {
