@@ -628,6 +628,20 @@ function roadGraph() {
 // (maxLeg: the longest leg allowed; the start of a route uses ACCESS_MAX, so the car's own step onto the street is short
 // and the route never runs across a block, the yards and sidewalks beside the car.)
 const ACCESS_MAX = 12;
+// Is the place inside a building's footprint (the real footprints, from the map data)?
+function insideBlds(x, z) {
+  const k = known(ck(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  return !!k && k.blds.some(([bx, bz, w, d]) => x >= bx && x <= bx + w && z >= bz && z <= bz + d);
+}
+// Does the straight line from a to b pass through a building?
+function legCrossesBuilding(ax, az, bx, bz) {
+  const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
+  for (let s = 1; s < n; s++) if (insideBlds(ax + (bx - ax) * s / n, az + (bz - az) * s / n)) return true;
+  return false;
+}
+// A leg from the point to the street point (px, pz). The start of a route (maxLeg finite) must be short and must not go
+// through a building; the mark's own leg (maxLeg Infinity) is not limited, so a mark in a building still gets its route.
+const legOk = (p, px, pz, maxLeg) => Math.hypot(p.x - px, p.z - pz) <= maxLeg && (maxLeg === Infinity || !legCrossesBuilding(p.x, p.z, px, pz));
 function accessLegs(p, adj, maxLeg = Infinity) {
   const bi = Math.floor(p.x / CHUNK), bj = Math.floor(p.z / CHUNK);
   for (let r = 0; r <= 3; r++) {
@@ -637,7 +651,7 @@ function accessLegs(p, adj, maxLeg = Infinity) {
       if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
       if (j < CORE && isOpen('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r && Math.hypot(p.x - i * CHUNK, p.z - Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK)) <= maxLeg) {
+        if (ring <= r && legOk(p, i * CHUNK, Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), maxLeg)) {
           const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
           const leg = Math.hypot(p.x - px, p.z - zc);
           put(tid(i, j, 'z'), leg + (zc - j * CHUNK), px, zc);
@@ -647,7 +661,7 @@ function accessLegs(p, adj, maxLeg = Infinity) {
       }
       if (i < CORE && isOpen('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r && Math.hypot(p.z - j * CHUNK, p.x - Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK)) <= maxLeg) {
+        if (ring <= r && legOk(p, Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), j * CHUNK, maxLeg)) {
           const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
           const leg = Math.hypot(p.x - xc, p.z - pz);
           put(tid(i, j, 'x'), leg + (xc - i * CHUNK), xc, pz);
