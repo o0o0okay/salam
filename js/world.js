@@ -47,7 +47,7 @@ import { districtOf, pickBlockType } from './districts.js';
 import { buildSportMesh, SPORT_KINDS, SPORT_SLOTS, SPORT_DEFS, sportScale } from "./sports.js";
 import { buildFactoryMesh, FACTORY_KINDS } from "./factory.js";
 import { SHOP_TYPES, PARADE_TITLES, buildShopFrontMesh, buildShopParadeMesh } from './shops.js';
-import { bake, finishChunk, flushChunk, buildTreeInstances, mergeStandalone, own } from './chunkBake.js';
+import { bake, finishChunk, flushChunk, buildTreeInstances, mergeStandalone, own, sweepStatic } from './chunkBake.js';
 import { chunks, nearChunks, plazaIn } from './chunkState.js';
 import { solidAt, solidsNear } from './solidIndex.js';
 import { PAVE_IN, PAVE_OUT, WALK_Y, PIT_IN, FACTORY_SHARE, PAD_IN, CURB_TILE, BORDER_TILE, SIDEWALK_SIDES, pickSidewalkStyle, stripStops, sidewalkPieces, treePit, bakeRing } from './sidewalks.js';
@@ -2326,6 +2326,7 @@ function generateChunk(cx, cz, defer = false) {
   // the diagonal avenues (js/avenues.js) take out whatever stands on them, before the block is merged (both the
   // streamed and the immediate path go through here, so it runs first)
   if (blockNearAvenue(x0, z0, x0 + CHUNK, z0 + CHUNK)) clearAvenues(ch);
+  sweepStatic(ch);   // the static pieces added one by one go into the bake list too (js/chunkBake.js)
   if (defer) {
     // hand the merge over to the streamer: the group goes in now (it already draws the road and the paving it
     // was given directly), the merged buildings and props follow over the next few frames
@@ -2358,7 +2359,7 @@ export function disposeChunk(ch) {
   for (const g of ch.owned) g.dispose();                       // the block's stand-alone pieces go with it
   ch.owned.length = 0;
   ch.insts.forEach(m => m.dispose());
-  if (ch.materialBag) { for (const geos of ch.materialBag.values()) geos.forEach(g => g.dispose()); ch.materialBag.clear(); }
+  if (ch.materialBag) { for (const byCast of ch.materialBag.values()) for (const k of ['c', 'n']) byCast[k].forEach(g => g.dispose()); ch.materialBag.clear(); }
   if (ch.mergeQ) ch.mergeQ.length = 0;
   for (const p of ch.pumps || []) p.gone = true;               // a dismantled forecourt must not go on exploding
   for (const pc of ch.spill) scene.remove(pc.mesh);      // cars added to the lot after generation

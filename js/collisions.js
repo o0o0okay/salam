@@ -57,10 +57,15 @@ export function sat(A, B) {
 // list when hitParkedHeavy() -> canShift() asks for another one.
 const _scanSolids = [], _hitSolids = [], _shiftSolids = [];
 export function overlapsAnything(b, self) {
-  // Nothing spawns inside the interchange: a car placed in the embankment would sit in the concrete, and the
-  // deck above is no place to drop traffic into mid-air either.
-  if (insideFootprint(b.x, b.z, 2 + b.e1)) return true;
-  for (const s of solidsNear(b.x, b.z, 4, _scanSolids)) { if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true; }
+  // Nothing spawns inside the interchange at grade: a car placed in the embankment would sit in the concrete. A box
+  // placed up on a deck (b.y above the ground) is the one exception: it stands on the slab, above the embankment, and
+  // the walls under the deck do not reach it.
+  const up = (b.y || 0) > 0;
+  if (!up && insideFootprint(b.x, b.z, 2 + b.e1)) return true;
+  for (const s of solidsNear(b.x, b.z, 4, _scanSolids)) {
+    if (up && s.maxY !== undefined && b.y > s.maxY) continue;
+    if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true;
+  }
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
   return false;
 }

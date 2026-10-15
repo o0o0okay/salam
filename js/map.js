@@ -15,12 +15,13 @@
  */
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
-import { radarStreets, RIVER_ROW, segClosed, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
-import { known, allKnown, learn, forgetSeen } from './mapData.js';
+import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge, isFlyoverNode } from './flyover.js';
+import { known, allKnown, learn, forgetSeen, mapVersion } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
+const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
-import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE } from './island.js';
+import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE, onIsland } from './island.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
@@ -32,10 +33,25 @@ const C = {
   pin: '#ea4335', route: '#4285f4', label: '#1a73e8',
 };
 const ZOOM_MIN = 0.12, ZOOM_MAX = 2.5;
+const START_ZOOM = 2.5;   // the map opens at the zoom where its scale bar reads 50 m (the largest zoom)
+// The map shows the island and the sea up to PAST_COAST metres beyond its coast, and no further: it cannot be zoomed out
+// past that, and the view cannot be moved past it.
+const PAST_COAST = 1000;
+// the most the view can show: the island and PAST_COAST of sea on each side. At this zoom the view is centred and cannot move.
+function minZoom() { return W ? Math.min(W, H) / (ISLAND_MAX - ISLAND_MIN + 2 * PAST_COAST) : ZOOM_MIN; }
+function clampView() {
+  view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s));
+  const hx = W / 2 / view.s, hz = H / 2 / view.s;
+  const mid = (ISLAND_MIN + ISLAND_MAX) / 2, span = ISLAND_MAX - ISLAND_MIN + 2 * PAST_COAST;
+  const lo = ISLAND_MIN - PAST_COAST, hi = ISLAND_MAX + PAST_COAST;
+  view.cx = 2 * hx >= span ? mid : Math.min(hi - hx, Math.max(lo + hx, view.cx));
+  view.cz = 2 * hz >= span ? mid : Math.min(hi - hz, Math.max(lo + hz, view.cz));
+}
 const DIST_NAMES = { centre: 'City centre', old: 'Old town', industrial: 'Industrial', suburb: 'Suburbs', harbour: 'Harbour' };
 
 const view = { cx: 0, cz: 0, s: 0.45 };     // centre (world metres), screen pixels per metre
 let mark = null;                           // { x, z } or null
+let seaNoteAt = -1e9;                       // when a click in the sea was refused (the map says so for a moment)
 let open = false, timer = 0, W = 0, H = 0, dpr = 1;
 let overlay, canvas, ctx, infoBox;
 
@@ -49,6 +65,15 @@ function el(tag, css, text) {
   return e;
 }
 
+// the GPS button: a crosshair; it centres the map on the car, at the zoom the map is at
+function gpsButton(onClick) {
+  const b = button('', onClick);
+  b.title = 'Centre on my car'; b.setAttribute('aria-label', 'Centre on my car');
+  b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" style="display:block" fill="none" stroke="#222" stroke-width="2">'
+    + '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="#222"/>'
+    + '<path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>';
+  return b;
+}
 function button(label, onClick) {
   const b = el('button', 'pointer-events:auto;background:#fff;border:1px solid #888;border-radius:4px;padding:6px 12px;'
     + 'font:14px monospace;color:#222;cursor:pointer;', label);
@@ -68,15 +93,15 @@ function build() {
   tl.innerHTML = '<b style="font-size:16px">MAP</b>'
     + Object.keys(DIST_NAMES).map(k => `<div><span style="display:inline-block;width:12px;height:12px;background:${LAND[k]};`
       + `border:1px solid #bbb;margin-right:6px;vertical-align:-1px"></span>${DIST_NAMES[k]}</div>`).join('')
-    + `<div><span style="display:inline-block;width:16px;height:4px;background:${TRAM_C};margin-right:6px;vertical-align:middle;`
-    + `box-shadow:0 0 0 1px #fff"></span>Tram line</div>`;
+    + `<div><span style="display:inline-block;width:16px;height:8px;border-top:2px solid #4a4f57;border-bottom:2px solid #4a4f57;margin-right:6px;vertical-align:middle;`
+    + `background:repeating-linear-gradient(90deg,#8b6f47 0 2px,transparent 2px 5px)"></span>Tram line</div>`;
   overlay.appendChild(tl);
   infoBox = el('div', 'position:absolute;left:16px;bottom:14px;background:rgba(255,255,255,.85);padding:8px 12px;'
     + 'border-radius:6px;font-size:13px;pointer-events:none;');
   overlay.appendChild(infoBox);
 
   const bar = el('div', 'position:absolute;right:16px;top:14px;display:flex;gap:8px;');
-  bar.append(button('Me', () => { view.cx = player.x; view.cz = player.z; }),
+  bar.append(gpsButton(() => { view.cx = player.x; view.cz = player.z; }),
     button('Clear mark', () => { mark = null; }),
     button('+', () => zoomAt(W / 2, H / 2, 1.25)),
     button('\u2212', () => zoomAt(W / 2, H / 2, 0.8)),
@@ -102,7 +127,11 @@ function build() {
   });
   const release = e => {
     if (drag && !drag.moved) {
-      if (drag.btn === 0) { const w = worldAt(e.clientX, e.clientY); mark = { x: w.x, z: w.z }; }
+      if (drag.btn === 0) {
+        const w = worldAt(e.clientX, e.clientY);
+        if (onIsland(w.x, w.z, 2)) mark = entryPoint(w.x, w.z);
+        else seaNoteAt = performance.now();                 // no pin in the sea
+      }
       else if (drag.btn === 2) mark = null;
       draw();
     }
@@ -132,12 +161,23 @@ const sy = z => H / 2 - (z - view.cz) * view.s;
 // zoom by f, keeping the world point under (px, py) where it is on screen
 function zoomAt(px, py, f) {
   const before = worldAt(px, py);
-  view.s = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.s * f));
+  view.s = Math.min(ZOOM_MAX, Math.max(minZoom(), view.s * f));
   const after = worldAt(px, py);
   view.cx += before.x - after.x; view.cz += before.z - after.z;
   draw();
 }
 
+// a helicopter pad on a roof (the hospital's): a white disc with a red H, drawn over the building it stands on
+function helipad(x, z, r) {
+  const X = sx(x), Y = sy(z), R = Math.max(5, r * view.s);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(X, Y, R, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
+  ctx.lineWidth = Math.max(1, R * 0.12); ctx.strokeStyle = '#5b6167'; ctx.stroke();
+  ctx.fillStyle = '#d6342c'; ctx.font = `bold ${Math.max(8, R * 1.3)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', X, Y + 0.5);
+  ctx.restore();
+}
 // a rectangle in world metres (x, z = its lower-left corner, w, d) filled in colour c
 // a rounded rectangle in world metres (a street: round ends and corners, as in the reference)
 function rrect(x, z, w, d, c) {
@@ -231,6 +271,10 @@ function poolSpot(cx, cz, blds) {
 // a tree as a crown: a shadow, a dark round crown, a light patch on its top-left
 function crown(tx, tz) {
   const r = Math.max(2.4, 3.4 * view.s), x = sx(tx), y = sy(tz);
+  if (view.s < 0.5) {                                              // zoomed out: one disc (the shadow and the light are too small to see)
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = C.tree; ctx.fill();
+    return;
+  }
   ctx.beginPath(); ctx.arc(x + r * 0.7, y + r * 0.7, r, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(40,36,28,0.25)'; ctx.fill();
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -288,23 +332,37 @@ function drawFlyovers(gx0, gx1, gz0, gz1) {
   }
 }
 // The tram lines (js/tram.js): a route is a run of street segments that carries rails, and the rails run down the centre line
-// of the street. The map draws each segment on that rule (tramRouteOf), as a purple line with a white edge.
-const TRAM_C = '#6a2c91';
+// of the street. The map draws each segment on that rule (tramRouteOf), as two rails at the game's gauge, with sleepers.
 function drawTramLines(gx0, gx1, gz0, gz1) {
   const segs = [];
   for (let k = gx0; k <= gx1; k++) for (let j = gz0; j < gz1; j++) if (tramRouteOf('z', k, j)) segs.push(['z', k, j]);
   for (let k = gz0; k <= gz1; k++) for (let j = gx0; j < gx1; j++) if (tramRouteOf('x', k, j)) segs.push(['x', k, j]);
   if (!segs.length) return;
-  const lw = Math.max(2, 2.4 * view.s), e = 0.6;                     // the line's width on screen; each segment runs 0.6 m past its ends so they join
+  const rw = Math.max(1.6, 0.45 * view.s), e = 0.6;                   // a rail's width on screen; each segment runs 0.6 m past its ends so they join
   ctx.save(); ctx.lineCap = 'butt';
-  for (const [w, c] of [[lw + 2, '#ffffff'], [lw, TRAM_C]]) {
-    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
-    for (const [a, k, j] of segs) {
-      if (a === 'z') { ctx.moveTo(sx(k * CHUNK), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK), sy((j + 1) * CHUNK + e)); }
-      else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK)); }
+  // the track bed: a light band along the centre line, so the track stands out from the dark asphalt
+  ctx.strokeStyle = '#e9e3d2'; ctx.lineWidth = Math.max(4, 2 * RAIL_G * view.s + 4); ctx.beginPath();
+  for (const [a, k, j] of segs) {
+    if (a === 'z') { ctx.moveTo(sx(k * CHUNK), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK), sy((j + 1) * CHUNK + e)); }
+    else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK)); }
+  }
+  ctx.stroke();
+  // the sleepers: a bar across the track every 4 m (when the map is zoomed in far enough to see them)
+  if (view.s > 0.25) {
+    ctx.strokeStyle = '#8b6f47'; ctx.lineWidth = Math.max(1.2, 0.9 * view.s); ctx.beginPath();
+    for (const [a, k, j] of segs) for (let t = 0; t <= CHUNK; t += 4) {
+      if (a === 'z') { const z = j * CHUNK + t, x = k * CHUNK; ctx.moveTo(sx(x - 1.3), sy(z)); ctx.lineTo(sx(x + 1.3), sy(z)); }
+      else { const x = j * CHUNK + t, z = k * CHUNK; ctx.moveTo(sx(x), sy(z - 1.3)); ctx.lineTo(sx(x), sy(z + 1.3)); }
     }
     ctx.stroke();
   }
+  // the two rails, each RAIL_G from the centre line
+  ctx.strokeStyle = '#2a2e35'; ctx.lineWidth = rw; ctx.beginPath();
+  for (const [a, k, j] of segs) for (const o of [-RAIL_G, RAIL_G]) {
+    if (a === 'z') { ctx.moveTo(sx(k * CHUNK + o), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK + o), sy((j + 1) * CHUNK + e)); }
+    else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK + o)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK + o)); }
+  }
+  ctx.stroke();
   ctx.restore();
 }
 // The roundabouts: a junction with a plaza is a round asphalt island in its 16 m square, with a grass island in the middle
@@ -325,13 +383,60 @@ function drawRoundabouts(gx0, gx1, gz0, gz1) {
   }
 }
 
-function draw() {
-  if (!open || !ctx) return;
-  learn();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+// ---- the base picture ----
+// The ground, the blocks, the streets, the water and the tram lines do not change while the map is open (the game is
+// paused then), so they are drawn once into an off-screen picture, at one zoom, and that picture is copied to the map on
+// each redraw. A pan copies it; a zoom copies the old picture scaled at once and draws the new one a moment later; the
+// picture is drawn again only when the view leaves it, or when the map learns new blocks.
+const base = { canvas: document.createElement('canvas'), s: 0, ver: -1, x0: 0, x1: 0, z0: 0, z1: 0, timer: 0, due: false };
+const LIM = { x0: ISLAND_MIN - CHUNK, x1: ISLAND_MAX + CHUNK, z0: ISLAND_MIN - CHUNK, z1: ISLAND_MAX + CHUNK };
+// the ground the picture covers: the view and half a view width on each side, on the island (and its beach)
+function wantRect() {
+  const hx = W / 2 / view.s, hz = H / 2 / view.s;
+  const mx = hx * 0.5, mz = hz * 0.5;
+  return { x0: Math.max(LIM.x0, view.cx - hx - mx), x1: Math.min(LIM.x1, view.cx + hx + mx),
+           z0: Math.max(LIM.z0, view.cz - hz - mz), z1: Math.min(LIM.z1, view.cz + hz + mz) };
+}
+function drawBaseCached() {
+  const want = wantRect(), ver = mapVersion();
+  // the picture is good while the visible part of the map (on the island) is inside it
+  const vx0 = Math.max(LIM.x0, view.cx - W / 2 / view.s), vx1 = Math.min(LIM.x1, view.cx + W / 2 / view.s);
+  const vz0 = Math.max(LIM.z0, view.cz - H / 2 / view.s), vz1 = Math.min(LIM.z1, view.cz + H / 2 / view.s);
+  const covered = vx0 >= base.x0 - 1e-6 && vx1 <= base.x1 + 1e-6 && vz0 >= base.z0 - 1e-6 && vz1 <= base.z1 + 1e-6;
+  if (base.s === view.s && base.ver === ver && covered) { blitBase(); return; }
+  if (base.s && base.s !== view.s && base.ver === ver && !base.due) {
+    // a zoom: the old picture now, scaled; the new one when the zoom has settled (150 ms without another zoom step)
+    blitBase();
+    clearTimeout(base.timer);
+    base.timer = setTimeout(() => { base.timer = 0; base.due = true; draw(); }, 150);
+    return;
+  }
+  base.due = false;
+  renderBase(want, ver);
+  blitBase();
+}
+function blitBase() {
+  if (!base.s) return;
+  ctx.drawImage(base.canvas, 0, 0, base.canvas.width, base.canvas.height,
+    sx(base.x1), sy(base.z1), (base.x1 - base.x0) * view.s, (base.z1 - base.z0) * view.s);
+}
+// draws the base ground of rect r into the picture; the drawing code runs with a view whose screen is the picture
+// (x and z are mirrored on the map, so the picture's top-left is the corner (x1, z1))
+function renderBase(r, ver) {
+  const ew = Math.max(1, r.x1 - r.x0), eh = Math.max(1, r.z1 - r.z0), s = view.s;
+  const k = Math.min(dpr, Math.sqrt(16e6 / Math.max(1, ew * s * eh * s)));   // at most about 16 Mpx
+  const c = base.canvas;
+  c.width = Math.max(1, Math.ceil(ew * s * k)); c.height = Math.max(1, Math.ceil(eh * s * k));
+  const saved = { cx: view.cx, cz: view.cz, W, H, ctx };
+  view.cx = r.x1 - ew / 2; view.cz = r.z1 - eh / 2; W = ew * s; H = eh * s; ctx = c.getContext('2d');
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  try { drawBase(); }
+  finally { view.cx = saved.cx; view.cz = saved.cz; W = saved.W; H = saved.H; ctx = saved.ctx; }
+  Object.assign(base, { s, ver, x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
+}
+function drawBase() {
   ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
   rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
-
   const half = { x: W / 2 / view.s, z: H / 2 / view.s };
   // the blocks in view, on the island only (chunks -ISLAND_R..ISLAND_R-1)
   const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
@@ -358,6 +463,7 @@ function draw() {
     const pool = poolSpot(cx, cz, k.blds);
     if (pool) { rect(pool[0] - 1.5, pool[1] - 1.5, 17, 12, '#f4f1ea'); rect(pool[0], pool[1], 14, 9, '#5bbde9'); }
     if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
+    if (view.s > 0.12) for (const [hx, hz, hr] of k.hp || []) helipad(hx, hz, hr);
     if (view.s > 0.9) for (const [lx, lz, name] of k.lm) landmark(lx, lz, name);   // only when the names fit the block
   }
 
@@ -410,12 +516,23 @@ function draw() {
   for (const k of allKnown()) for (const [x, z, w, d, kind] of k.water) {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
+}
 
-  // 6. the road route from the car to the mark (a blue line with a white casing, as in a navigation map), the car, the pin.
-  // If there is no street route, the straight line is drawn instead and the distance is the straight one.
+function draw() {
+  if (!open || !ctx) return;
+  clampView();
+  learn();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
+  rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
+
+  drawBaseCached();                                             // the ground, the blocks, the streets (a picture, see below)
+
+  // 6. the road route from the car to the street nearest the mark (a blue line with a white casing, as in a navigation map),
+  // the car, the pin. With no street route there is no line: a straight line would cross the sea, the blocks or the river.
   const route = currentRoute();
-  if (mark) {
-    const pts = route ? route.pts : [[player.x, player.z], [mark.x, mark.z]];
+  if (mark && route) {
+    const pts = route.pts;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const [w, c] of [[9, '#ffffff'], [5, C.route]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w;
@@ -423,6 +540,17 @@ function draw() {
       pts.forEach(([x, z], k) => (k ? ctx.lineTo(sx(x), sy(z)) : ctx.moveTo(sx(x), sy(z))));
       ctx.stroke();
     }
+  }
+  if (mark && route) {
+    // the pin to the street nearest it: a dashed line, and a dot on the street at its nearest point
+    const e = route.pts[route.pts.length - 1];
+    ctx.save();
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = C.route; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx(mark.x), sy(mark.z)); ctx.lineTo(sx(e[0]), sy(e[1])); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(sx(e[0]), sy(e[1]), 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = C.route; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
   }
   const fx = -Math.sin(player.h), fy = -Math.cos(player.h);     // forward on the map (at h = 0 the car faces up; the map is mirrored in x)
   const px = sx(player.x), py = sy(player.z);
@@ -451,11 +579,13 @@ function draw() {
     ctx.fillStyle = '#ffffff'; ctx.fillText(label, bx0 + 9, by0 + 18);
   }
 
-  // the scale bar (200 m) and the distance to the mark
-  const bw = 200 * view.s;
+  // the scale bar: a round length (1, 2 or 5 times a power of ten, in metres or kilometres) that is at most about 160 px
+  const len = scaleLength(), bw = len * view.s;
   ctx.fillStyle = '#222'; ctx.fillRect(W - 32 - bw, H - 34, bw, 4);
-  ctx.font = '13px monospace'; ctx.fillStyle = '#222'; ctx.fillText('200 m', W - 32 - bw, H - 40);
-  infoBox.textContent = mark
+  ctx.font = '13px monospace'; ctx.fillStyle = '#222';
+  ctx.fillText(len >= 1000 ? (len / 1000) + ' km' : len + ' m', W - 32 - bw, H - 40);
+  infoBox.textContent = performance.now() - seaNoteAt < 2500 ? 'No pin in the sea: choose a place on the island.'
+    : mark
     ? (route ? 'Mark: ' + fmtDist(route.len) + ' by road' : 'Mark: ' + fmtDist(Math.hypot(mark.x - player.x, mark.z - player.z)) + ' straight (no street route)')
     : 'Left click: mark a place · Right click: clear';
 }
@@ -467,14 +597,24 @@ function draw() {
 // of their own block (the straight leg is drawn across the block to the corner); a point on the same street as the other
 // is joined to it directly.
 const GN = 2 * CORE + 1;
+// A street the route may use: the same streets the map draws (radarStreets): open, and not a filled (grass) street.
+const isOpen = (axis, i, j) => !segClosed(axis, i, j) && !segFilled(axis, i, j);
 const nid = (i, j) => (i + CORE) * GN + (j + CORE);
+// Each junction has two route nodes: one for the z-streets through it and one for the x-streets. A car turns between
+// them only at a junction at grade. At a flyover junction the road that flies is up on the deck and the other runs
+// under it, so nobody turns there (the same rule the traffic keeps, js/civilians.js): the route goes on to the next
+// junction and turns there.
+const tid = (i, j, axis) => nid(i, j) * 2 + (axis === 'x' ? 1 : 0);
+const N2 = GN * GN * 2;
 let adjCache = null;
 function roadGraph() {
   if (adjCache) return adjCache;
-  const adj = Array.from({ length: GN * GN }, () => []);
+  const adj = Array.from({ length: N2 }, () => []);
+  const link = (a, b, w) => { adj[a].push([b, w]); adj[b].push([a, w]); };
   for (let i = -CORE; i <= CORE; i++) for (let j = -CORE; j <= CORE; j++) {
-    if (i < CORE && !segClosed('x', i, j)) { adj[nid(i, j)].push([nid(i + 1, j), CHUNK]); adj[nid(i + 1, j)].push([nid(i, j), CHUNK]); }
-    if (j < CORE && !segClosed('z', i, j)) { adj[nid(i, j)].push([nid(i, j + 1), CHUNK]); adj[nid(i, j + 1)].push([nid(i, j), CHUNK]); }
+    if (i < CORE && isOpen('x', i, j)) link(tid(i, j, 'x'), tid(i + 1, j, 'x'), CHUNK);
+    if (j < CORE && isOpen('z', i, j)) link(tid(i, j, 'z'), tid(i, j + 1, 'z'), CHUNK);
+    if (!isFlyoverNode(i * CHUNK, j * CHUNK)) link(tid(i, j, 'x'), tid(i, j, 'z'), 0);
   }
   return (adjCache = adj);
 }
@@ -485,30 +625,47 @@ function roadGraph() {
 // a block to a far street. Returns { legs, segs }: legs is a Map junction node -> { acc, x, z } (the best leg per
 // junction); segs lists every street the point joins: { key, t, leg, x, z } where t is the distance of P from the
 // street's first junction, so two points on the same street can be joined directly.
-function accessLegs(p, adj) {
+// (maxLeg: the longest leg allowed; the start of a route uses ACCESS_MAX, so the car's own step onto the street is short
+// and the route never runs across a block, the yards and sidewalks beside the car.)
+const ACCESS_MAX = 12;
+// Is the place inside a building's footprint (the real footprints, from the map data)?
+function insideBlds(x, z) {
+  const k = known(ck(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  return !!k && k.blds.some(([bx, bz, w, d]) => x >= bx && x <= bx + w && z >= bz && z <= bz + d);
+}
+// Does the straight line from a to b pass through a building?
+function legCrossesBuilding(ax, az, bx, bz) {
+  const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
+  for (let s = 1; s < n; s++) if (insideBlds(ax + (bx - ax) * s / n, az + (bz - az) * s / n)) return true;
+  return false;
+}
+// A leg from the point to the street point (px, pz). The start of a route (maxLeg finite) must be short and must not go
+// through a building; the mark's own leg (maxLeg Infinity) is not limited, so a mark in a building still gets its route.
+const legOk = (p, px, pz, maxLeg) => Math.hypot(p.x - px, p.z - pz) <= maxLeg && (maxLeg === Infinity || !legCrossesBuilding(p.x, p.z, px, pz));
+function accessLegs(p, adj, maxLeg = Infinity) {
   const bi = Math.floor(p.x / CHUNK), bj = Math.floor(p.z / CHUNK);
   for (let r = 0; r <= 3; r++) {
     const legs = new Map(), segs = [];
     const put = (n, acc, x, z) => { const b = legs.get(n); if (!b || acc < b.acc) legs.set(n, { acc, x, z }); };
     for (let i = bi - r - 1; i <= bi + r + 1; i++) for (let j = bj - r - 1; j <= bj + r + 1; j++) {
       if (Math.abs(i) > CORE || Math.abs(j) > CORE) continue;
-      if (j < CORE && !segClosed('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
+      if (j < CORE && isOpen('z', i, j)) {                 // the z-street from junction (i, j) to (i, j + 1): it bounds blocks (i - 1, j) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - 1 - bi), Math.abs(j - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r) {
+        if (ring <= r && legOk(p, i * CHUNK, Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), maxLeg)) {
           const zc = Math.min(Math.max(p.z, j * CHUNK), (j + 1) * CHUNK), px = i * CHUNK;
           const leg = Math.hypot(p.x - px, p.z - zc);
-          put(nid(i, j), leg + (zc - j * CHUNK), px, zc);
-          put(nid(i, j + 1), leg + ((j + 1) * CHUNK - zc), px, zc);
+          put(tid(i, j, 'z'), leg + (zc - j * CHUNK), px, zc);
+          put(tid(i, j + 1, 'z'), leg + ((j + 1) * CHUNK - zc), px, zc);
           segs.push({ key: 'z' + i + ',' + j, t: zc - j * CHUNK, leg, x: px, z: zc });
         }
       }
-      if (i < CORE && !segClosed('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
+      if (i < CORE && isOpen('x', i, j)) {                 // the x-street from junction (i, j) to (i + 1, j): it bounds blocks (i, j - 1) and (i, j)
         const ring = Math.min(Math.max(Math.abs(i - bi), Math.abs(j - 1 - bj)), Math.max(Math.abs(i - bi), Math.abs(j - bj)));
-        if (ring <= r) {
+        if (ring <= r && legOk(p, Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), j * CHUNK, maxLeg)) {
           const xc = Math.min(Math.max(p.x, i * CHUNK), (i + 1) * CHUNK), pz = j * CHUNK;
           const leg = Math.hypot(p.x - xc, p.z - pz);
-          put(nid(i, j), leg + (xc - i * CHUNK), xc, pz);
-          put(nid(i + 1, j), leg + ((i + 1) * CHUNK - xc), xc, pz);
+          put(tid(i, j, 'x'), leg + (xc - i * CHUNK), xc, pz);
+          put(tid(i + 1, j, 'x'), leg + ((i + 1) * CHUNK - xc), xc, pz);
           segs.push({ key: 'x' + i + ',' + j, t: xc - i * CHUNK, leg, x: xc, z: pz });
         }
       }
@@ -519,7 +676,7 @@ function accessLegs(p, adj) {
 }
 // Dijkstra from the start nodes (each with its leg length): returns the distance and the predecessor of every node
 function shortest(starts) {
-  const adj = roadGraph(), dist = new Float64Array(GN * GN).fill(Infinity), prev = new Int32Array(GN * GN).fill(-1);
+  const adj = roadGraph(), dist = new Float64Array(N2).fill(Infinity), prev = new Int32Array(N2).fill(-1);
   const hd = [], hn = [];
   const swap = (a, k, m) => { [a[k], a[m]] = [a[m], a[k]]; };
   const push = (d, n) => {
@@ -558,45 +715,63 @@ function routeOf(from, to, list) {
     if (q.st) { sIdx.push(pts.length); street.push([q.x, q.z]); }
     pts.push([q.x, q.z]);
   }
-  pts.push([to.x, to.z]);
+  const lp = pts[pts.length - 1];
+  if (Math.hypot(to.x - lp[0], to.z - lp[1]) > 0.01) pts.push([to.x, to.z]);   // (the end is the street point itself when it was already the last point)
   const cum = [0];
   for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
   return { len: cum[cum.length - 1], pts, street, sIdx, cum };
 }
+// The street nearest the point: the nearest of the street segments the point can reach (accessLegs), and the ways to its
+// two corners, along the segment to the point. The way to the mark ends on this street, at the point nearest the mark.
+function nearestLegs(segs) {
+  let nb = null;
+  for (const s of segs) if (!nb || s.leg < nb.leg) nb = s;
+  const legs = new Map();
+  if (!nb) return { legs, key: null };
+  const m = /^([xz])(-?\d+),(-?\d+)$/.exec(nb.key);
+  const i = +m[2], j = +m[3];
+  const a = tid(i, j, m[1]), b = m[1] === 'z' ? tid(i, j + 1, 'z') : tid(i + 1, j, 'x');
+  legs.set(a, { acc: nb.leg + nb.t, x: nb.x, z: nb.z });
+  legs.set(b, { acc: nb.leg + (CHUNK - nb.t), x: nb.x, z: nb.z });
+  return { legs, key: nb.key };
+}
 function roadRoute(from, to) {
   const adj = roadGraph();
-  const A = accessLegs(from, adj), B = accessLegs(to, adj);
+  const A = accessLegs(from, adj, ACCESS_MAX), B = accessLegs(to, adj);
   if (!A.legs.size || !B.legs.size) return null;
+  const nearest = nearestLegs(B.segs);
   // (a) both ends on one street: walk along it, without going out to a corner and back
   let direct = null;
   const bseg = new Map(B.segs.map(s => [s.key, s]));
   for (const a of A.segs) {
     const b = bseg.get(a.key);
-    if (!b) continue;
+    if (!b || a.key !== nearest.key) continue;
     const len = a.leg + b.leg + Math.abs(a.t - b.t);
     if (!direct || len < direct.len) direct = { len, a, b };
   }
   // (b) through the corners of the street network
   const { dist, prev } = shortest([...A.legs].map(([n, l]) => ({ n, acc: l.acc })));
   let best = null;
-  for (const [n, l] of B.legs) {
+  for (const [n, l] of nearest.legs) {
     const len = dist[n] + l.acc;
     if (isFinite(len) && (!best || len < best.len)) best = { len, end: n };
   }
   if (direct && (!best || direct.len <= best.len)) {
-    return routeOf(from, to, [{ x: direct.a.x, z: direct.a.z, st: true }, { x: direct.b.x, z: direct.b.z, st: true }]);
+    return routeOf(from, { x: direct.b.x, z: direct.b.z }, [{ x: direct.a.x, z: direct.a.z, st: true }, { x: direct.b.x, z: direct.b.z, st: true }]);
   }
   if (!best) return null;
   const nodes = [];
   for (let n = best.end; n !== -1; n = prev[n]) nodes.push(n);
   nodes.reverse();
-  const worldOf = n => [(Math.floor(n / GN) - CORE) * CHUNK, ((n % GN) - CORE) * CHUNK];
-  const first = A.legs.get(nodes[0]), last = B.legs.get(best.end);
+  const worldOf = n => { const c = n >> 1; return [(Math.floor(c / GN) - CORE) * CHUNK, ((c % GN) - CORE) * CHUNK]; };
+  const first = A.legs.get(nodes[0]), last = nearest.legs.get(best.end);
   const list = [];
   if (first) list.push({ x: first.x, z: first.z, st: false });
   for (const n of nodes) { const [x, z] = worldOf(n); list.push({ x, z, st: true }); }
+  // the way ends on the street, at the point nearest the mark: the last leg is not drawn across the block to the mark
+  const end = last ? { x: last.x, z: last.z } : to;
   if (last) list.push({ x: last.x, z: last.z, st: false });
-  return routeOf(from, to, list);
+  return routeOf(from, end, list);
 }
 // The point of a route nearest to `p`: its distance d, and its place s (the length along the route up to it).
 function nearestOn(route, p) {
@@ -643,6 +818,39 @@ export function currentRoute() {
   return c.view;
 }
 
+// the length of the scale bar, in metres: the largest round length whose bar is at most 160 px at this zoom
+function scaleLength() {
+  let best = 1;
+  for (let k = 0; k <= 5; k++) for (const f of [1, 2, 5]) {
+    const m = f * 10 ** k;
+    if (m * view.s <= 160 && m > best) best = m;
+  }
+  return best;
+}
+// The place a click means. On a building the pin goes to its entrance: the middle of the wall that faces the nearest open
+// street, 1 m outside it (the pin is not put inside the building). Anywhere else it is where the click was.
+function entryPoint(x, z) {
+  const k = known(ck(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  const b = k && k.blds.find(([bx, bz, w, d]) => x >= bx && x <= bx + w && z >= bz && z <= bz + d);
+  if (!b) return { x, z };
+  const [bx, bz, w, d] = b, out = 1;
+  const walls = [[bx + w / 2, bz - out], [bx + w / 2, bz + d + out], [bx - out, bz + d / 2], [bx + w + out, bz + d / 2]];
+  let best = null;
+  for (const [px, pz] of walls) {
+    const dd = streetDistance(px, pz);
+    if (!best || dd < best.dd) best = { x: px, z: pz, dd };
+  }
+  return { x: best.x, z: best.z };
+}
+// the distance from a place to the nearest open street (the street's centre line), or Infinity
+function streetDistance(x, z) {
+  let d = Infinity;
+  const jz = Math.round(z / CHUNK), ix = Math.floor(x / CHUNK);
+  if (isOpen('x', ix, jz)) d = Math.min(d, Math.abs(z - jz * CHUNK));
+  const iz = Math.round(x / CHUNK), jx = Math.floor(z / CHUNK);
+  if (isOpen('z', iz, jx)) d = Math.min(d, Math.abs(x - iz * CHUNK));
+  return d;
+}
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 
 export function mapOpen() { return open; }
@@ -665,9 +873,9 @@ export function toggleMap() {
   overlay.style.display = open ? 'block' : 'none';
   if (open) {
     size();
-    view.cx = player.x; view.cz = player.z;
+    view.cx = player.x; view.cz = player.z; view.s = START_ZOOM;
     draw();
-    timer = setInterval(draw, 100);
+    timer = setInterval(draw, 250);                     // the game is paused: only the map's own data (learned or loaded) can change
     if (game.state === 'playing' && !game.paused) { game.paused = true; pausedByMap = true; }
   } else {
     clearInterval(timer); timer = 0;

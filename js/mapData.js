@@ -23,6 +23,7 @@ export function* allKnown() {
 // the car has seen.
 let preloadP = null;
 let mapDataOk = false;   // true when the index lists at least one tile
+let ver = 0;             // counts the changes to the data above (the map redraws its picture of the ground when it changes)
 function preloadMap() {
   if (preloadP) return preloadP;
   preloadP = fetch('map-data/index.json').then(r => (r.ok ? r.json() : null)).catch(() => null).then(j => {
@@ -33,6 +34,7 @@ function preloadMap() {
       for (const [key, rec] of Object.entries(t)) {
         const [cx, cz] = key.split(',').map(Number);
         baked.set(ck(cx, cz), rec);
+        ver++;
       }
     }).catch(() => {})));
   }).catch(() => {});
@@ -50,7 +52,9 @@ export function learn() {
         .map(so => [so.x - so.hx, so.z - so.hz, 2 * so.hx, 2 * so.hz, roofOf(so.x, so.z)]);
       const trees = (ch.trees || []).map(t => [t.x, t.z]);
       const lm = (ch.landmarks || []).map(l => [l.x, l.z, l.name]);
-      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm });
+      const hp = ch.heli ? [[ch.heli.padX, ch.heli.padZ, ch.heli.padR]] : [];
+      seen.set(key, { type: ch.mapType, water: ch.radarWater || [], blds, trees, lm, hp });
+      ver++;
     }
   }
 }
@@ -60,4 +64,5 @@ export function learn() {
 setInterval(learn, 500);
 
 // a new game forgets the parts of the city the car had seen
-export function forgetSeen() { seen.clear(); }
+export function forgetSeen() { seen.clear(); ver++; }
+export function mapVersion() { return ver; }
