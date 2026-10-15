@@ -16,7 +16,7 @@
 import { player, game } from './state.js';
 import { CHUNK, hash2, ck } from './utils.js';
 import { radarStreets, RIVER_ROW, segClosed, segFilled, nodeAt, plazaAt, atGradeSide, FLY, roadEdge } from './flyover.js';
-import { known, allKnown, learn, forgetSeen } from './mapData.js';
+import { known, allKnown, learn, forgetSeen, mapVersion } from './mapData.js';
 import { routeOf as tramRouteOf } from './tram.js';   // the tram routes (js/tram.js): the same rule the rails are laid by
 const RAIL_G = 0.72;      // half the distance between the two rails, in metres (GAUGE in js/tram.js)
 import { AVENUES, AVENUE_W } from './avenues.js';
@@ -248,6 +248,10 @@ function poolSpot(cx, cz, blds) {
 // a tree as a crown: a shadow, a dark round crown, a light patch on its top-left
 function crown(tx, tz) {
   const r = Math.max(2.4, 3.4 * view.s), x = sx(tx), y = sy(tz);
+  if (view.s < 0.5) {                                              // zoomed out: one disc (the shadow and the light are too small to see)
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = C.tree; ctx.fill();
+    return;
+  }
   ctx.beginPath(); ctx.arc(x + r * 0.7, y + r * 0.7, r, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(40,36,28,0.25)'; ctx.fill();
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -349,13 +353,60 @@ function drawRoundabouts(gx0, gx1, gz0, gz1) {
   }
 }
 
-function draw() {
-  if (!open || !ctx) return;
-  learn();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+// ---- the base picture ----
+// The ground, the blocks, the streets, the water and the tram lines do not change while the map is open (the game is
+// paused then), so they are drawn once into an off-screen picture, at one zoom, and that picture is copied to the map on
+// each redraw. A pan copies it; a zoom copies the old picture scaled at once and draws the new one a moment later; the
+// picture is drawn again only when the view leaves it, or when the map learns new blocks.
+const base = { canvas: document.createElement('canvas'), s: 0, ver: -1, x0: 0, x1: 0, z0: 0, z1: 0, timer: 0, due: false };
+const LIM = { x0: ISLAND_MIN - CHUNK, x1: ISLAND_MAX + CHUNK, z0: ISLAND_MIN - CHUNK, z1: ISLAND_MAX + CHUNK };
+// the ground the picture covers: the view and half a view width on each side, on the island (and its beach)
+function wantRect() {
+  const hx = W / 2 / view.s, hz = H / 2 / view.s;
+  const mx = hx * 0.5, mz = hz * 0.5;
+  return { x0: Math.max(LIM.x0, view.cx - hx - mx), x1: Math.min(LIM.x1, view.cx + hx + mx),
+           z0: Math.max(LIM.z0, view.cz - hz - mz), z1: Math.min(LIM.z1, view.cz + hz + mz) };
+}
+function drawBaseCached() {
+  const want = wantRect(), ver = mapVersion();
+  // the picture is good while the visible part of the map (on the island) is inside it
+  const vx0 = Math.max(LIM.x0, view.cx - W / 2 / view.s), vx1 = Math.min(LIM.x1, view.cx + W / 2 / view.s);
+  const vz0 = Math.max(LIM.z0, view.cz - H / 2 / view.s), vz1 = Math.min(LIM.z1, view.cz + H / 2 / view.s);
+  const covered = vx0 >= base.x0 - 1e-6 && vx1 <= base.x1 + 1e-6 && vz0 >= base.z0 - 1e-6 && vz1 <= base.z1 + 1e-6;
+  if (base.s === view.s && base.ver === ver && covered) { blitBase(); return; }
+  if (base.s && base.s !== view.s && base.ver === ver && !base.due) {
+    // a zoom: the old picture now, scaled; the new one when the zoom has settled (150 ms without another zoom step)
+    blitBase();
+    clearTimeout(base.timer);
+    base.timer = setTimeout(() => { base.timer = 0; base.due = true; draw(); }, 150);
+    return;
+  }
+  base.due = false;
+  renderBase(want, ver);
+  blitBase();
+}
+function blitBase() {
+  if (!base.s) return;
+  ctx.drawImage(base.canvas, 0, 0, base.canvas.width, base.canvas.height,
+    sx(base.x1), sy(base.z1), (base.x1 - base.x0) * view.s, (base.z1 - base.z0) * view.s);
+}
+// draws the base ground of rect r into the picture; the drawing code runs with a view whose screen is the picture
+// (x and z are mirrored on the map, so the picture's top-left is the corner (x1, z1))
+function renderBase(r, ver) {
+  const ew = Math.max(1, r.x1 - r.x0), eh = Math.max(1, r.z1 - r.z0), s = view.s;
+  const k = Math.min(dpr, Math.sqrt(16e6 / Math.max(1, ew * s * eh * s)));   // at most about 16 Mpx
+  const c = base.canvas;
+  c.width = Math.max(1, Math.ceil(ew * s * k)); c.height = Math.max(1, Math.ceil(eh * s * k));
+  const saved = { cx: view.cx, cz: view.cz, W, H, ctx };
+  view.cx = r.x1 - ew / 2; view.cz = r.z1 - eh / 2; W = ew * s; H = eh * s; ctx = c.getContext('2d');
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  try { drawBase(); }
+  finally { view.cx = saved.cx; view.cz = saved.cz; W = saved.W; H = saved.H; ctx = saved.ctx; }
+  Object.assign(base, { s, ver, x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
+}
+function drawBase() {
   ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
   rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
-
   const half = { x: W / 2 / view.s, z: H / 2 / view.s };
   // the blocks in view, on the island only (chunks -ISLAND_R..ISLAND_R-1)
   const gx0 = Math.max(-ISLAND_R, Math.floor((view.cx - half.x) / CHUNK) - 1), gx1 = Math.min(ISLAND_R, Math.ceil((view.cx + half.x) / CHUNK) + 1);
@@ -435,6 +486,16 @@ function draw() {
   for (const k of allKnown()) for (const [x, z, w, d, kind] of k.water) {
     if (kind === 'deck') rect(x, z, w, d, C.street);
   }
+}
+
+function draw() {
+  if (!open || !ctx) return;
+  learn();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
+  rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
+
+  drawBaseCached();                                             // the ground, the blocks, the streets (a picture, see below)
 
   // 6. the road route from the car to the street nearest the mark (a blue line with a white casing, as in a navigation map),
   // the car, the pin. With no street route there is no line: a straight line would cross the sea, the blocks or the river.
@@ -724,7 +785,7 @@ export function toggleMap() {
     size();
     view.cx = player.x; view.cz = player.z;
     draw();
-    timer = setInterval(draw, 100);
+    timer = setInterval(draw, 250);                     // the game is paused: only the map's own data (learned or loaded) can change
     if (game.state === 'playing' && !game.paused) { game.paused = true; pausedByMap = true; }
   } else {
     clearInterval(timer); timer = 0;
