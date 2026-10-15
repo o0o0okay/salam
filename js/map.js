@@ -338,11 +338,18 @@ function drawTramLines(gx0, gx1, gz0, gz1) {
   for (let k = gx0; k <= gx1; k++) for (let j = gz0; j < gz1; j++) if (tramRouteOf('z', k, j)) segs.push(['z', k, j]);
   for (let k = gz0; k <= gz1; k++) for (let j = gx0; j < gx1; j++) if (tramRouteOf('x', k, j)) segs.push(['x', k, j]);
   if (!segs.length) return;
-  const rw = Math.max(1.2, 0.3 * view.s), e = 0.6;                   // a rail's width on screen; each segment runs 0.6 m past its ends so they join
+  const rw = Math.max(1.6, 0.45 * view.s), e = 0.6;                   // a rail's width on screen; each segment runs 0.6 m past its ends so they join
   ctx.save(); ctx.lineCap = 'butt';
+  // the track bed: a light band along the centre line, so the track stands out from the dark asphalt
+  ctx.strokeStyle = '#e9e3d2'; ctx.lineWidth = Math.max(4, 2 * RAIL_G * view.s + 4); ctx.beginPath();
+  for (const [a, k, j] of segs) {
+    if (a === 'z') { ctx.moveTo(sx(k * CHUNK), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK), sy((j + 1) * CHUNK + e)); }
+    else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK)); }
+  }
+  ctx.stroke();
   // the sleepers: a bar across the track every 4 m (when the map is zoomed in far enough to see them)
   if (view.s > 0.25) {
-    ctx.strokeStyle = '#8b6f47'; ctx.lineWidth = Math.max(1, 0.9 * view.s); ctx.beginPath();
+    ctx.strokeStyle = '#8b6f47'; ctx.lineWidth = Math.max(1.2, 0.9 * view.s); ctx.beginPath();
     for (const [a, k, j] of segs) for (let t = 0; t <= CHUNK; t += 4) {
       if (a === 'z') { const z = j * CHUNK + t, x = k * CHUNK; ctx.moveTo(sx(x - 1.3), sy(z)); ctx.lineTo(sx(x + 1.3), sy(z)); }
       else { const x = j * CHUNK + t, z = k * CHUNK; ctx.moveTo(sx(x), sy(z - 1.3)); ctx.lineTo(sx(x), sy(z + 1.3)); }
@@ -350,7 +357,7 @@ function drawTramLines(gx0, gx1, gz0, gz1) {
     ctx.stroke();
   }
   // the two rails, each RAIL_G from the centre line
-  ctx.strokeStyle = '#4a4f57'; ctx.lineWidth = rw; ctx.beginPath();
+  ctx.strokeStyle = '#2a2e35'; ctx.lineWidth = rw; ctx.beginPath();
   for (const [a, k, j] of segs) for (const o of [-RAIL_G, RAIL_G]) {
     if (a === 'z') { ctx.moveTo(sx(k * CHUNK + o), sy(j * CHUNK - e)); ctx.lineTo(sx(k * CHUNK + o), sy((j + 1) * CHUNK + e)); }
     else { ctx.moveTo(sx(j * CHUNK - e), sy(k * CHUNK + o)); ctx.lineTo(sx((j + 1) * CHUNK + e), sy(k * CHUNK + o)); }
