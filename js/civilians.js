@@ -11,7 +11,7 @@ import { lightGo } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
 import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet, FLY, nodeAt, bridgeHeight, alongOf } from './flyover.js';
 
-const CIV_KINDS = [
+export const CIV_KINDS = [
   'sedan', 'sedan', 'sedan',
   'taxi', 'taxi',
   'pickup', 'pickup',
@@ -22,6 +22,7 @@ const CIV_KINDS = [
   'sportscar',
   'oldclassic',
   'limo',
+  'icecream',
   'cementtruck',
   'fueltanker',
   'semi',
@@ -51,6 +52,7 @@ function civColor(kind) {
   if (kind === 'bus') return BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)];
   if (kind === 'oldclassic') return PASTEL_COLORS[Math.floor(Math.random() * PASTEL_COLORS.length)];
   if (kind === 'limo') return Math.random() < 0.8 ? 0x111216 : 0xf2f2f2;
+  if (kind === 'icecream') return Math.random() < 0.5 ? 0x3f9fe0 : 0xe8434a;   // the blue livery or the red
   if (kind === 'cementtruck') return TRUCK_COLORS[Math.floor(Math.random() * TRUCK_COLORS.length)];
   if (kind === 'fueltanker') return TANKER_COLORS[Math.floor(Math.random() * TANKER_COLORS.length)];
   if (['semi', 'semibox', 'flatbed', 'lowboy', 'logtruck'].includes(kind)) return SEMI_COLORS[Math.floor(Math.random() * SEMI_COLORS.length)];
@@ -62,6 +64,7 @@ function civParams(kind) {
     case 'bus': return { maxSpeed: 20, maxReverse: 6, accel: 9, brake: 30, turn: 1.7, turnFalloff: 40, grip: 9 };
     case 'van': return { maxSpeed: 24, maxReverse: 7, accel: 11, brake: 36, turn: 2.0, turnFalloff: 45, grip: 8.5 };
     case 'limo': return { maxSpeed: 25, maxReverse: 7, accel: 10, brake: 34, turn: 1.6, turnFalloff: 48, grip: 8.5 };
+    case 'icecream': return { maxSpeed: 21, maxReverse: 6, accel: 9, brake: 32, turn: 1.8, turnFalloff: 42, grip: 8.8 };
     case 'suv': return { maxSpeed: 27, maxReverse: 8, accel: 13, brake: 38, turn: 2.2, turnFalloff: 48, grip: 8.2 };
     case 'pickup': return { maxSpeed: 27, maxReverse: 8, accel: 14, brake: 40, turn: 2.4, turnFalloff: 50, grip: 8 };
     case 'sportscar': return { maxSpeed: 34, maxReverse: 9, accel: 19, brake: 46, turn: 2.7, turnFalloff: 55, grip: 7.6 };
@@ -80,6 +83,7 @@ function civCruise(kind) {
   if (kind === 'van' || kind === 'limo') return rnd(8, 11);
   if (kind === 'sportscar') return rnd(13, 18);
   if (kind === 'oldclassic') return rnd(7, 10);
+  if (kind === 'icecream') return rnd(6, 8.5);                  // the ice cream van takes its time
   if (['cementtruck', 'fueltanker', 'semibox', 'flatbed', 'lowboy', 'logtruck'].includes(kind)) return rnd(6, 8.5);
   if (kind === 'semi') return rnd(8, 11);
   return rnd(9, 14);

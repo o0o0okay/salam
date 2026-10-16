@@ -1,5 +1,12 @@
 /* Procedural WebAudio */
 import { clamp } from './utils.js';
+// The ice cream van's chime: Greensleeves, as the vans play it (a traditional tune), note by note as a music box.
+// [MIDI note, length in eighths]; 0 is a rest. One eighth lasts ICE_BEAT seconds; the van is heard within ICE_HEAR m.
+const ICE_TUNE = [[69, 1], [72, 2], [74, 1], [76, 1.5], [77, 0.5], [76, 1], [74, 2], [71, 1], [67, 1.5], [69, 0.5], [71, 1],
+  [72, 2], [69, 1], [69, 1.5], [68, 0.5], [69, 1], [71, 2], [68, 1], [64, 2],
+  [69, 1], [72, 2], [74, 1], [76, 1.5], [77, 0.5], [76, 1], [74, 2], [71, 1], [67, 1.5], [69, 0.5], [71, 1],
+  [72, 1.5], [71, 0.5], [69, 1], [68, 1.5], [66, 0.5], [68, 1], [69, 3], [0, 8]];
+const ICE_BEAT = 0.19, ICE_HEAR = 75;
 export const sfx = {
   ctx: null, last: 0, muted: false,
   init() {
@@ -66,6 +73,31 @@ export const sfx = {
   blip(freq) {
     if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15); o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + 0.16);
+  },
+  // The ice cream van's chime, from the nearest van (dist, m): louder the nearer, silent out of earshot or with the
+  // game not running. Its notes are scheduled a little ahead on the audio clock, so the tune keeps its time whatever
+  // the frame rate; heard again after a silence, it starts from the top.
+  iceI: 0, iceT: 0,
+  updateIce(dist, active) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime, vol = active ? clamp(1 - dist / ICE_HEAR, 0, 1) : 0;
+    if (vol <= 0) { this.iceT = 0; return; }
+    if (this.iceT === 0 || this.iceT < now - 0.5) { this.iceT = now + 0.05; this.iceI = 0; }
+    while (this.iceT < now + 0.3) {
+      const [note, len] = ICE_TUNE[this.iceI];
+      // a note whose time has passed (the frames stalled a moment) is skipped, not crowded in: the tune keeps its time
+      if (note && this.iceT > now - 0.02) this.chime(440 * Math.pow(2, (note - 69) / 12), this.iceT, vol * vol * 0.11);
+      this.iceT += len * ICE_BEAT; this.iceI = (this.iceI + 1) % ICE_TUNE.length;
+    }
+  },
+  // one music-box note at time t: the note and two quiet overtones, struck and dying away
+  chime(f, t, a) {
+    const c = this.ctx;
+    for (const [m, g0] of [[1, 1], [2, 0.35], [3, 0.12]]) {
+      const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f * m;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(a * g0, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15 + 0.55 / m);
+      o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.75);
+    }
   },
   // tram: two-tone bell, rung while a car is on the track ahead
   tramBell(vol) {

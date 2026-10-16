@@ -36,22 +36,28 @@ export const CAR_DIMS = {
   firetruck:  { e1: 3.7,  e2: 1.3,  mass: 6.2,  hp: 240 },
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
   schoolbus:  { e1: 4.6,  e2: 1.28, mass: 4.4,  hp: 200 },
+  icecream:   { e1: 2.9,  e2: 1.15, mass: 2.6,  hp: 110 },   // the ice cream van: a step van with the cone on its roof
 };
 
 
 export const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 
 
-// ---- SCHOOL BUS lettering ----
+// ---- SCHOOL BUS and ICE CREAM lettering ----
 // The classic 5x7 box-pixel face the street signs use (js/world.js) is not reachable from here without a module
-// cycle, so the six letters the bus boards need carry their own patterns. Every bus asks for the same string at
-// the same size, so the merged lettering geometry is cached and shared: each bus pays one draw call for it.
+// cycle, so the letters the bus boards and the ice cream van need carry their own patterns. Every vehicle of a kind
+// asks for the same strings at the same size, so the merged lettering geometry is cached and shared.
 const BUS_LETTERS = {
   S: '01111,10000,10000,01110,00001,00001,11110', C: '01110,10001,10000,10000,10000,10001,01110',
   H: '10001,10001,10001,11111,10001,10001,10001', O: '01110,10001,10001,10001,10001,10001,01110',
   L: '10000,10000,10000,10000,10000,10000,11111', B: '11110,10001,10001,11110,10001,10001,11110',
   U: '10001,10001,10001,10001,10001,10001,01110', ' ': '00000,00000,00000,00000,00000,00000,00000',
+  I: '01110,00100,00100,00100,00100,00100,01110', E: '11111,10000,10000,11110,10000,10000,11111',
+  R: '11110,10001,10001,11110,10100,10010,10001', A: '01110,10001,10001,11111,10001,10001,10001',
+  M: '10001,11011,10101,10101,10001,10001,10001',
 };
+// the ice cream van's scoops: one unit ball for all of them (indexed, like the unit box), scaled per scoop
+const SCOOP_GEO = new THREE.SphereGeometry(1, 10, 7);
 const busSignCache = new Map();
 const _busBox = new THREE.BoxGeometry(1, 1, 1);
 const _busM = new THREE.Matrix4();
@@ -217,6 +223,90 @@ export function buildCar(kind, color, detail = true) {
     inner.add(box(1.3, 0.16, 0.36, lights.blue, 0, 2.75, 0.5, false));
     inner.add(box(0.34, 0.14, 0.3, lights.red, -0.9, 2.72, -0.5, false));
     inner.add(box(0.34, 0.14, 0.3, lights.red, 0.9, 2.72, -0.5, false));
+
+  } else if (kind === 'icecream') {
+    // The ice cream van of the reference art: a white step van (flat-fronted cab, short bonnet) with its livery band
+    // and roof line in its colour (blue or red); the serving window on the kerb side (local -x, the right: traffic
+    // drives on the right) under a striped awning in the other colour, the menu board under it with its row of ice
+    // creams, a painted cone beside it and ICE / CREAM by the cab; ICE CREAM along the other flank over painted ice
+    // creams and across the rear doors; on the roof the big waffle cone with three scoops (strawberry, mint and
+    // chocolate) on two posts, the loudspeaker horn and the cooling unit. It chimes as it goes (js/audio.js updateIce).
+    wheelZ = [-1.75, 1.95]; wheelX = 1.0; frontZ = 2.84; backZ = -2.8; lightY = 1.0;
+    const white = mat(0xf6f7f9), accent = mat(color), col = new THREE.Color(color);
+    const otherHex = col.r > col.b ? 0x3f9fe0 : 0xe8434a, other = mat(otherHex);   // blue on a red van, red on a blue one
+    const blue = mat(0x3f9fe0), red = mat(0xe8434a), steel = mat(0xb9bec4), grey = mat(0xd9dde2);
+    const waffle = mat(0xe39a48), waffleDk = mat(0xc07a30), coneIcon = mat(0xf0c27a);
+    const pink = mat(0xf7a6c8), mint = mat(0x7fe0c8), choc = mat(0x7b4a2b), lemon = mat(0xf6d55c), cream = mat(0xfff6e6);
+    const orange = mat(0xff9a1f);
+    const flavours = [pink, mint, lemon, choc, cream];
+    // body
+    inner.add(box(2.0, 0.3, 5.3, dark, 0, 0.55, -0.05, false));                   // chassis
+    inner.add(box(2.3, 2.13, 3.9, white, 0, 1.685, -0.8));                        // the serving box: z -2.75 .. 1.15
+    inner.add(box(2.26, 2.13, 1.05, white, 0, 1.685, 1.675));                     // the cab: z 1.15 .. 2.2
+    inner.add(box(2.1, 0.78, 0.6, white, 0, 1.01, 2.5));                          // the bonnet: z 2.2 .. 2.8
+    inner.add(box(2.34, 0.36, 4.98, accent, 0, 0.8, -0.29));                      // the livery band
+    inner.add(box(2.34, 0.1, 4.98, accent, 0, 2.72, -0.29, false));               // the roof line
+    inner.add(box(2.28, 0.06, 4.9, white, 0, 2.78, -0.3, false));                 // the roof
+    inner.add(box(1.2, 0.36, 0.06, dark, 0, 1.02, 2.81, false));                  // grille
+    inner.add(box(2.16, 0.2, 0.18, dark, 0, 0.66, 2.82, false));                  // front bumper
+    inner.add(box(2.2, 0.2, 0.2, dark, 0, 0.66, -2.8, false));                    // rear bumper
+    const ws = box(2.0, 0.78, 0.08, glass, 0, 2.1, 2.21, false); ws.rotation.x = -0.12; inner.add(ws);   // raked windscreen
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.06, 0.6, 0.72, glass, sx * 1.14, 2.08, 1.72, false));       // cab side windows
+      inner.add(box(0.06, 0.08, 0.14, orange, sx * 1.06, 1.22, 2.72, false));     // side marker lamps
+      inner.add(cyl(0.025, 0.025, 0.3, 6, dark, sx * 1.22, 2.05, 2.12, false));   // mirror arm ...
+      inner.add(box(0.07, 0.3, 0.18, dark, sx * 1.27, 1.95, 2.1, false));         // ... and its head
+      for (const wz of wheelZ) inner.add(box(0.06, 0.5, 1.12, dark, sx * 1.175, 0.87, wz, false));   // wheel arches
+    }
+    // the serving window on the kerb side (-x)
+    const WZ = -0.7;                                                              // the window's middle
+    inner.add(box(0.04, 0.72, 1.5, glass, -1.165, 1.98, WZ, false));              // the open window
+    inner.add(box(0.16, 0.05, 1.56, steel, -1.22, 1.6, WZ, false));               // its counter
+    const awning = box(0.36, 0.035, 1.72, other, -1.31, 2.43, WZ); awning.rotation.z = 0.35; inner.add(awning);
+    for (let i = 0; i < 8; i++) inner.add(box(0.03, 0.11, 0.2, i % 2 ? white : other, -1.48, 2.3, WZ - 0.75 + i * 0.215, false));   // its valance
+    inner.add(box(0.04, 0.46, 1.5, blue, -1.165, 1.3, WZ, false));                // the menu board
+    for (let i = 0; i < 8; i++) {                                                 // its ice creams: cones and lollies
+      const z = WZ - 0.6 + i * 0.17, f = flavours[i % flavours.length];
+      if (i % 2 === 0) { inner.add(box(0.02, 0.12, 0.06, coneIcon, -1.19, 1.24, z, false)); inner.add(box(0.02, 0.07, 0.09, f, -1.19, 1.34, z, false)); }
+      else { inner.add(box(0.02, 0.14, 0.07, f, -1.19, 1.34, z, false)); inner.add(box(0.02, 0.06, 0.015, coneIcon, -1.19, 1.24, z, false)); }
+    }
+    const paintedCone = (sx, z, scoop) => {                                       // a big cone painted on a flank
+      const x = sx * 1.17;
+      [[0.26, 1.55], [0.17, 1.43], [0.08, 1.32]].forEach(([w, y]) => inner.add(box(0.03, 0.12, w, coneIcon, x, y, z, false)));
+      [[0.3, 1.68], [0.2, 1.79], [0.1, 1.88]].forEach(([w, y]) => inner.add(box(0.03, 0.11, w, scoop, x, y, z, false)));
+    };
+    paintedCone(-1, -2.2, cream);
+    const sign = (str, h, gap, m, x, y, z, ry) => { const t = new THREE.Mesh(busSignGeometry(str, h, 0.025, gap), m); t.position.set(x, y, z); t.rotation.y = ry; inner.add(t); };
+    sign('ICE', 0.15, 0.03, red, -1.165, 1.95, 0.62, -Math.PI / 2);               // ICE / CREAM by the cab, kerb side
+    sign('CREAM', 0.15, 0.03, blue, -1.165, 1.72, 0.62, -Math.PI / 2);
+    // the other flank (+x): ICE CREAM along the top over painted ice creams
+    sign('ICE CREAM', 0.26, 0.06, other, 1.165, 2.2, -0.8, Math.PI / 2);
+    paintedCone(1, -2.0, pink); paintedCone(1, 0.4, mint);
+    inner.add(box(0.03, 0.42, 0.18, lemon, 1.17, 1.66, -0.8, false));             // and a lolly between them
+    inner.add(box(0.03, 0.16, 0.04, coneIcon, 1.17, 1.37, -0.8, false));
+    // the rear doors
+    inner.add(box(2.1, 1.85, 0.06, white, 0, 1.7, -2.77, false));
+    inner.add(box(0.03, 1.85, 0.07, dark, 0, 1.7, -2.775, false));                // the seam between them
+    for (const sx of [-1, 1]) inner.add(box(0.55, 0.38, 0.07, glass, sx * 0.5, 2.2, -2.78, false));
+    sign('ICE CREAM', 0.15, 0.03, other, 0, 1.38, -2.81, Math.PI);
+    // on the roof: the cooling unit, the loudspeaker horn and the big cone
+    inner.add(box(0.75, 0.2, 0.55, grey, 0.4, 2.91, 1.55, false));
+    inner.add(box(0.6, 0.1, 0.02, dark, 0.4, 2.91, 1.83, false));
+    inner.add(cyl(0.025, 0.025, 0.3, 6, dark, -0.55, 2.96, 1.8, false));
+    const horn = cyl(0.15, 0.05, 0.34, 10, white, -0.55, 3.14, 1.9, false); horn.rotation.x = Math.PI / 2; inner.add(horn);
+    inner.add(box(0.11, 0.11, 0.1, red, -0.55, 3.14, 1.69, false));
+    inner.add(cyl(0.035, 0.035, 0.5, 6, dark, 0, 3.0, -1.5, false));              // the cone's posts
+    inner.add(cyl(0.035, 0.035, 0.6, 6, dark, 0, 3.05, -0.6, false));
+    // the cone lies along the van, its tip low at the back and its mouth high at the front (tip (0, 2.95, -2.1),
+    // mouth (0, 3.55, -0.62): 1.6 m along a line that rises 22 degrees)
+    const CT = [0, 2.95, -2.1], CM = [0, 3.55, -0.62], cdy = CM[1] - CT[1], cdz = CM[2] - CT[2], CL = Math.hypot(cdy, cdz), tilt = Math.atan2(cdz, cdy);
+    const cone = cyl(0.46, 0, CL, 9, waffle, 0, (CT[1] + CM[1]) / 2, (CT[2] + CM[2]) / 2); cone.rotation.x = tilt; inner.add(cone);
+    const rim = cyl(0.5, 0.48, 0.1, 9, waffleDk, 0, CM[1], CM[2]); rim.rotation.x = tilt; inner.add(rim);
+    for (const [m, r, x, y, z] of [[choc, 0.36, 0, 3.66, -0.45], [pink, 0.33, -0.22, 3.94, -0.68], [mint, 0.35, 0.2, 4.0, -0.42]]) {
+      const sc = new THREE.Mesh(SCOOP_GEO, m); sc.position.set(x, y, z); sc.scale.setScalar(r); inner.add(sc);
+    }
+    // one shadow setting for every piece but the glass, so each colour merges into one mesh (consolidateBody keys on it)
+    for (const o of inner.children) if (o.isMesh) { o.castShadow = o.material !== glass; o.receiveShadow = true; }
 
   } else if (kind === 'firetruck') {
     // Big red pump/ladder engine: cab with a chrome grille and chevron bumper, white livery stripe,
@@ -607,7 +697,7 @@ export function buildCar(kind, color, detail = true) {
     }
   }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : kind === 'icecream' ? 0.8 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
   consolidateBody(inner, new Set(Object.values(lights)));

@@ -267,6 +267,9 @@ export function update(dt) {
   /* --- audio + HUD --- */
   let nearest = 999; for (const p of police) if (!p.wrecked) nearest = Math.min(nearest, Math.hypot(p.x - player.x, p.z - player.z));
   sfx.update(player.speed, nearest, playing, game.t, player.boost);
+  // the ice cream van's chime: the nearest van still running (js/audio.js updateIce)
+  let iceNear = 999; for (const c of civs) if (c.kind === 'icecream' && !c.wrecked) iceNear = Math.min(iceNear, Math.hypot(c.x - player.x, c.z - player.z));
+  sfx.updateIce(iceNear, playing);
   // helicopter proximity sound — fed the real rotor angle so the "wokka" stays perfectly synced to the visual blur
   const heliActive = !!(helicopter && helicopter.visible);
   const heliDist = heliActive ? Math.hypot(helicopter.x - player.x, helicopter.z - player.z) : 999;
