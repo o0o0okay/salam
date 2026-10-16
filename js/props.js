@@ -4,6 +4,42 @@ import * as THREE from 'three';
 
 
 
+// The upper half of a cylinder lying along z (once turned by rotation.x = -PI/2): an arch, open at its flat side, which
+// stands on whatever it tops. Cached by its size, as cyl() caches its cylinders. `open` leaves its ends off.
+const halfCache = new Map();
+function halfCyl(r, len, seg, open = false) {
+  const key = [r, len, seg, open].join('_');
+  let g = halfCache.get(key);
+  if (!g) { g = new THREE.CylinderGeometry(r, r, len, seg, 1, open, -Math.PI / 2, Math.PI); halfCache.set(key, g); }
+  return g;
+}
+// The phone booth's materials that are not plain colours: the glass, the hood (seen from inside as well as out) and the
+// rim with CARDPHONE round it. Made once, shared by every booth.
+let BOOTH = null;
+function boothMats() {
+  if (BOOTH) return BOOTH;
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const x = c.getContext('2d');
+  // The rim is a flat half ring (inner 0.43 m, outer 0.53 m) whose texture is laid flat over the whole disc: the centre
+  // of the canvas is the ring's centre and its edge the outer radius. The letters stand round the arc, upright at the top.
+  x.fillStyle = '#e8bf1a'; x.fillRect(0, 0, 512, 512);
+  x.fillStyle = '#2f62b8'; x.font = 'bold 40px Georgia, "Times New Roman", serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const word = 'CARDPHONE', rr = 256 * 0.48 / 0.53;
+  for (let i = 0; i < word.length; i++) {
+    const a = Math.PI * (0.88 - 0.76 * i / (word.length - 1));   // from the left of the arch over the top to the right
+    x.save(); x.translate(256 + Math.cos(a) * rr, 256 - Math.sin(a) * rr); x.rotate(Math.PI / 2 - a); x.fillText(word[i], 0, 0); x.restore();
+  }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const rim = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide });
+  rim.userData.flat = 0xe8bf1a;                                  // its colour, for the snapshot tool (which does not sample maps)
+  BOOTH = {
+    glass: new THREE.MeshLambertMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.32, depthWrite: false }),
+    hood: mat(0xe8bf1a, { side: THREE.DoubleSide }),
+    rim,
+  };
+  return BOOTH;
+}
+
 export const PROP_DEFS = {
   streetlight: { r: 0.85, drag: 0.9, color: 0x8a8f98, soft: true, make() { const g = new THREE.Group(), m = mat(0x7d838c);
     g.add(cyl(0.14, 0.2, 7, 8, m, 0, 3.5, 0, false)); g.add(box(1.8, 0.14, 0.14, m, 0.8, 7, 0, false)); g.add(box(0.7, 0.16, 0.4, ASSET.lampMat, 1.55, 6.88, 0, false)); return g; } },
@@ -87,11 +123,68 @@ export const PROP_DEFS = {
     g.add(box(1.02, 0.1, 0.82, dark, 0, 0.52, 0, false));
     g.add(box(0.44, 0.3, 0.04, mat(0xd8dde6), -0.22, 1.06, 0.4, false));
     return g; } },
-  meter: { r: 0.3, drag: 0.9, color: 0x9aa0a6, soft: true, make() { const g = new THREE.Group(), m = mat(0x9aa0a6), dark = mat(0x2a2d33);
-    g.add(cyl(0.05, 0.06, 1.3, 6, m, 0, 0.65, 0, false));
-    g.add(box(0.23, 0.36, 0.23, m, 0, 1.45, 0, false));
-    g.add(box(0.17, 0.2, 0.03, dark, 0, 1.48, 0.12, false));
-    g.add(box(0.32, 0.06, 0.32, dark, 0, 0.05, 0, false));
+  // A single-space parking meter, as on a city kerb: a red head on a steel post. The lower housing is the coin vault (a
+  // raised door with a keyhole), then a lip, the upper housing with the chrome coin plate (slot, two buttons) and the
+  // white notice under it, and on top the rounded dome with its window, seen from both sides. Its face (local +z) is the
+  // side the street sees. It stands at the head of a parking bay (js/world.js meteredParking), and it breaks like any
+  // street prop: knocked off its post, and the coins fly (js/collisions.js).
+  meter: { r: 0.3, drag: 0.92, color: 0xd42a1e, soft: true, make() { const g = new THREE.Group();
+    const red = mat(0xd42a1e), door = mat(0xb5231a), steel = mat(0xa9aeb4), chrome = mat(0xd9dde2), dark = mat(0x23262b);
+    const paper = mat(0xf3f2ec), glass = mat(0xbcd2dd);
+    g.add(cyl(0.09, 0.11, 0.05, 10, dark, 0, 0.025, 0, false));                  // the foot on the paving
+    g.add(cyl(0.042, 0.048, 0.92, 8, steel, 0, 0.46, 0, false));                 // the post
+    g.add(cyl(0.06, 0.05, 0.05, 8, steel, 0, 0.935, 0, false));                  // its collar under the head
+    g.add(box(0.19, 0.07, 0.15, red, 0, 0.995, 0, false));                       // the vault narrows to the post
+    g.add(box(0.25, 0.22, 0.2, red, 0, 1.14, 0, false));                         // the coin vault
+    g.add(box(0.17, 0.17, 0.02, door, 0, 1.135, 0.105, false));                  // its raised door
+    g.add(box(0.025, 0.025, 0.01, dark, 0, 1.16, 0.12, false));                  // the keyhole
+    g.add(box(0.27, 0.035, 0.215, red, 0, 1.2675, 0, false));                    // the lip between the housings
+    g.add(box(0.27, 0.22, 0.21, red, 0, 1.395, 0, false));                       // the upper housing
+    g.add(box(0.16, 0.09, 0.012, chrome, 0, 1.45, 0.111, false));                // the coin plate
+    g.add(box(0.012, 0.055, 0.008, dark, -0.035, 1.452, 0.119, false));          // the coin slot
+    for (const y of [1.472, 1.43]) g.add(box(0.02, 0.02, 0.01, dark, 0.04, y, 0.119, false));   // the two buttons
+    g.add(box(0.21, 0.07, 0.008, paper, 0, 1.335, 0.109, false));                // the notice
+    for (const y of [1.35, 1.335, 1.32]) g.add(box(0.15, 0.006, 0.004, dark, 0, y, 0.114, false));   // its lines of print
+    const dome = new THREE.Mesh(halfCyl(0.135, 0.21, 16), red); dome.position.y = 1.505; dome.rotation.x = -Math.PI / 2; g.add(dome);
+    const win = new THREE.Mesh(halfCyl(0.105, 0.216, 16), glass); win.position.y = 1.505; win.rotation.x = -Math.PI / 2; g.add(win);
+    return g; } },
+  // A card phone booth, as on a city pavement (the yellow CARDPHONE hood): a rusty round foot, a yellow pedestal with a
+  // service door, and the booth on it: a steel back panel with the payphone (screen, keypad, card slot, the handset on its
+  // cord) over a shelf, two yellow side frames glazed in two panes (now and then one is smashed), and the arched hood with
+  // CARDPHONE round its front rim. It is open at the front (local -z), which faces the pavement; its back (local +z) is to
+  // the street. One stands here and there on a busy pavement (js/world.js phoneBooths); it breaks like any street prop,
+  // in a shower of glass (js/collisions.js).
+  phonebooth: { r: 0.65, drag: 0.86, color: 0xe8bf1a, soft: true, make() { const g = new THREE.Group();
+    const yel = mat(0xe8bf1a), yelDk = mat(0xc99f0e), steel = mat(0xb9bec4), dark = mat(0x2b2e33), black = mat(0x15171a);
+    const rust = mat(0x5e4632), pad = mat(0xb8bcc0), screen = mat(0x7fb86a), poster = mat(0x2c4a8a), M = boothMats();
+    const SPRING = 1.95, R = 0.5, D = 0.36;                                      // the hood springs at 1.95 m; half the depth
+    g.add(cyl(0.3, 0.32, 0.1, 16, rust, 0, 0.05, 0.1, false));                   // the foot
+    g.add(box(0.38, 0.95, 0.24, yel, 0, 0.575, 0.1, false));                     // the pedestal
+    g.add(box(0.16, 0.22, 0.012, yelDk, 0, 0.42, -0.026, false));                // its service door
+    g.add(box(0.025, 0.025, 0.01, dark, 0.05, 0.42, -0.035, false));             // the door's lock
+    g.add(box(1.0, 0.05, 0.74, yel, 0, 1.05, 0, false));                         // the booth's floor tray
+    g.add(box(0.92, 0.9, 0.03, steel, 0, 1.5, 0.335, false));                    // the back panel
+    g.add(box(0.9, 0.03, 0.18, steel, 0, 1.17, 0.23, false));                    // the shelf
+    g.add(box(0.36, 0.42, 0.12, dark, 0.04, 1.5, 0.26, false));                  // the payphone
+    g.add(box(0.13, 0.07, 0.01, screen, 0.06, 1.64, 0.196, false));              // its screen
+    g.add(box(0.12, 0.12, 0.01, pad, 0.07, 1.5, 0.196, false));                  // its keypad
+    g.add(box(0.13, 0.02, 0.012, steel, 0.07, 1.39, 0.196, false));              // its card slot
+    g.add(box(0.06, 0.24, 0.07, black, -0.11, 1.52, 0.18, false));               // the handset on its hook
+    for (const y of [1.66, 1.38]) g.add(box(0.08, 0.05, 0.085, black, -0.11, y, 0.175, false));   // its ear and mouth pieces
+    g.add(box(0.012, 0.18, 0.012, steel, -0.11, 1.27, 0.19, false));             // the cord
+    g.add(box(0.16, 0.22, 0.005, poster, -0.22, 1.82, 0.318, false));            // a flyer on the back panel
+    for (const sx of [-1, 1]) {
+      const x = sx * 0.48;
+      for (const z of [-0.33, 0.33]) g.add(box(0.05, 0.9, 0.05, yel, x, 1.5, z, false));   // the posts
+      g.add(box(0.05, 0.05, 0.7, yel, x, 1.075, 0, false));                      // the bottom rail
+      g.add(box(0.05, 0.04, 0.7, yel, x, 1.78, 0, false));                       // the middle rail
+      g.add(box(0.05, 0.06, 0.7, yel, x, 1.93, 0, false));                       // the top rail
+      if (sx > 0 || Math.random() > 0.35) g.add(box(0.012, 0.66, 0.6, M.glass, x, 1.43, 0, false));   // the big pane (the left one is sometimes smashed)
+      g.add(box(0.012, 0.11, 0.6, M.glass, x, 1.855, 0, false));                 // the little pane over it
+    }
+    const hood = new THREE.Mesh(halfCyl(R, 2 * D, 18, true), M.hood); hood.position.y = SPRING; hood.rotation.x = -Math.PI / 2; g.add(hood);
+    const back = new THREE.Mesh(new THREE.CircleGeometry(R, 18, 0, Math.PI), M.hood); back.position.set(0, SPRING, D); g.add(back);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.43, 0.53, 24, 1, 0, Math.PI), M.rim); rim.position.set(0, SPRING, -D - 0.01); rim.rotation.y = Math.PI; g.add(rim);
     return g; } },
   sandwich: { r: 0.7, drag: 0.97, color: 0xf4f1e6, soft: true, make() { const g = new THREE.Group(), white = mat(0xf4f1e6), dark = mat(0x2a2a2a);
     for (const sz of [-1, 1]) { const b = box(0.92, 1.2, 0.07, white, 0, 0.65, sz * 0.24, false); b.rotation.x = sz * 0.2; g.add(b); }

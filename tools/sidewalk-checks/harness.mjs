@@ -18,6 +18,15 @@ export function build() {
   const REAL_DIMS = JSON.parse(JSON.stringify(eval('(' + dimsMatch[1] + ')')));
 
   let src = fs.readFileSync(path.join(repo, 'js/world.js'), 'utf8');
+  // js/world.js takes a few tuning numbers from js/config.js (the street furniture: hydrants, meters, phone booths). Each
+  // name it imports from there is copied in from that file, so the stitched copy runs on the game's own values.
+  const cfgSrc = fs.readFileSync(path.join(repo, 'js/config.js'), 'utf8');
+  const cfgNames = ((src.match(/^import \{([^}]*)\} from '\.\/config\.js';$/m) || [])[1] || '').split(',').map(x => x.trim()).filter(Boolean);
+  const cfgDecls = cfgNames.map(name => {
+    const m = cfgSrc.match(new RegExp('^export const ' + name + ' = (.+);$', 'm'));
+    if (!m) throw new Error('harness: ' + name + ' is not a one-line constant in js/config.js');
+    return 'const ' + name + ' = ' + m[1] + ';';
+  }).join('\n');
   // js/world.js re-exports the names it moved to the chunk modules (`export { ... };`). Inside the stitched module
   // they are already in scope, so that line goes, and so do the imports.
   src = src.replace(/^export \{[^}]*\};?\s*$/gm, '').replace(/^import .*$/gm, '').replace(/^export /gm, '');
@@ -154,11 +163,12 @@ const rnd=(a,b)=>a+Math.random()*(b-a);
 const mulberry32=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
 const hash2=(x,y)=>{let h=(Math.imul(x|0,374761393)+Math.imul(y|0,668265263))|0;h=Math.imul(h^(h>>>13),1274126177);return(h^(h>>>16))>>>0;};
 const ck=(cx,cz)=>cx*100003+cz;
+${cfgDecls}
 `;
 
   src = src.replace('  bakeRing(sw.curb', '  swCapture.set(ch, sw);\n  bakeRing(sw.curb');
   const out = stubs + '\n' + src +
-    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, solidsNear, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, bridgeHeight, surfaceAt, structureLevel, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, nbhdPlan, nbhdOf, nbhdInterior, nbhdJunction, siteSpots };\n' +
+    '\nexport { buildIntersection, removeIntersection, updateTrafficLights, lightGo, chunks, updateChunks, flushChunk, warmTextCache, nearChunks, solidAt, solidsNear, disposeChunk, generateChunk, addParkedCarToChunk, sidewalkPieces, treePit, SIDEWALK_SIDES, SW_STYLES, pickSidewalkStyle, CHUNK, PAVE_IN, PAVE_OUT, PAD_IN, CURB_H, WALK_Y, BORDER_W, KERB_W, BED, BED_EDGE, PIT_IN, ck, lotCars, ambulanceTarget, RELIEF_DELAY, HEAVY_MASS, isHeavyParked, parkedShove, parkedDamage, CAR_DIMS, buildFuelStationMesh, FUEL_BRANDS, SHOP_TYPES, buildShopFrontMesh, buildShopParadeMesh, PARADE_TITLES, buildHospitalMesh, buildFireStationMesh, buildSchoolMesh, buildAirAmbulance, FONT3D, textBlocks, FLY, RAMP_RUN, RAMP_SLOPE, rampHeight, bridgeHeight, surfaceAt, structureLevel, insideFootprint, flyoverQuadrants, flyoverNear, nodeAt, nearestNode, nodeBlock, alongOf, latOf, isFlyoverNode, besideFlyover, stripStops, parapetPush, roadEdge, atGradeSide, onAtGradeLane, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, nbhdPlan, nbhdOf, nbhdInterior, nbhdJunction, siteSpots, BAY_L, BAY_D, METER_IN, BAY_BUS, BOOTH_IN };\n' +
     'export const __checked = checked;\nexport { __merge };\nexport { swCapture };\nexport { tramSegment, tramLaid, routeOf, isTramLine, ck as chunkKey };\n';
   const file = path.join(os.tmpdir(), 'salam-world.test.mjs');
   fs.writeFileSync(file, out);

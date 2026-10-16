@@ -444,6 +444,9 @@ function breakProp(pr, c) {
   flying.push({ mesh: m, vx: c.vx * 0.9 + rnd(-3, 3), vy: rnd(6, 12), vz: c.vz * 0.9 + rnd(-3, 3), sx: rnd(-8, 8), sz: rnd(-8, 8), life: 1.6 });
   debris(pr.x, 1, pr.z, pr.color, 8); sparks(pr.x, 1, pr.z, pr.kind.startsWith('plaza') ? 6 : 4, 0, 0, pr.kind.startsWith('plaza') ? 8 : 6);
   if (pr.kind === 'hydrant') { geysers.push({ x: pr.x, z: pr.z, life: 7 }); for (let i = 0; i < 20; i++) emit(pr.x, 0.6, pr.z, rnd(-4, 4), rnd(8, 16), rnd(-4, 4), 0x8fd3ff, rnd(0.2, 0.45), rnd(0.8, 1.4), 26); }
+  // a parking meter spills its coins (and rings for the player); a phone booth goes in a shower of glass
+  if (pr.kind === 'meter') { for (let i = 0; i < 14; i++) emit(pr.x, 1.35, pr.z, rnd(-3, 3), rnd(4, 9), rnd(-3, 3), 0xffd23b, rnd(0.06, 0.12), rnd(0.9, 1.4), 22); if (c.isPlayer) sfx.blip(1568); }
+  if (pr.kind === 'phonebooth') { for (let i = 0; i < 16; i++) emit(pr.x, 1.5, pr.z, rnd(-4, 4), rnd(3, 8), rnd(-4, 4), 0xd6eef8, rnd(0.08, 0.18), rnd(0.8, 1.3), 24); for (let i = 0; i < 6; i++) emit(pr.x, 2.0, pr.z, rnd(-3, 3), rnd(4, 9), rnd(-3, 3), 0xe8bf1a, rnd(0.15, 0.3), rnd(1.0, 1.6), 22); }
   // Damage: proportional to impact speed. A car that hits a plaza at 30 m/s takes more damage than one
   // that bumps it at 8 m/s. The player feels it; civilian cars and police do too.
   // Street props (cones, barriers, crates, drums, bins, lamps, benches...) are soft: a bump at city speed costs

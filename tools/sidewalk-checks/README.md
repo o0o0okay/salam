@@ -21,6 +21,7 @@ node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player p
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
+node tools/sidewalk-checks/street-furniture.mjs  # half the hydrants (the rest of each block unchanged), metered parking bays, phone booths
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -370,6 +371,26 @@ while the map's data under them is the same and made again when it changes, and 
 checks the range (easing, within its bounds), the rim's three states, the search centre (the last sighting moved on along
 the car's last motion for up to 5 s, or a hiding car itself), the rim marks (one a cruiser, one a blockade, none past
 260 m) and the canvas's pixels on a sharp screen.
+
+### Street furniture: hydrants, parking meters, phone booths
+
+The pavement's hydrants are half as many as before (`HYDRANT_KEEP` in `js/config.js`). A spot is rolled as it always
+was, and only the lower half of that roll plants a hydrant. A spot left empty stays taken while the block is laid out, so
+nothing else in the block moves: not the furniture, the hedges or the street trees placed after it, and not the trees of
+the baked map. On busy blocks (downtown, shopping streets, the bazaar, malls, banks) a kerb side now and then has metered
+parking (`METER_SIDE_P`): two to five bays painted on the road along the kerb (6 m long, 2.3 m out), with a red parking
+meter at the head of each bay, on the pavement just behind the kerb stone and facing the street. Here and there a
+pavement has a yellow card phone booth (`BOOTH_P` by block type, about one block in thirteen), its back to the street.
+Both have generators of their own and are laid last, where nothing else stands. Both break like any street prop: the
+meter spills its coins, the booth goes in a shower of glass. A prop's plain colours are now merged into one
+vertex-coloured mesh (`mergeStandalone` in `js/chunkBake.js`), so a meter is one draw call, and every prop costs one draw
+call plus its glass, glowing or textured parts. `shot.mjs` draws those vertex colours.
+`street-furniture.mjs` builds 324 blocks twice, as the game is and with every hydrant spot planted. It checks that they
+are the same block in every solid, tree and other prop (meters and booths included), that half the hydrants are left,
+and that the hydrants left out are the empty spots. It checks the bays (their sides, corners, bus stops, runs and paint,
+and the meter at each bay's head facing the street) and the booths (one at most a block, a few in a hundred, behind the
+kerb, back to the street). With the game's own props it checks that a meter or a booth stands clear of everything else,
+that a meter is one mesh (a booth four at most), and that a car knocks either down.
 
 ### Flyover approach nose protection
 

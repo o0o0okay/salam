@@ -64,6 +64,7 @@ const HOUSE_BRICK = [0xa9503a, 0x8c5a40, 0xd6c7a1, 0x9a6a58];
 const IRON = 0x3b3f45;
 import { buildCar, CAR_DIMS } from './carModels.js';
 import { PROP_DEFS } from './props.js';
+import { HYDRANT_KEEP, METER_SIDE_P, BOOTH_P } from './config.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
 import { ISLAND_R, inIslandChunk, onIsland } from './island.js';
@@ -672,6 +673,100 @@ function furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop
       if (occupied(x, z, 1.1) || !cutClear(x, z, 1.0)) continue;
       const kind = rng() < 0.36 ? 'mailbox' : rng() < 0.62 ? 'meter' : 'sandwich';
       prop(kind, x, z, Math.atan2(s.along === 'z' ? s.fixed : 0, s.along === 'z' ? 0 : s.fixed), 0);
+    }
+  }
+}
+
+// ---- Metered parking at the kerb ----
+// On a busy street (downtown, a shopping street, the bazaar, a mall, a bank) a stretch of a kerb side is now and then
+// metered parking (METER_SIDE_P, js/config.js): two to five bays painted on the road along the kerb, BAY_L long and BAY_D
+// out from it, and a parking meter at the head of each bay (the end a car parks nose to, driving on the right), on the
+// pavement just behind the kerb stone, its face to the street. It has a generator of its own, so the rest of the block is
+// laid out as before, and it is laid after everything else on the pavement, so a meter never stands in another prop, a
+// tree, a shelter or an estate's gate. A bay whose meter cannot stand, or whose stretch of road is a bus stop's or an
+// interchange's, is left out; the run is cut there, and a run shorter than two bays is not laid at all.
+// The ones a car runs into are knocked down like any street prop (js/props.js meter, js/collisions.js).
+const METER_TYPES = new Set(['downtown', 'shops', 'bazaar', 'commercial', 'bank']);
+export const BAY_L = 6, BAY_D = 2.3, METER_IN = 0.8, BAY_LINE = 0.12, BAY_BUS = 11;
+// the end of a bay a car parks nose to, on each side: traffic keeps to the right, so a block's west kerb (side 0) is
+// passed going -z, its east kerb (1) going +z, its south kerb (2) going +x and its north kerb (3) going -x
+const BAY_HEAD = [-1, 1, 1, -1];
+function meteredParking({ add, bx, bz, ch, closed, cutClear, cx, cz, inGate, kerbIn, occupied, prop, type, x0, z0 }) {
+  ch.bays = []; ch.bayLines = [];                                  // the bays and their painted lines, kept for the checks
+  if (!METER_TYPES.has(type)) return;
+  const rp = mulberry32(hash2(cx * 7 + 3, cz * 13 - 5) ^ 0x3E7E);
+  const paint = mat(0xe9e8df);                                     // the road's own paint (crossings)
+  for (let si = 0; si < 4; si++) {
+    const roll = rp(), nRoll = rp(), startRoll = rp();             // drawn for every side, so one side never changes another
+    if (roll >= METER_SIDE_P || closed[si] || atGradeSide(cx, cz, si)) continue;
+    const s = SIDEWALK_SIDES[si], alongZ = s.along === 'z', kerb = CHUNK / 2 - kerbIn(si);
+    const n = 3 + Math.floor(nRoll * 3);                           // three to five bays wanted
+    const a0 = 16 + startRoll * (CHUNK - 32 - n * BAY_L);          // where the run starts, along the side from its low corner
+    // a point `along` the side and `off` metres out from the kerb's face (+ into the road, - onto the pavement)
+    const at = (along, off) => (alongZ ? { x: bx + s.fixed * (kerb + off), z: z0 + along } : { x: x0 + along, z: bz + s.fixed * (kerb + off) });
+    const road = alongZ ? (s.fixed < 0 ? x0 : x0 + CHUNK) : (s.fixed < 0 ? z0 : z0 + CHUNK);   // the street's centre line
+    const stops = ch.busStops.filter(b => b.axis === (alongZ ? 'z' : 'x') && Math.abs(b.road - road) < 1);
+    const meterAt = a => at(BAY_HEAD[si] < 0 ? a + 0.5 : a + BAY_L - 0.5, -METER_IN);
+    const good = [];
+    for (let k = 0; k < n; k++) {
+      const a = a0 + k * BAY_L, m = meterAt(a);
+      let ok = onIsland(m.x, m.z) && Math.abs(m.z - RIVER_ROW * CHUNK) > 9 && cutClear(m.x, m.z, 1.0) && !occupied(m.x, m.z, PROP_DEFS.meter.r + 0.25)
+        && !onAtGradeLane(m.x, m.z, 0.7) && !inGate(m.x, m.z, 0.7);    // (where prop() would not set it)
+      const mid = (alongZ ? z0 : x0) + a + BAY_L / 2;
+      if (stops.some(b => Math.abs(b.along - mid) < BAY_BUS + BAY_L / 2)) ok = false;   // the bus stops there
+      for (const f of [0, 0.5, 1]) for (const off of [0.3, BAY_D]) {                   // its stretch of road
+        const q = at(a + f * BAY_L, off);
+        if (!onIsland(q.x, q.z) || Math.abs(q.z - RIVER_ROW * CHUNK) < 9 || insideFootprint(q.x, q.z, 0.5) || onAtGradeLane(q.x, q.z, 0.5) || inGate(q.x, q.z, 0.5)) ok = false;
+      }
+      good.push(ok);
+    }
+    for (let k = 0; k < n;) {                                      // each run of two good bays or more
+      if (!good[k]) { k++; continue; }
+      let e = k; while (e < n && good[e]) e++;
+      if (e - k >= 2) {
+        const A = a0 + k * BAY_L, B = a0 + e * BAY_L, run = ch.bays.length ? ch.bays[ch.bays.length - 1].run + 1 : 0;
+        const line = (along, off, lenAlong, lenOff) => {
+          const c = at(along, off), w = alongZ ? lenOff : lenAlong, d = alongZ ? lenAlong : lenOff;
+          add(box(w, 0.03, d, paint, c.x, 0.03, c.z, false));
+          ch.bayLines.push({ x: c.x, z: c.z, w, d });
+        };
+        line((A + B) / 2, BAY_D, B - A + BAY_LINE, BAY_LINE);       // the bays' outer line
+        for (let j = k; j <= e; j++) line(a0 + j * BAY_L, BAY_D / 2 + 0.05, BAY_LINE, BAY_D - 0.1);   // a line between each two
+        for (let j = k; j < e; j++) {
+          const a = a0 + j * BAY_L, m = meterAt(a);
+          const pr = prop('meter', m.x, m.z, Math.atan2(alongZ ? s.fixed : 0, alongZ ? 0 : s.fixed), 0);
+          // the bay, for the checks: its centre, its side and run, where it starts along the side, and its meter
+          const c = at(a + BAY_L / 2, BAY_D / 2);
+          ch.bays.push({ x: c.x, z: c.z, side: si, run, start: (alongZ ? z0 : x0) + a, kerb: alongZ ? bx + s.fixed * kerb : bz + s.fixed * kerb, out: s.fixed, meter: pr || null });
+        }
+      }
+      k = e;
+    }
+  }
+}
+
+// ---- Phone booths ----
+// Here and there a pavement has a card phone booth (BOOTH_P by block type, js/config.js: a few in a hundred blocks, more
+// by a bank, a hospital, a school or a filling station): one at most a block, on one side's pavement, its back to the street
+// and its open front to the pavement, a little behind the kerb's furniture line. Like the meters it has a generator of its
+// own and is placed last, where nothing else stands (a few places along the side are tried, then the next side).
+export const BOOTH_IN = 1.45;
+function phoneBooths({ bx, bz, ch, closed, cutClear, cx, cz, kerbIn, occupied, prop, type, x0, z0 }) {
+  const p = BOOTH_P[type] || 0;
+  if (!(p > 0)) return;
+  const rb = mulberry32(hash2(cx * 11 - 7, cz * 5 + 9) ^ 0xB007);
+  const roll = rb(), sideRoll = rb(), alongRoll = rb();
+  if (roll >= p) return;
+  for (let k = 0; k < 4; k++) {
+    const si = (Math.floor(sideRoll * 4) + k) % 4;
+    if (closed[si]) continue;
+    const s = SIDEWALK_SIDES[si], alongZ = s.along === 'z', d = CHUNK / 2 - kerbIn(si) - BOOTH_IN;
+    for (let t = 0; t < 6; t++) {
+      const along = 16 + ((alongRoll + t * 0.37) % 1) * (CHUNK - 32);
+      const x = alongZ ? bx + s.fixed * d : x0 + along, z = alongZ ? z0 + along : bz + s.fixed * d;
+      if (!onIsland(x, z) || Math.abs(z - RIVER_ROW * CHUNK) < 9.5 || !cutClear(x, z, 1.5) || occupied(x, z, PROP_DEFS.phonebooth.r + 0.45)) continue;
+      if (ch.busStops.some(b => Math.hypot(b.x - x, b.z - z) < 7)) continue;          // not in a bus stop's way
+      if (prop('phonebooth', x, z, Math.atan2(alongZ ? s.fixed : 0, alongZ ? 0 : s.fixed), 0)) return;
     }
   }
 }
@@ -1879,7 +1974,7 @@ function powerLines(ch, runs, add, noPole) {
   }
 }
 
-function streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng }) {
+function streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, reserve, rng }) {
   // Streetlights
   for (const s of [-1, 1]) for (const o of [-16, 16]) {
     const kx = kerbIn(s < 0 ? 0 : 1), kz = kerbIn(s < 0 ? 2 : 3);      // the kerb on the side the prop is on
@@ -1889,8 +1984,13 @@ function streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, pro
     const lampRoll = rng() < 0.8;                                 // drawn either way, so the rest of the block is unchanged
     if (lampRoll && !nbLines && s !== avS && cutClear(lampA[0], lampA[1], 1.2) && !closed[s < 0 ? 0 : 1]) prop('streetlight', lampA[0], lampA[1], 0);
     if (lampRoll && !nbLines && s !== crS && cutClear(lampB[0], lampB[1], 1.2) && !closed[s < 0 ? 2 : 3]) prop('streetlight', lampB[0], lampB[1], 0);
-    if (rng() < 0.45 && !closed[s < 0 ? 0 : 1] && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) prop('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
-    if (rng() < 0.45 && !closed[s < 0 ? 2 : 3] && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) prop('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
+    // Hydrants: a spot gets one on a roll under 0.45, as it always did, but only the lower part of that (HYDRANT_KEEP,
+    // js/config.js: half) plants a hydrant now. The roll is drawn either way, and a spot left empty stays taken while the
+    // block is laid out (reserve), so the furniture, the hedges and the street trees placed after it come out as before.
+    const hA = rng();
+    if (hA < 0.45 && !closed[s < 0 ? 0 : 1] && cutClear(bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 1.0)) (hA < 0.45 * HYDRANT_KEEP ? prop : reserve)('hydrant', bx + s * (CHUNK / 2 - kx - 1.15), bz - o * 0.45, 0, 0.15);
+    const hB = rng();
+    if (hB < 0.45 && !closed[s < 0 ? 2 : 3] && cutClear(bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 1.0)) (hB < 0.45 * HYDRANT_KEEP ? prop : reserve)('hydrant', bx - o * 0.45, bz + s * (CHUNK / 2 - kz - 1.15), 0, 0.15);
   }
 }
 
@@ -2179,6 +2279,16 @@ function generateChunk(cx, cz, defer = false) {
     const rec = { mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft };
     ch.props.push(rec); return rec;
   };
+  // A spot kept for a prop that is left out after all (half the hydrant spots, see streetlights): it is taken for the rest
+  // of the block's layout exactly as the prop would have been (the same tests as prop() above), so nothing placed after
+  // it moves. The spots are kept on the chunk (ch.emptySpots) for the checks.
+  const reserved = ch.emptySpots = [];
+  const reserve = (kind, x, z) => {
+    if (!onIsland(x, z)) return;
+    if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;
+    if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;
+    reserved.push({ kind, x, z, r: PROP_DEFS[kind].r });
+  };
   const tree = (x, z, y = 0.2) => {
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // nothing is planted in the river
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
@@ -2306,16 +2416,20 @@ function generateChunk(cx, cz, defer = false) {
   // The walkway is laid once the block is built, so it can open the estate's entrance (ch.gate, set by suburbBlock).
   const sw = sidewalkPieces(cx, cz, swStyle, filled, ch.gate || null);
   const powerRuns = utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides });
-  streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, rng });
+  streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, reserve, rng });
   safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
     || ch.keepouts.some(k => Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad)
     || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad)
+    || reserved.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad)
     || inGate(x, z, rad);
   furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz });
   dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop });
   hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz });
   streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
+  // the kerb's own furniture, last: each has a generator of its own, so the block above is laid out as before
+  meteredParking({ add, bx, bz, ch, closed, cutClear, cx, cz, inGate, kerbIn, occupied, prop, type, x0, z0 });
+  phoneBooths({ bx, bz, ch, closed, cutClear, cx, cz, kerbIn, occupied, prop, type, x0, z0 });
   sidewalkSurfaces({ sw, swPainted, ch });
   crossings({ x0, z0, kerbIn, add, cx, cz });
   pruneBlockedRoadworks(ch);
