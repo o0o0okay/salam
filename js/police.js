@@ -15,6 +15,18 @@ function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
     ? { x: Math.round((x + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3), z: z + rnd(-spread, spread) }
     : { x: x + rnd(-spread, spread), z: Math.round((z + rnd(-spread, spread)) / CHUNK) * CHUNK + rnd(-3, 3) };
 }
+// The police see the car now: their freshest sighting is younger than FRESH seconds (a pursuer sees it, or hears it close
+// by, or the air unit has it, and the radio tells everyone). Older than that, they search.
+export const FRESH = 0.35;
+// Where the search goes once the pursuers have lost sight of the car (k: the freshest sighting): the last known place,
+// moved on along the car's last known motion (for up to 5 s), or the car itself for a hiding car (hide.js). Around it the
+// pursuers patrol the roads within SEARCH_R metres: that is the search zone (the radar shows it, js/radar.js).
+export const SEARCH_R = 75;
+export function searchCentre(k) {
+  if ((game.hideT || 0) > 0) return { x: player.x, z: player.z };
+  const age = clamp(game.t - k.t, 0, 5);
+  return { x: k.x + k.vx * age * 0.7, z: k.z + k.vz * age * 0.7 };
+}
 function losBlocked(p, tx, tz, y = 1.2) {
   const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), n = Math.min(90, Math.ceil(Math.min(d, 90)));   // a sample each metre: a corner between two samples 6 m apart let a pursuer drive straight into it
   for (let i = 1; i <= n; i++) { const t = (i / n) * Math.min(1, 90 / d); if (solidAt(p.x + dx * t, p.z + dz * t, 1.2, y)) return true; }
@@ -224,7 +236,7 @@ export function policeAI(p, dt) {
   }
   if (p.sees) reportSighting();                                    // radio: everyone knows
   const k = sight.t >= p.tip.t ? sight : p.tip;                    // freshest info
-  const fresh = game.t - k.t < 0.35;
+  const fresh = game.t - k.t < FRESH;
   const forward = { x: Math.sin(player.h), z: Math.cos(player.h) }, side = { x: Math.cos(player.h), z: -Math.sin(player.h) };
   const lead = clamp(d / 42, 0.2, 1.25) * info.prediction * DIFF.predict;
   const rb = d > 45 ? 1 + Math.min(0.12, (d - 45) / 700) : d < 22 ? 0.97 : 1;
@@ -246,14 +258,13 @@ export function policeAI(p, dt) {
     if (d < 18 * DIFF.aggr && p.tier >= 3) ramming = true;
   } else {
     // ---------- SEARCH: last known pos (with motion guess) then patrol nearby roads ----------
-    const age = clamp(game.t - k.t, 0, 5);
-    // A hiding car (hide.js): the search goes to where it is, not to where it was last seen.
-    const ex = (game.hideT || 0) > 0 ? player.x : k.x + k.vx * age * 0.7, ez = (game.hideT || 0) > 0 ? player.z : k.z + k.vz * age * 0.7;
+    // (a hiding car, hide.js: the search goes to where it is, not to where it was last seen)
+    const { x: ex, z: ez } = searchCentre(k);
     p.searchT -= dt;
     if (!p.search || p.searchT <= 0 || Math.hypot(p.search.x - p.x, p.search.z - p.z) < 14) {
       p.searchT = rnd(4, 7);
       if (!p.arrived && Math.hypot(ex - p.x, ez - p.z) > 28) p.search = solidAt(ex, ez, 3, player.y) ? roadPointNear(ex, ez, 25) : { x: ex, z: ez };
-      else { p.arrived = true; p.search = roadPointNear(ex, ez, 75); }
+      else { p.arrived = true; p.search = roadPointNear(ex, ez, SEARCH_R); }
     }
     tx = p.search.x; tz = p.search.z;
   }

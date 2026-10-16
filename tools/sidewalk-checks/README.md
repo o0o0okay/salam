@@ -18,6 +18,11 @@ node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: namepl
 node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
 node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
+node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
+node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
+node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
+node tools/sidewalk-checks/street-furniture.mjs  # half the hydrants (the rest of each block unchanged), metered parking bays, phone booths
+node tools/sidewalk-checks/ramp-pitch.mjs  # every vehicle follows a flyover's ramps: no nose or tail in the concrete, and the street stays the street
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -317,6 +322,95 @@ must remain untouched. The existing climb, descent, crest-hop and underpass beha
 The police chase suite retains its original time limits: police brake only for a sharp lateral exit
 into the at-grade lane, rather than relying on the old ability to cut through the wall. No persistent
 maximum-speed change is made.
+
+### Map route across an interchange
+
+The map's road route (`js/map.js`) treats an interchange as two roads, one above the other: the **deck road** (the
+main road's own carriageway, up a ramp, over the deck, down the far ramp) and the **ground road** (the at-grade lane on
+each side of the structure, 15 m from the main road's centre line, which crosses the street under the deck at grade).
+They meet only at the junctions beyond the ramps' feet. A place joins only the road of its own level: a car riding a
+ramp or the deck joins the deck road, a car at grade (beside the structure or under the deck) joins the ground roads,
+and a mark inside the structure's outline joins the deck road, anywhere else the roads at grade.
+`route-levels.mjs` covers all 16 interchanges (4 long bridges), both sides, from cars all round them: a pin on the lane
+beside a ramp is reached along that lane and never from the ramp above it (the old route ran up the ramp); a pin on a
+ramp or the deck is reached over the deck road; a pin on the street under the deck is reached on that street; a route
+changes level only at grade and never runs through a ramp's embankment; a car on the lane or under a deck gets a route
+(it used to get none: the lane is further than the 12 m a car may step onto a street); the live route is given up when
+the car is on the other level; the 3D arrows lie on the road the route is on; and away from interchanges the route
+lengths are the plain grid's.
+
+### The mark's light and its circle
+
+The marked place stands in the world as a column of red light (`js/markBeam.js`) with a circle of light on the road
+round its foot. The circle breathes: it grows from 3.2 m to 5.6 m and shrinks back once every 1.4 s. It is the place to
+drive to. Once the car's centre is inside the circle at its largest, the mark is done: it is cleared everywhere (the
+map, the radar, the road arrows), and the light goes out in 0.6 s (the circle opens out and fades, the column narrows and
+fades). The light stands on the mark's own level, using the same rule as the route (`onDeck` in `js/map.js`): on the
+ground for a mark on the street under a deck, on the deck for a mark on the deck, and on a ramp's surface with the circle
+tilted to the slope. The car arrives only on that level. `mark-ring.mjs` checks the breathing (range, period,
+smoothness), that the mark is finished exactly when the car reaches the circle and not before, and the flourish. It also
+checks that a car parked just outside does not finish the mark, and that a fast car crossing the circle between two
+frames does (a jump across the map does not). A mark set with the car already on its circle waits until the car has been
+off it. Finally it covers the deck, under-deck and ramp levels, and that clearing the mark on the map puts the light out
+at once.
+
+### The radar
+
+The radar (`js/radar.js`) shows the map's own picture of the city round the car (`paintGround` in `js/map.js`: the
+blocks, the buildings with their roofs, the parks and trees, the water, the streets, the interchanges), turned with the
+car, and on it what matters for getting away: each cruiser as an arrow the way it faces, a red line from each one that
+sees you, the search zone once they have lost you (the circle round `searchCentre` in `js/police.js`, the 75 m they
+patrol), a red-and-white bar across a roadblock or a bridge checkpoint, the spike strips, the pickups and the traffic. The
+rim tells the chase: red and blue while they see you, amber while they search, white with no chase. Cruisers and
+blockades beyond the edge have marks on the rim in their direction. The radar looks further as the car goes faster (95 m
+to the rim standing, 140 m flat out) and dims at night. The picture is made in tiles of one block, a few a frame (one, then
+more only while the frame has spent less than 3 ms: a tile takes 1.5 to 5 ms).
+`radar.mjs` checks that every building of a block is in its tile where the map has it, mirrored as the map is, and that
+the tile has no place names; that each tile lands on the radar exactly where its part of the world is (the car at the
+centre, ahead straight up); that the tiles come at most three a frame, nearest first, until the circle is covered, are kept
+while the map's data under them is the same and made again when it changes, and that no more than 64 are kept. It also
+checks the range (easing, within its bounds), the rim's three states, the search centre (the last sighting moved on along
+the car's last motion for up to 5 s, or a hiding car itself), the rim marks (one a cruiser, one a blockade, none past
+260 m) and the canvas's pixels on a sharp screen.
+
+### Street furniture: hydrants, parking meters, phone booths
+
+The pavement's hydrants are half as many as before (`HYDRANT_KEEP` in `js/config.js`). A spot is rolled as it always
+was, and only the lower half of that roll plants a hydrant. A spot left empty stays taken while the block is laid out, so
+nothing else in the block moves: not the furniture, the hedges or the street trees placed after it, and not the trees of
+the baked map. On busy blocks (downtown, shopping streets, the bazaar, malls, banks) a kerb side now and then has metered
+parking (`METER_SIDE_P`): two to five bays painted on the road along the kerb (6 m long, 2.3 m out), with a red parking
+meter at the head of each bay, on the pavement just behind the kerb stone and facing the street. Here and there a
+pavement has a yellow card phone booth (`BOOTH_P` by block type: two busy blocks in three, nearly every bank, hospital,
+school and filling station, about 930 on the island), its back to the street.
+Both have generators of their own and are laid last, where nothing else stands. Both break like any street prop: the
+meter spills its coins, the booth goes in a shower of glass. A prop's plain colours are now merged into one
+vertex-coloured mesh (`mergeStandalone` in `js/chunkBake.js`), so a meter is one draw call, and every prop costs one draw
+call plus its glass, glowing or textured parts. `shot.mjs` draws those vertex colours.
+`street-furniture.mjs` builds 324 blocks twice, as the game is and with every hydrant spot planted. It checks that they
+are the same block in every solid, tree and other prop (meters and booths included), that half the hydrants are left,
+and that the hydrants left out are the empty spots. It checks the bays (their sides, corners, bus stops, runs and paint,
+and the meter at each bay's head facing the street) and the booths (one at most a block, in as many blocks as
+`BOOTH_P` gives their types, behind the kerb, back to the street). With the game's own props it checks that a meter or a booth stands clear of everything else,
+that a meter is one mesh (a booth four at most), and that a car knocks either down.
+
+### Long vehicles on the ramps
+
+A car follows the road by sampling it at its centre and at its two ends (`driveCar` in `js/vehicle.js`): it sits at the
+higher of the centre and the ends' mean, and leans by the slope between the ends. Which surface an end stands on, the
+ramp or the street under it, is up to `surfaceAt` in `js/flyover.js`. It takes the structure only within `FLY.on` of the
+car's own height. A ramp climbs 1 in 6.25, so a probe more than 5 m uphill of a car's centre is more than `FLY.on` above
+it. For the fuel tanker and the semis with a box, a flatbed, a lowboy or logs (11 to 12 m long), the uphill end read the
+street and the lean came out backwards: nose down into the ramp on the way up, tail into it on the way down, as much as
+2.7 m. Now `surfaceAt` takes a `reach`: how far the point is from the car along the road. The same ramp may be up to
+`reach * RAMP_SLOPE` higher there, and `driveCar` passes each end its distance. A car at grade still reads the street
+under a deck 7.2 m up, because that test passes only within 1.8 m.
+`ramp-pitch.mjs` drives every kind in `CAR_DIMS` over four interchanges with the real `driveCar` and `syncCarMesh`: both
+roads, one- and two-junction bridges, both ways, at 8 and 18 m/s. It holds the body as drawn against the road under it:
+along its whole length the wheel line stays within 0.25 m of the surface. That margin is the lean's deliberate smoothing
+as a nose meets a ramp's foot at speed. Halfway up a ramp the body leans at the ramp's grade, nose up, and halfway down
+nose down. It then drives every kind at grade across the street under each deck and along the lane beside each structure
+(620 drives) and checks that none is lifted onto the concrete.
 
 ### Flyover approach nose protection
 

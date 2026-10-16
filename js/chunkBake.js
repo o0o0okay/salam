@@ -201,14 +201,28 @@ function mergeInside(ch, root) {
 // that block and has to be handed back when the block streams out: `own()` registers it. Without this the
 // block's merged pieces were never disposed, so every block the player drove past left its vertex buffers in
 // the GPU for the rest of the session (see the streaming notes in tools/sidewalk-checks/README.md).
+// A stand-alone piece (a street prop, a bus shelter, scaffolding...) is merged on its own, so it can be knocked off and
+// thrown as one. Its plain parts go into one vertex-coloured mesh, as the blocks' baked pieces do (prepared above), so a
+// prop of many colours is one draw call; only its glass, glow, textures and double-sided parts keep their own meshes.
+// Parts are merged only with parts of the same attributes (attrKey), so one odd part cannot make a merge fail. Glass
+// casts no shadow.
 export function mergeStandalone(g) {
   g.updateMatrixWorld(true);
-  const byMat = new Map();
-  g.traverse(o => { if (o.isMesh) { if (!byMat.has(o.material)) byMat.set(o.material, []); const gc = o.geometry.clone(); gc.applyMatrix4(o.matrixWorld); byMat.get(o.material).push(gc); } });
+  const byKey = new Map();
+  g.traverse(o => {
+    if (!o.isMesh) return;
+    const { g: gc, key } = prepared(o.geometry, o.material);
+    gc.applyMatrix4(o.matrixWorld);
+    const k = key, a = attrKey(gc);
+    if (!byKey.has(k)) byKey.set(k, new Map());
+    const byAttr = byKey.get(k);
+    if (!byAttr.has(a)) byAttr.set(a, []);
+    byAttr.get(a).push(gc);
+  });
   const out = new THREE.Group();
-  for (const [m, geos] of byMat) {
+  for (const [m, byAttr] of byKey) for (const geos of byAttr.values()) {
     const merged = mergeGeometries(geos, false); geos.forEach(x => x.dispose());
-    if (merged) { const mesh = new THREE.Mesh(merged, m); mesh.castShadow = true; mesh.receiveShadow = true; out.add(mesh); }
+    if (merged) { const mesh = new THREE.Mesh(merged, m); mesh.castShadow = !m.transparent; mesh.receiveShadow = true; out.add(mesh); }
   }
   return out;
 }

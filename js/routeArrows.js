@@ -87,38 +87,43 @@ function onBuilding(x, z) {
 }
 
 // The planned way as a smooth path. Each corner (a junction, or the step on or off a street) is rounded into a short
-// curve of CORNER_R metres, so an arrow that goes round a corner bends with the road.
-function smoothPath(P) {
-  const out = [P[0]];
+// curve of CORNER_R metres, so an arrow that goes round a corner bends with the road. D[k] tells whether the route's piece
+// P[k] -> P[k + 1] is on a flyover's deck road (js/map.js); the flag of each piece of the smooth path is returned with it
+// (deck[k]: the piece out[k] -> out[k + 1]).
+function smoothPath(P, D) {
+  const out = [P[0]], deck = [];
   for (let k = 1; k + 1 < P.length; k++) {
     const [px, pz] = P[k - 1], [x, z] = P[k], [nx, nz] = P[k + 1];
     const l1 = Math.hypot(x - px, z - pz), l2 = Math.hypot(nx - x, nz - z);
     if (l1 < 1e-6 || l2 < 1e-6) continue;
     const d1x = (x - px) / l1, d1z = (z - pz) / l1, d2x = (nx - x) / l2, d2z = (nz - z) / l2;
-    if (d1x * d2x + d1z * d2z > 0.97) { out.push([x, z]); continue; }        // (almost) straight on: no curve
+    if (d1x * d2x + d1z * d2z > 0.97) { out.push([x, z]); deck.push(!!D[k - 1]); continue; }   // (almost) straight on: no curve
     const r = Math.min(CORNER_R, 0.45 * l1, 0.45 * l2);
     const ax = x - d1x * r, az = z - d1z * r, bx = x + d2x * r, bz = z + d2z * r;
     for (let t = 0; t <= 1.0001; t += 0.25) {                               // a quadratic curve a -> corner -> b
       out.push([(1 - t) * (1 - t) * ax + 2 * (1 - t) * t * x + t * t * bx, (1 - t) * (1 - t) * az + 2 * (1 - t) * t * z + t * t * bz]);
+      deck.push(!!(t <= 0.5 ? D[k - 1] : D[k]));
     }
   }
-  out.push(P[P.length - 1]);
-  return out;
+  out.push(P[P.length - 1]); deck.push(!!D[P.length - 2]);
+  return { out, deck };
 }
 
-// The height of the road at a place on the route, in metres: the deck or ramp of a flyover when the route runs along
-// that flyover (so the arrows lie on the bridge and not under it), otherwise the ground. A route that runs under a deck
-// (the crossing street) is at grade, so it is not lifted up onto the deck.
-function roadHeight(x, z, ux, uz) {
+// The height of the road at a place on the route, in metres: on the deck road, the deck or ramp of the flyover there (so
+// the arrows lie on the bridge and not under it); anywhere else the ground. The route itself says which road it is on
+// (js/map.js keeps the deck and the ground apart), so a route along the lane beside a ramp, or under a deck in the
+// junction box, stays at grade however close it is to the structure.
+function roadHeight(x, z, onDeckRoad) {
+  if (!onDeckRoad) return 0;
   const f = flyoverNear(x, z);
-  if (!f || f.axis !== (Math.abs(ux) >= Math.abs(uz) ? 'x' : 'z')) return 0;
-  return bridgeHeight(f, alongOf(f, x, z));
+  return f ? bridgeHeight(f, alongOf(f, x, z)) : 0;
 }
 // The arrows sit every STEP metres along the smoothed route, at fixed places on the road (they do not move with the car).
 // The distance along the path is the arc; the car's own place on the path is found from its position, so the arrows
 // ahead of the car are the ones with a larger arc.
 function prepare(base) {
-  path = smoothPath(base.pts);
+  const sm = smoothPath(base.pts, base.deck || []);
+  path = sm.out;
   cum = [0];
   for (let k = 1; k < path.length; k++) cum.push(cum[k - 1] + Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]));
   const out = [];
@@ -132,7 +137,7 @@ function prepare(base) {
     const x = ax + (bx - ax) * f, z = az + (bz - az) * f;
     const ux = (bx - ax) / L, uz = (bz - az) / L;
     // the road's height here, and its slope along the route (the arrow is tilted to lie along a ramp)
-    const y = roadHeight(x, z, ux, uz), slope = (roadHeight(x + ux, z + uz, ux, uz) - roadHeight(x - ux, z - uz, ux, uz)) / 2;
+    const up = sm.deck[k], y = roadHeight(x, z, up), slope = (roadHeight(x + ux, z + uz, up) - roadHeight(x - ux, z - uz, up)) / 2;
     out.push({ x, z, ux, uz, arc: g, blocked: onBuilding(x, z), y: ARROW_Y + y, slope });
   }
   return out;

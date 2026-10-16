@@ -15,6 +15,7 @@ import { register } from 'node:module';
 register('./hooks.mjs', import.meta.url);
 import fs from 'node:fs';
 import { canvas, writePNG, drawText } from './png.mjs';
+const THREE = await import('three');                 // (after the hooks: they are what finds three)
 const world = await import('../../js/world.js');
 
 const [out, ex, ey, ez, lx, ly, lz, fov = 62, W = 1200, H = 650] = process.argv.slice(2);
@@ -41,16 +42,21 @@ const pushGeo = (geo, mat4, material) => {
   const idx = geo.index ? Array.from(geo.index.array) : null;
   const n = idx ? idx.length : pos.count;
   // Textured materials (the road, the paving) are drawn in one flat tone: their colour is white and the detail
-  // lives in the map, which this renderer does not sample.
-  const col = material && material.map ? 0x585d66 : (material && material.color ? material.color.getHex() : 0xcccccc);
+  // lives in the map, which this renderer does not sample (a material may name its own tone: userData.flat).
+  // A vertex-coloured piece (the plain parts of a merged prop, js/chunkBake.js) takes each triangle's own colour.
+  const col = material && material.userData && material.userData.flat !== undefined ? material.userData.flat
+    : material && material.map ? 0x585d66 : (material && material.color ? material.color.getHex() : 0xcccccc);
+  const vc = material && material.vertexColors && geo.attributes.color ? geo.attributes.color : null;
+  const vcol = i => VC.setRGB(vc.getX(i), vc.getY(i), vc.getZ(i)).getHex();
   const basic = !!(material && material.isMeshBasicMaterial);
   const e = mat4.elements;
   const at = i => {
     const x = pos.array[i * 3], y = pos.array[i * 3 + 1], z = pos.array[i * 3 + 2];
     return [e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]];
   };
-  for (let i = 0; i + 2 < n; i += 3) tris.push({ a: at(idx ? idx[i] : i), b: at(idx ? idx[i + 1] : i + 1), c: at(idx ? idx[i + 2] : i + 2), col, basic });
+  for (let i = 0; i + 2 < n; i += 3) tris.push({ a: at(idx ? idx[i] : i), b: at(idx ? idx[i + 1] : i + 1), c: at(idx ? idx[i + 2] : i + 2), col: vc ? vcol(idx ? idx[i] : i) : col, basic });
 };
+const VC = new THREE.Color();
 const seen = new Set(), harvested = new Set();
 const harvestChunk = ch => {
   const key = ch.cx + ',' + ch.cz;
