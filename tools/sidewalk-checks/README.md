@@ -22,6 +22,7 @@ node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyo
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
 node tools/sidewalk-checks/street-furniture.mjs  # half the hydrants (the rest of each block unchanged), metered parking bays, phone booths
+node tools/sidewalk-checks/ramp-pitch.mjs  # every vehicle follows a flyover's ramps: no nose or tail in the concrete, and the street stays the street
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -391,6 +392,24 @@ and that the hydrants left out are the empty spots. It checks the bays (their si
 and the meter at each bay's head facing the street) and the booths (one at most a block, a few in a hundred, behind the
 kerb, back to the street). With the game's own props it checks that a meter or a booth stands clear of everything else,
 that a meter is one mesh (a booth four at most), and that a car knocks either down.
+
+### Long vehicles on the ramps
+
+A car follows the road by sampling it at its centre and at its two ends (`driveCar` in `js/vehicle.js`): it sits at the
+higher of the centre and the ends' mean, and leans by the slope between the ends. Which surface an end stands on, the
+ramp or the street under it, is up to `surfaceAt` in `js/flyover.js`. It takes the structure only within `FLY.on` of the
+car's own height. A ramp climbs 1 in 6.25, so a probe more than 5 m uphill of a car's centre is more than `FLY.on` above
+it. For the fuel tanker and the semis with a box, a flatbed, a lowboy or logs (11 to 12 m long), the uphill end read the
+street and the lean came out backwards: nose down into the ramp on the way up, tail into it on the way down, as much as
+2.7 m. Now `surfaceAt` takes a `reach`: how far the point is from the car along the road. The same ramp may be up to
+`reach * RAMP_SLOPE` higher there, and `driveCar` passes each end its distance. A car at grade still reads the street
+under a deck 7.2 m up, because that test passes only within 1.8 m.
+`ramp-pitch.mjs` drives every kind in `CAR_DIMS` over four interchanges with the real `driveCar` and `syncCarMesh`: both
+roads, one- and two-junction bridges, both ways, at 8 and 18 m/s. It holds the body as drawn against the road under it:
+along its whole length the wheel line stays within 0.25 m of the surface. That margin is the lean's deliberate smoothing
+as a nose meets a ramp's foot at speed. Halfway up a ramp the body leans at the ramp's grade, nose up, and halfway down
+nose down. It then drives every kind at grade across the street under each deck and along the lane beside each structure
+(620 drives) and checks that none is lifted onto the concrete.
 
 ### Flyover approach nose protection
 

@@ -92,8 +92,10 @@ export function driveCar(c, inp, dt) {
   // its tail and its centre together: it rests on the higher of the centre and the mean of the two ends, and its
   // pitch is the slope between the ends. Sampling the centre alone let a nose two metres ahead sit up to 0.37 m
   // inside a ramp's slope (the ramp's grade times that distance). Flat ground and the flat deck give zero pitch.
+  // The ends are F metres away, so they are judged with that reach: up a ramp the road there is higher than the car
+  // itself, and a 12 m semi's uphill end used to read the street under the ramp instead (see surfaceAt).
   const F = c.box ? c.box.e1 : 2.05;
-  const gyF = surfaceAt(c.x + s * F, c.z + co * F, c.y), gyR = surfaceAt(c.x - s * F, c.z - co * F, c.y);
+  const gyF = surfaceAt(c.x + s * F, c.z + co * F, c.y, F), gyR = surfaceAt(c.x - s * F, c.z - co * F, c.y, F);
   const gy = Math.max(surfaceAt(c.x, c.z, c.y), (gyF + gyR) / 2), wasY = c.y;
   c.surfPitch = Math.atan2(gyF - gyR, 2 * F);                   // nose up is positive
   c.vy -= G * (c.air && c.y - gy < 1.0 ? PULL : 1) * dt;

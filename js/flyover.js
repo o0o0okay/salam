@@ -208,11 +208,18 @@ export function bridgeHeight(f, u) {
   else return FLY.deckH;
   return a >= RAMP_RUN ? 0 : FLY.deckH * (RAMP_RUN - a) / RAMP_RUN;
 }
-export function surfaceAt(x, z, y) {
+// The road surface at (x, z) for a car whose body is at height y: a flyover's deck or ramp when the car is up on it, the
+// street (0) when it is at grade or underneath. `reach` is how far the point is from the car along the road (a probe at
+// the nose or the tail of a long vehicle): the same ramp can be up to reach * RAMP_SLOPE above the car there and still
+// be the surface the car is on. Judged at the car's own height, a probe more than FLY.on / RAMP_SLOPE (5 m) uphill read
+// the street under the ramp, so the tanker's and the semis' lean came out backwards - the nose into the ramp on the way
+// up and the tail on the way down (tools/sidewalk-checks/ramp-pitch.mjs). The street under a deck stays the street: a
+// car at grade is never within FLY.on + reach * RAMP_SLOPE (under 1.8 m) of the deck 7.2 m above it.
+export function surfaceAt(x, z, y, reach = 0) {
   const f = flyoverNear(x, z);
   if (!f) return 0;
   const h = bridgeHeight(f, alongOf(f, x, z));
-  return h > 0 && y > h - FLY.on ? h : 0;
+  return h > 0 && y + reach * RAMP_SLOPE > h - FLY.on ? h : 0;
 }
 // Where a car is in relation to a flyover, from its own height. 'deck': it is up on the structure's surface (the flat
 // deck, or a ramp it is driving on). 'under': it is at grade beneath the structure (the junction box, or the underside of
