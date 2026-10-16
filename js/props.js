@@ -13,29 +13,58 @@ function halfCyl(r, len, seg, open = false) {
   if (!g) { g = new THREE.CylinderGeometry(r, r, len, seg, 1, open, -Math.PI / 2, Math.PI); halfCache.set(key, g); }
   return g;
 }
-// The phone booth's materials that are not plain colours: the glass, the hood (seen from inside as well as out) and the
-// rim with CARDPHONE round it. Made once, shared by every booth.
+// A segmental arch slab: its flat underside on y = 0 from x = -span/2 to span/2, its top a circular arc that rises `rise`
+// in the middle, the whole running `depth` along z. Indexed, with normals and uvs as a box has them, so a prop's arches
+// merge with its boxes into one vertex-coloured mesh (js/chunkBake.js mergeStandalone). Cached by its size.
+const archCache = new Map();
+function archSlab(span, rise, depth, seg = 10) {
+  const key = [span, rise, depth, seg].join('_');
+  let g = archCache.get(key);
+  if (g) return g;
+  const a = span / 2, R = (a * a + rise * rise) / (2 * rise), yc = rise - R, t0 = Math.asin(a / R), d = depth / 2;
+  const pos = [], nor = [], idx = [];
+  const v = (x, y, z, nx, ny, nz) => { pos.push(x, y, z); nor.push(nx, ny, nz); return pos.length / 3 - 1; };
+  const arc = [];
+  for (let i = 0; i <= seg; i++) { const t = -t0 + 2 * t0 * i / seg; arc.push([R * Math.sin(t), yc + R * Math.cos(t), Math.sin(t), Math.cos(t)]); }
+  for (const sz of [-1, 1]) {                                     // the arched ends, each a fan from its springing line's middle
+    const c = v(0, 0, sz * d, 0, 0, sz), ring = arc.map(([x, y]) => v(x, y, sz * d, 0, 0, sz));
+    for (let i = 0; i < seg; i++) { if (sz > 0) idx.push(c, ring[i + 1], ring[i]); else idx.push(c, ring[i], ring[i + 1]); }
+  }
+  for (let i = 0; i < seg; i++) {                                 // the vault over the top
+    const [x0, y0, nx0, ny0] = arc[i], [x1, y1, nx1, ny1] = arc[i + 1];
+    const a0 = v(x0, y0, -d, nx0, ny0, 0), b0 = v(x0, y0, d, nx0, ny0, 0), a1 = v(x1, y1, -d, nx1, ny1, 0), b1 = v(x1, y1, d, nx1, ny1, 0);
+    idx.push(a0, b0, b1, a0, b1, a1);
+  }
+  g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0), 2));
+  g.setIndex(idx);
+  archCache.set(key, g);
+  return g;
+}
+// The telephone box's parts that are not plain colours: its glass, and the TELEPHONE sign in the frieze of each side
+// (white opal glass with black capitals, as on the K6 kiosk). At night the box is lit inside, as the windows are
+// (ASSET.litMats: js/environment.js drives their glow): the glass glows warm and the sign white, its letters (dark in
+// the glow map) staying dark. Made once, shared by every box.
 let BOOTH = null;
 function boothMats() {
   if (BOOTH) return BOOTH;
-  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const c = document.createElement('canvas'); c.width = 512; c.height = 96;
   const x = c.getContext('2d');
-  // The rim is a flat half ring (inner 0.43 m, outer 0.53 m) whose texture is laid flat over the whole disc: the centre
-  // of the canvas is the ring's centre and its edge the outer radius. The letters stand round the arc, upright at the top.
-  x.fillStyle = '#e8bf1a'; x.fillRect(0, 0, 512, 512);
-  x.fillStyle = '#2f62b8'; x.font = 'bold 40px Georgia, "Times New Roman", serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  const word = 'CARDPHONE', rr = 256 * 0.48 / 0.53;
-  for (let i = 0; i < word.length; i++) {
-    const a = Math.PI * (0.88 - 0.76 * i / (word.length - 1));   // from the left of the arch over the top to the right
-    x.save(); x.translate(256 + Math.cos(a) * rr, 256 - Math.sin(a) * rr); x.rotate(Math.PI / 2 - a); x.fillText(word[i], 0, 0); x.restore();
-  }
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  const rim = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide });
-  rim.userData.flat = 0xe8bf1a;                                  // its colour, for the snapshot tool (which does not sample maps)
+  x.fillStyle = '#f5f3ea'; x.fillRect(0, 0, 512, 96);
+  x.fillStyle = '#151515'; x.font = 'bold 60px Georgia, "Times New Roman", serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const word = 'TELEPHONE';                                       // spaced out across the panel, as the sign's letters are
+  for (let i = 0; i < word.length; i++) x.fillText(word[i], 44 + i * (424 / (word.length - 1)), 50);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const sign = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0 });
+  sign.userData.flat = 0xf5f3ea;                                  // its colour, for the snapshot tool (which does not sample maps)
+  const glass = new THREE.MeshLambertMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.32, depthWrite: false, emissive: 0xffd98a, emissiveIntensity: 0 });
+  ASSET.litMats.push(sign, glass);
   BOOTH = {
-    glass: new THREE.MeshLambertMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.32, depthWrite: false }),
-    hood: mat(0xe8bf1a, { side: THREE.DoubleSide }),
-    rim,
+    glass,
+    sign,
+    signGeo: new THREE.PlaneGeometry(0.62, 0.116),
   };
   return BOOTH;
 }
@@ -148,43 +177,51 @@ export const PROP_DEFS = {
     const dome = new THREE.Mesh(halfCyl(0.135, 0.21, 16), red); dome.position.y = 1.505; dome.rotation.x = -Math.PI / 2; g.add(dome);
     const win = new THREE.Mesh(halfCyl(0.105, 0.216, 16), glass); win.position.y = 1.505; win.rotation.x = -Math.PI / 2; g.add(win);
     return g; } },
-  // A card phone booth, as on a city pavement (the yellow CARDPHONE hood): a rusty round foot, a yellow pedestal with a
-  // service door, and the booth on it: a steel back panel with the payphone (screen, keypad, card slot, the handset on its
-  // cord) over a shelf, two yellow side frames glazed in two panes (now and then one is smashed), and the arched hood with
-  // CARDPHONE round its front rim. It is open at the front (local -z), which faces the pavement; its back (local +z) is to
-  // the street. One stands here and there on a busy pavement (js/world.js phoneBooths); it breaks like any street prop,
-  // in a shower of glass (js/collisions.js).
-  phonebooth: { r: 0.65, drag: 0.86, color: 0xe8bf1a, soft: true, make() { const g = new THREE.Group();
-    const yel = mat(0xe8bf1a), yelDk = mat(0xc99f0e), steel = mat(0xb9bec4), dark = mat(0x2b2e33), black = mat(0x15171a);
-    const rust = mat(0x5e4632), pad = mat(0xb8bcc0), screen = mat(0x7fb86a), poster = mat(0x2c4a8a), M = boothMats();
-    const SPRING = 1.95, R = 0.5, D = 0.36;                                      // the hood springs at 1.95 m; half the depth
-    g.add(cyl(0.3, 0.32, 0.1, 16, rust, 0, 0.05, 0.1, false));                   // the foot
-    g.add(box(0.38, 0.95, 0.24, yel, 0, 0.575, 0.1, false));                     // the pedestal
-    g.add(box(0.16, 0.22, 0.012, yelDk, 0, 0.42, -0.026, false));                // its service door
-    g.add(box(0.025, 0.025, 0.01, dark, 0.05, 0.42, -0.035, false));             // the door's lock
-    g.add(box(1.0, 0.05, 0.74, yel, 0, 1.05, 0, false));                         // the booth's floor tray
-    g.add(box(0.92, 0.9, 0.03, steel, 0, 1.5, 0.335, false));                    // the back panel
-    g.add(box(0.9, 0.03, 0.18, steel, 0, 1.17, 0.23, false));                    // the shelf
-    g.add(box(0.36, 0.42, 0.12, dark, 0.04, 1.5, 0.26, false));                  // the payphone
-    g.add(box(0.13, 0.07, 0.01, screen, 0.06, 1.64, 0.196, false));              // its screen
-    g.add(box(0.12, 0.12, 0.01, pad, 0.07, 1.5, 0.196, false));                  // its keypad
-    g.add(box(0.13, 0.02, 0.012, steel, 0.07, 1.39, 0.196, false));              // its card slot
-    g.add(box(0.06, 0.24, 0.07, black, -0.11, 1.52, 0.18, false));               // the handset on its hook
-    for (const y of [1.66, 1.38]) g.add(box(0.08, 0.05, 0.085, black, -0.11, y, 0.175, false));   // its ear and mouth pieces
-    g.add(box(0.012, 0.18, 0.012, steel, -0.11, 1.27, 0.19, false));             // the cord
-    g.add(box(0.16, 0.22, 0.005, poster, -0.22, 1.82, 0.318, false));            // a flyer on the back panel
-    for (const sx of [-1, 1]) {
-      const x = sx * 0.48;
-      for (const z of [-0.33, 0.33]) g.add(box(0.05, 0.9, 0.05, yel, x, 1.5, z, false));   // the posts
-      g.add(box(0.05, 0.05, 0.7, yel, x, 1.075, 0, false));                      // the bottom rail
-      g.add(box(0.05, 0.04, 0.7, yel, x, 1.78, 0, false));                       // the middle rail
-      g.add(box(0.05, 0.06, 0.7, yel, x, 1.93, 0, false));                       // the top rail
-      if (sx > 0 || Math.random() > 0.35) g.add(box(0.012, 0.66, 0.6, M.glass, x, 1.43, 0, false));   // the big pane (the left one is sometimes smashed)
-      g.add(box(0.012, 0.11, 0.6, M.glass, x, 1.855, 0, false));                 // the little pane over it
+  // A red telephone box, the K6 kiosk: a dark plinth; a red body with a pilaster at each corner and a solid panel at the
+  // foot of each side; each side glazed in eight rows of three panes (the middle ones wider), the front side being the
+  // door, with its brass handle; the white TELEPHONE sign in the frieze of all four sides, lit at night; a cornice; and
+  // the domed roof, two shallow vaults crossed, with a gold crown in the arch over each side. Inside, the payphone on the
+  // back wall over a shelf. Its door (local -z) faces the pavement and its back (local +z) the street. Many stand on the
+  // busy pavements (js/world.js phoneBooths); it breaks like any street prop, in a shower of glass (js/collisions.js).
+  phonebooth: { r: 0.65, drag: 0.86, color: 0xd61e2c, soft: true, make() { const g = new THREE.Group(), M = boothMats();
+    const red = mat(0xd61e2c), moulding = mat(0xb01422), plinth = mat(0x34363a), gold = mat(0xd9a52b), black = mat(0x18191c);
+    const steel = mat(0xa9aeb5), floor = mat(0x45474c);
+    const W = 0.91, H = W / 2, P = 0.11;                                          // 0.91 m square; the corner pilasters
+    const FOOT = 0.08, KICK = 0.38, GLZ = 1.93, TOP = 1.99, FRIEZE = 2.19, CORN = 2.25, RISE = 0.26, CW = W + 0.06;
+    const OW = W - 2 * P, G0 = KICK + 0.05, GH = GLZ - G0;                       // a side's opening; its glazing, from G0 up
+    g.add(box(W + 0.09, FOOT, W + 0.09, plinth, 0, FOOT / 2, 0));               // the plinth
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(P, FRIEZE - FOOT, P, red, sx * (H - P / 2), (FOOT + FRIEZE) / 2, sz * (H - P / 2)));   // the pilasters
+    g.add(box(W - 0.02, FRIEZE - TOP, W - 0.02, red, 0, (TOP + FRIEZE) / 2, 0)); // the frieze
+    g.add(box(CW, CORN - FRIEZE, CW, red, 0, (FRIEZE + CORN) / 2, 0));           // the cornice
+    for (const ry of [0, Math.PI / 2]) {                                          // the roof: two shallow vaults, crossed
+      const vault = new THREE.Mesh(archSlab(CW, RISE, CW), red); vault.position.y = CORN; vault.rotation.y = ry; g.add(vault);
     }
-    const hood = new THREE.Mesh(halfCyl(R, 2 * D, 18, true), M.hood); hood.position.y = SPRING; hood.rotation.x = -Math.PI / 2; g.add(hood);
-    const back = new THREE.Mesh(new THREE.CircleGeometry(R, 18, 0, Math.PI), M.hood); back.position.set(0, SPRING, D); g.add(back);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(0.43, 0.53, 24, 1, 0, Math.PI), M.rim); rim.position.set(0, SPRING, -D - 0.01); rim.rotation.y = Math.PI; g.add(rim);
+    g.add(box(W - 0.06, 0.02, W - 0.06, floor, 0, FOOT + 0.01, 0, false));       // inside: the floor,
+    g.add(box(0.62, 0.025, 0.2, steel, 0, 1.0, H - 0.15, false));               // the shelf on the back wall,
+    g.add(box(0.24, 0.34, 0.1, black, 0.1, 1.38, H - 0.1, false));               // the payphone
+    g.add(box(0.05, 0.2, 0.06, black, -0.06, 1.38, H - 0.12, false));            // and its handset
+    for (let side = 0; side < 4; side++) {                                        // the four sides, each built facing -z
+      const s = new THREE.Group(); s.rotation.y = side * Math.PI / 2; g.add(s);
+      const z = -H + 0.035;                                                       // the panels stand back from the pilasters
+      s.add(box(OW, KICK - FOOT, 0.04, red, 0, (FOOT + KICK) / 2, z, false));    // the panel at the foot
+      s.add(box(OW - 0.12, KICK - FOOT - 0.12, 0.012, moulding, 0, (FOOT + KICK) / 2, z - 0.025, false));   // its moulding
+      s.add(box(OW, 0.05, 0.05, red, 0, KICK + 0.025, z, false));               // the glazing's bottom rail
+      s.add(box(OW, TOP - GLZ, 0.05, red, 0, (GLZ + TOP) / 2, z, false));        // and its top rail
+      for (const sx of [-1, 1]) {
+        s.add(box(0.03, GH, 0.05, red, sx * (OW / 2 - 0.015), G0 + GH / 2, z, false));     // the stiles
+        s.add(box(0.022, GH, 0.035, red, sx * 0.125, G0 + GH / 2, z, false));              // the glazing bars, upright
+      }
+      for (let k = 1; k < 8; k++) s.add(box(OW, 0.022, 0.035, red, 0, G0 + GH * k / 8, z, false));   // and across: eight rows
+      s.add(box(OW - 0.02, GH, 0.006, M.glass, 0, G0 + GH / 2, z + 0.012, false));          // the glass
+      s.add(box(0.68, 0.16, 0.012, moulding, 0, (TOP + FRIEZE) / 2, -H + 0.004, false));   // the sign's frame
+      const sign = new THREE.Mesh(M.signGeo, M.sign); sign.position.set(0, (TOP + FRIEZE) / 2, -H - 0.004); sign.rotation.y = Math.PI; s.add(sign);
+      const cz = -CW / 2 - 0.007;                                                 // the crown, in the arch over the side
+      s.add(box(0.12, 0.022, 0.014, gold, 0, CORN + 0.06, cz, false));            // its band
+      s.add(box(0.09, 0.05, 0.014, gold, 0, CORN + 0.095, cz, false));            // its cap
+      for (const px of [-0.036, 0, 0.036]) s.add(box(0.018, px ? 0.03 : 0.04, 0.014, gold, px, CORN + (px ? 0.133 : 0.138), cz, false));   // its points
+      s.add(box(0.018, 0.018, 0.014, gold, 0, CORN + 0.168, cz, false));          // and the orb on top
+      if (side === 0) s.add(box(0.022, 0.13, 0.03, gold, OW / 2 - 0.06, 1.06, z - 0.04, false));   // the door's handle
+    }
     return g; } },
   sandwich: { r: 0.7, drag: 0.97, color: 0xf4f1e6, soft: true, make() { const g = new THREE.Group(), white = mat(0xf4f1e6), dark = mat(0x2a2a2a);
     for (const sz of [-1, 1]) { const b = box(0.92, 1.2, 0.07, white, 0, 0.65, sz * 0.24, false); b.rotation.x = sz * 0.2; g.add(b); }

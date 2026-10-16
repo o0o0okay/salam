@@ -10,8 +10,10 @@
    * phone booths: in as many blocks as BOOTH_P gives their types (no fewer than placement allows), one at most a block, on the pavement behind the kerb, their back to the
      street, out of a bus stop's way;
    * with the game's own props (radii, models): a meter or a booth stands clear of every other prop and of every solid; a
-     meter is one mesh (its colours are vertex colours: one draw call), a booth four at most (its plain parts, its glass,
-     its hood and its lettered rim); a car that drives into either knocks it down;
+     meter is one mesh (its colours are vertex colours: one draw call), a telephone box three (its plain parts, the
+     roof's vaults merged in with its boxes; its glass; its four TELEPHONE signs). The box is a K6, 1 m square on its
+     plinth, 2.5 m high and red, with a sign on each side, and its sign and glass light up at night. A car that drives
+     into either knocks it down;
    * a block is the same every time it is built.
    Run:  node tools/sidewalk-checks/street-furniture.mjs      (exits non-zero on a failure) */
 import assert from 'node:assert/strict';
@@ -152,18 +154,34 @@ const { PROP_DEFS } = await import('../../js/props.js');
 const { mergeStandalone } = await import('../../js/chunkBake.js');
 const { collideProps } = await import('../../js/collisions.js');
 {
-  // the models: a meter is one vertex-coloured mesh; a booth is its plain parts, its glass, its hood and its rim
+  // the models: a meter is one vertex-coloured mesh; a telephone box is three: its plain parts (the roof's vaults are
+  // indexed as the boxes are, so they merge with them), its glass and its four TELEPHONE signs
   const meter = mergeStandalone(PROP_DEFS.meter.make());
   assert.equal(meter.children.length, 1, `a parking meter is ${meter.children.length} meshes (one draw call each)`);
   assert(meter.children[0].material.vertexColors, 'a parking meter\'s colours are not vertex colours');
   const booth = mergeStandalone(PROP_DEFS.phonebooth.make());
-  assert(booth.children.length <= 4, `a phone booth is ${booth.children.length} meshes`);
-  const mats = booth.children.map(c => c.material);
-  assert(mats.some(m => m.vertexColors) && mats.some(m => m.map) && mats.some(m => m.transparent), 'a phone booth lacks its plain parts, its lettered rim or its glass');
-  for (const c of booth.children) if (c.material.transparent) assert(!c.castShadow, 'the booth\'s glass casts a shadow');
+  assert.equal(booth.children.length, 3, `a telephone box is ${booth.children.length} meshes, not 3 (its plain parts, its glass, its signs)`);
+  const plainMesh = booth.children.find(c => c.material.vertexColors), signMesh = booth.children.find(c => c.material.map);
+  const glassMesh = booth.children.find(c => c.material.transparent);
+  assert(plainMesh && signMesh && glassMesh, 'a telephone box lacks its plain parts, its TELEPHONE signs or its glass');
+  assert(!glassMesh.castShadow, 'the telephone box\'s glass casts a shadow');
+  // a K6: 1 m square on its plinth (the box is 0.91 m), 2.51 m to the top of its roof, red, a sign on each of its sides
+  const THREE = await import('three');
+  const bb = new THREE.Box3().setFromObject(booth);
+  near(bb.max.x - bb.min.x, 1.0, 0.02, 'the telephone box\'s width'); near(bb.max.z - bb.min.z, 1.0, 0.02, 'the telephone box\'s depth');
+  near(bb.max.y - bb.min.y, 2.51, 0.03, 'the telephone box\'s height'); near(bb.min.y, 0, 1e-9, 'the telephone box\'s foot');
+  const col = plainMesh.geometry.attributes.color;
+  let redV = 0;
+  for (let i = 0; i < col.count; i++) if (col.getX(i) > 0.3 && col.getY(i) < 0.08 && col.getZ(i) < 0.08) redV++;
+  assert(redV / col.count > 0.5, `a telephone box is not red: ${(100 * redV / col.count).toFixed(0)}% of its plain parts`);
+  assert.equal(signMesh.geometry.index.count / 6, 4, 'a telephone box has not one TELEPHONE sign on each of its four sides');
+  const sb = new THREE.Box3().setFromObject(signMesh);
+  assert(sb.max.x - sb.min.x > 0.9 && sb.max.z - sb.min.z > 0.9, 'the telephone box\'s signs are not on its four faces');
+  const { ASSET } = await import('../../js/assets.js');
+  assert(ASSET.litMats.includes(signMesh.material) && ASSET.litMats.includes(glassMesh.material), 'the telephone box is not lit at night (its sign and glass are not in ASSET.litMats)');
   const hydrant = mergeStandalone(PROP_DEFS.hydrant.make());
   assert.equal(hydrant.children.length, 1, 'a hydrant (red and yellow) is not one mesh');
-  checks += 4;
+  checks += 9;
   // with the real radii: a meter or a booth stands clear of every other prop and every solid
   const seen = new Set();
   let meters = 0, booths = 0;
@@ -176,7 +194,7 @@ const { collideProps } = await import('../../js/collisions.js');
       for (const p of ch.props) {
         if (p.kind !== 'meter' && p.kind !== 'phonebooth') continue;
         if (p.kind === 'meter') { if (!ch.bays.some(b => b.meter === p)) continue; meters++; } else booths++;
-        assert(p.mesh.children.length <= (p.kind === 'meter' ? 1 : 4), `a ${p.kind} in the city is ${p.mesh.children.length} meshes`);
+        assert(p.mesh.children.length <= (p.kind === 'meter' ? 1 : 3), `a ${p.kind} in the city is ${p.mesh.children.length} meshes`);
         for (const q of ch.props) if (q !== p) assert(Math.hypot(q.x - p.x, q.z - p.z) >= q.r + p.r - 1e-6, `a ${p.kind} at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) stands in a ${q.kind}`);
         for (const s of ch.solids) if (s.hx > 0) assert(!hit(s, p.x, p.z, p.r), `a ${p.kind} at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) stands in a ${s.kind}`);
       }

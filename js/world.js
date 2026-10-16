@@ -746,7 +746,7 @@ function meteredParking({ add, bx, bz, ch, closed, cutClear, cx, cz, inGate, ker
 }
 
 // ---- Phone booths ----
-// Many a pavement has a card phone booth (BOOTH_P by block type, js/config.js: two busy blocks in three, nearly every bank,
+// Many a pavement has a red telephone box (BOOTH_P by block type, js/config.js: two busy blocks in three, nearly every bank,
 // hospital, school or filling station, now and then a suburb or a park): one at most a block, on one side's pavement, its back to the street
 // and its open front to the pavement, a little behind the kerb's furniture line. Like the meters it has a generator of its
 // own and is placed last, where nothing else stands (a few places along the side are tried, then the next side).
