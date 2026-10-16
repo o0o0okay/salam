@@ -55,5 +55,8 @@ export const HYDRANT_KEEP = 0.5;
 // Metered parking: the chance that a kerb side of a busy block (downtown, a shopping street, the bazaar, a mall, a bank)
 // has a run of painted parking bays with a meter at each (meteredParking).
 export const METER_SIDE_P = 0.25;
-// Phone booths: the chance that a block of each type has one on its pavement (phoneBooths). Other types have none.
-export const BOOTH_P = { downtown: 0.13, shops: 0.13, bazaar: 0.13, commercial: 0.13, bank: 0.35, hospital: 0.35, school: 0.35, fuel: 0.25, suburb: 0.04, park: 0.05 };
+// Phone booths: the chance that a block of each type has one on its pavement (phoneBooths, one at most a block). Other
+// types have none. Five times the first cut, which was too few to come across (195 on the island, about one per 2 km of
+// street): now about 930, one per 430 m or so, in two busy blocks out of three and by nearly every bank, hospital, school
+// and filling station. Each block keeps its own roll, so raising a chance only adds booths: none of them move.
+export const BOOTH_P = { downtown: 0.65, shops: 0.65, bazaar: 0.65, commercial: 0.65, bank: 1, hospital: 1, school: 1, fuel: 1, suburb: 0.2, park: 0.25 };

@@ -7,7 +7,7 @@
      with a parking meter at the head of each bay (the end a car parks nose to, driving on the right) on the pavement just
      behind the kerb stone, its face to the street; never on a closed street's side or an interchange's at-grade side, never
      in a bus stop's zone, never in a corner; the bay lines are painted under them;
-   * phone booths: a few in a hundred blocks, one at most a block, on the pavement behind the kerb, their back to the
+   * phone booths: in as many blocks as BOOTH_P gives their types (no fewer than placement allows), one at most a block, on the pavement behind the kerb, their back to the
      street, out of a bus stop's way;
    * with the game's own props (radii, models): a meter or a booth stands clear of every other prop and of every solid; a
      meter is one mesh (its colours are vertex colours: one draw call), a booth four at most (its plain parts, its glass,
@@ -47,7 +47,7 @@ const sig = ch => ({
   props: ch.props.filter(p => p.kind !== 'hydrant').map(p => [p.kind, r3(p.x), r3(p.z), r3(p.mesh ? p.mesh.rotation.y : 0)]),
 });
 const key = p => r3(p.x) + ',' + r3(p.z);
-let planted = 0, empty = 0, before = 0, gained = 0, blocks = 0, boothBlocks = 0, bayCount = 0, runCount = 0;
+let planted = 0, empty = 0, before = 0, gained = 0, blocks = 0, boothBlocks = 0, boothExpect = 0, bayCount = 0, runCount = 0;
 const kerbIn = (cx, cz, si) => PAVE_IN + (F.atGradeSide(cx, cz, si) ? F.FLY.atGrade : 0);
 const closedSide = (cx, cz, si) => si === 0 ? F.segClosed('z', cx, cz) : si === 1 ? F.segClosed('z', cx + 1, cz) : si === 2 ? F.segClosed('x', cx, cz) : F.segClosed('x', cx, cz + 1);
 const HEAD = [-1, 1, 1, -1];                                  // the end a car parks nose to: -1 the low end of the side, +1 the high end
@@ -105,6 +105,7 @@ for (let cx = -9; cx < 9; cx++) for (let cz = -9; cz < 9; cz++) {
   }
   // 3. the phone booth
   const booths = a.props.filter(p => p.kind === 'phonebooth');
+  boothExpect += Math.min(1, BOOTH_P[a.mapType] || 0);
   assert(booths.length <= 1, `block (${cx}, ${cz}) has ${booths.length} phone booths`);
   if (booths.length) {
     boothBlocks++;
@@ -134,10 +135,14 @@ assert(gained >= 0.97 * empty && gained <= empty, `the hydrants left out (${gain
 checks += 3;
 assert(runCount >= 20 && bayCount >= 60, `only ${runCount} runs of bays (${bayCount} bays) in ${blocks} blocks`);
 const boothShare = boothBlocks / blocks;
-assert(boothShare >= 0.03 && boothShare <= 0.2, `phone booths in ${(100 * boothShare).toFixed(1)}% of the blocks: not a few in a hundred`);
+// Each block rolls once against its type's chance, so the share follows BOOTH_P, give or take the luck of the rolls (a
+// few in a hundred over this many blocks). A block that finds no free spot on any side can only lower it.
+const boothWant = boothExpect / blocks;
+assert(boothShare >= 0.85 * boothWant - 0.05 && boothShare <= boothWant + 0.06,
+  `phone booths in ${(100 * boothShare).toFixed(1)}% of the blocks, but BOOTH_P gives these blocks ${(100 * boothWant).toFixed(1)}%`);
 checks += 2 + 8;
 console.log(`street furniture: ${blocks} blocks; hydrants ${planted} of ${before} (${(100 * share).toFixed(1)}%), ${empty} spots left empty; ` +
-  `${bayCount} metered bays in ${runCount} runs; phone booths in ${boothBlocks} blocks (${(100 * boothShare).toFixed(1)}%)`);
+  `${bayCount} metered bays in ${runCount} runs; phone booths in ${boothBlocks} blocks (${(100 * boothShare).toFixed(1)}%, BOOTH_P gives ${(100 * boothWant).toFixed(1)}%)`);
 
 // ---- Part B: the game's own modules (the real props, their radii and models, and the collisions) ----
 installDom();

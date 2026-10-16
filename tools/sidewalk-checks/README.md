@@ -381,7 +381,8 @@ nothing else in the block moves: not the furniture, the hedges or the street tre
 the baked map. On busy blocks (downtown, shopping streets, the bazaar, malls, banks) a kerb side now and then has metered
 parking (`METER_SIDE_P`): two to five bays painted on the road along the kerb (6 m long, 2.3 m out), with a red parking
 meter at the head of each bay, on the pavement just behind the kerb stone and facing the street. Here and there a
-pavement has a yellow card phone booth (`BOOTH_P` by block type, about one block in thirteen), its back to the street.
+pavement has a yellow card phone booth (`BOOTH_P` by block type: two busy blocks in three, nearly every bank, hospital,
+school and filling station, about 930 on the island), its back to the street.
 Both have generators of their own and are laid last, where nothing else stands. Both break like any street prop: the
 meter spills its coins, the booth goes in a shower of glass. A prop's plain colours are now merged into one
 vertex-coloured mesh (`mergeStandalone` in `js/chunkBake.js`), so a meter is one draw call, and every prop costs one draw
@@ -389,8 +390,8 @@ call plus its glass, glowing or textured parts. `shot.mjs` draws those vertex co
 `street-furniture.mjs` builds 324 blocks twice, as the game is and with every hydrant spot planted. It checks that they
 are the same block in every solid, tree and other prop (meters and booths included), that half the hydrants are left,
 and that the hydrants left out are the empty spots. It checks the bays (their sides, corners, bus stops, runs and paint,
-and the meter at each bay's head facing the street) and the booths (one at most a block, a few in a hundred, behind the
-kerb, back to the street). With the game's own props it checks that a meter or a booth stands clear of everything else,
+and the meter at each bay's head facing the street) and the booths (one at most a block, in as many blocks as
+`BOOTH_P` gives their types, behind the kerb, back to the street). With the game's own props it checks that a meter or a booth stands clear of everything else,
 that a meter is one mesh (a booth four at most), and that a car knocks either down.
 
 ### Long vehicles on the ramps
