@@ -59,17 +59,22 @@ function busSignGeometry(str, h, depth, gap) {
   const key = str + '|' + h + '|' + depth + '|' + gap;
   let geo = busSignCache.get(key);
   if (geo !== undefined) return geo;
-  const pw = h / 7, total = str.length * (pw + gap) - gap, geos = [];
+  // a letter is 5 pixels wide (pw = h / 7 each); the next one starts a letter and a gap further on
+  const pw = h / 7, adv = 5 * pw + gap, total = str.length * adv - gap, geos = [];
   for (let i = 0; i < str.length; i++) {
     const rows = (BUS_LETTERS[str[i]] || BUS_LETTERS[' ']).split(',');
-    const x0 = -total / 2 + i * (pw + gap);
+    const x0 = -total / 2 + i * adv;
+    // one box for each run of lit pixels in a row: the same face (each run overhangs its pixels by 1% at either end,
+    // as every pixel did), with a fraction of the boxes
     for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
       if (rows[r][c] !== '1') continue;
+      let n = 1; while (c + n < 5 && rows[r][c + n] === '1') n++;
       const g = _busBox.clone();
-      _busM.makeScale(pw * 1.02, pw * 1.02, depth);
-      _busM.setPosition(x0 + c * pw + pw / 2, (6 - r) * pw + pw / 2, 0);
+      _busM.makeScale(pw * (n + 0.02), pw * 1.02, depth);
+      _busM.setPosition(x0 + (c + n / 2) * pw, (6 - r) * pw + pw / 2, 0);
       g.applyMatrix4(_busM);
       geos.push(g);
+      c += n - 1;
     }
   }
   geo = geos.length ? mergeGeometries(geos, false) : null;
@@ -175,8 +180,8 @@ export function buildCar(kind, color, detail = true) {
     const boardY = 2.62;
     for (const [bz, flip] of [[2.36, 0], [-4.66, Math.PI]]) {
       inner.add(box(1.98, 0.52, 0.1, yellow, 0, boardY, bz, false));
-      const sign = new THREE.Mesh(busSignGeometry('SCHOOL BUS', 0.32, 0.05, 0.09), black);
-      sign.position.set(0, boardY - 0.16, bz + (flip ? -0.09 : 0.09));
+      const sign = new THREE.Mesh(busSignGeometry('SCHOOL BUS', 0.2, 0.05, 0.035), black);   // 1.74 m of letters, 0.2 m high
+      sign.position.set(0, boardY - 0.1, bz + (flip ? -0.09 : 0.09));
       if (flip) sign.rotation.y = flip;
       inner.add(sign);
     }
