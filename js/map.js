@@ -58,6 +58,8 @@ let overlay, canvas, ctx, infoBox;
 
 
 let streetKey = '', streetCache = [];      // the open streets for the visible range, cached while the range is unchanged
+let noLabels = false;                      // painting for the radar (paintGround): no place names, they would turn with it
+let tileBlocks = null;                     // painting for the radar: [bx0, bx1, bz0, bz1], the only blocks whose own ground is drawn
 
 function el(tag, css, text) {
   const e = document.createElement(tag);
@@ -435,6 +437,24 @@ function renderBase(r, ver) {
   finally { view.cx = saved.cx; view.cz = saved.cz; W = saved.W; H = saved.H; ctx = saved.ctx; }
   Object.assign(base, { s, ver, x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
 }
+// The map's picture of the ground (all that drawBase draws: the district ground, the lawns, the parks and quays, the
+// buildings with their roofs, the pools, the trees, the helipads, the river and the water, the streets, the at-grade lanes,
+// the flyovers, the roundabouts, the tram lines, the avenues and the bridge decks) of the world rectangle x0..x1, z0..z1,
+// into the 2D context c at s pixels a metre. It is mirrored as the map is (x is turned round: the picture's top-left
+// corner is the world's corner (x1, z1)), and it has no place names. The radar is made of these (js/radar.js).
+// The blocks' own ground (the lawns, the buildings, the trees: the costly part) is drawn only for the blocks that reach
+// into the rectangle (a tree's crown reaches TILE_REACH metres over its block's edge at most), not for the ring of blocks
+// round the view that the map draws; the streets and the structures keep the map's range (a long bridge's ramp ends
+// 137 m from its junction).
+const TILE_REACH = 8;
+export function paintGround(c, x0, z0, x1, z1, s) {
+  const saved = { cx: view.cx, cz: view.cz, s: view.s, W, H, ctx };
+  view.cx = (x0 + x1) / 2; view.cz = (z0 + z1) / 2; view.s = s; W = (x1 - x0) * s; H = (z1 - z0) * s; ctx = c; noLabels = true;
+  tileBlocks = [Math.max(-ISLAND_R, Math.floor((x0 - TILE_REACH) / CHUNK)), Math.min(ISLAND_R, Math.floor((x1 + TILE_REACH) / CHUNK) + 1),
+    Math.max(-ISLAND_R, Math.floor((z0 - TILE_REACH) / CHUNK)), Math.min(ISLAND_R, Math.floor((z1 + TILE_REACH) / CHUNK) + 1)];
+  try { drawBase(); }
+  finally { view.cx = saved.cx; view.cz = saved.cz; view.s = saved.s; W = saved.W; H = saved.H; ctx = saved.ctx; noLabels = false; tileBlocks = null; }
+}
 function drawBase() {
   ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);                // the sea, outside the island
   rect(ISLAND_MIN, ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, ISLAND_MAX - ISLAND_MIN, C.beach);   // the beach round the island
@@ -445,8 +465,10 @@ function drawBase() {
 
   // 1. the ground of each block, by district; then, for a block the player has been near (it is built and remembered),
   // its parks, its harbour quay, its real buildings and its real trees. A block never visited is only its ground, so the
-  // map never shows a building that is not in the world.
-  for (let cx = gx0; cx < gx1; cx++) for (let cz = gz0; cz < gz1; cz++) {
+  // map never shows a building that is not in the world. (For the radar's tile, only the blocks that reach into it: this is
+  // the costly part, see paintGround.)
+  const [bx0, bx1, bz0, bz1] = tileBlocks || [gx0, gx1, gz0, gz1];
+  for (let cx = bx0; cx < bx1; cx++) for (let cz = bz0; cz < bz1; cz++) {
     const x0 = cx * CHUNK, z0 = cz * CHUNK;
     rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
     const k = known(ck(cx, cz));
@@ -465,7 +487,7 @@ function drawBase() {
     if (pool) { rect(pool[0] - 1.5, pool[1] - 1.5, 17, 12, '#f4f1ea'); rect(pool[0], pool[1], 14, 9, '#5bbde9'); }
     if (view.s > 0.12) for (const [tx, tz] of k.trees) crown(tx, tz);
     if (view.s > 0.12) for (const [hx, hz, hr] of k.hp || []) helipad(hx, hz, hr);
-    if (view.s > 0.9) for (const [lx, lz, name] of k.lm) landmark(lx, lz, name);   // only when the names fit the block
+    if (view.s > 0.9 && !noLabels) for (const [lx, lz, name] of k.lm) landmark(lx, lz, name);   // only when the names fit the block
   }
 
   // 3. the river: its bank and channel, in every visible block (straight, at z = RIVER_ROW * CHUNK, 8 m wide)

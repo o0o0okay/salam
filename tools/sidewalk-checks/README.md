@@ -20,6 +20,7 @@ node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets,
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
+node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
 node tools/sidewalk-checks/plan-fuel.mjs  # filling station: forecourt plan + front elevation, 3 brands
 node tools/sidewalk-checks/plan-shops.mjs  # shopping street: block plan + a parade, shop by shop
 node tools/sidewalk-checks/plan-airunit.mjs  # police air unit: the searchlight pool on the road + the beacon cycle
@@ -350,6 +351,25 @@ checks that a car parked just outside does not finish the mark, and that a fast 
 frames does (a jump across the map does not). A mark set with the car already on its circle waits until the car has been
 off it. Finally it covers the deck, under-deck and ramp levels, and that clearing the mark on the map puts the light out
 at once.
+
+### The radar
+
+The radar (`js/radar.js`) shows the map's own picture of the city round the car (`paintGround` in `js/map.js`: the
+blocks, the buildings with their roofs, the parks and trees, the water, the streets, the interchanges), turned with the
+car, and on it what matters for getting away: each cruiser as an arrow the way it faces, a red line from each one that
+sees you, the search zone once they have lost you (the circle round `searchCentre` in `js/police.js`, the 75 m they
+patrol), a red-and-white bar across a roadblock or a bridge checkpoint, the spike strips, the pickups and the traffic. The
+rim tells the chase: red and blue while they see you, amber while they search, white with no chase. Cruisers and
+blockades beyond the edge have marks on the rim in their direction. The radar looks further as the car goes faster (95 m
+to the rim standing, 140 m flat out) and dims at night. The picture is made in tiles of one block, a few a frame (one, then
+more only while the frame has spent less than 3 ms: a tile takes 1.5 to 5 ms).
+`radar.mjs` checks that every building of a block is in its tile where the map has it, mirrored as the map is, and that
+the tile has no place names; that each tile lands on the radar exactly where its part of the world is (the car at the
+centre, ahead straight up); that the tiles come at most three a frame, nearest first, until the circle is covered, are kept
+while the map's data under them is the same and made again when it changes, and that no more than 64 are kept. It also
+checks the range (easing, within its bounds), the rim's three states, the search centre (the last sighting moved on along
+the car's last motion for up to 5 s, or a hiding car itself), the rim marks (one a cruiser, one a blockade, none past
+260 m) and the canvas's pixels on a sharp screen.
 
 ### Flyover approach nose protection
 

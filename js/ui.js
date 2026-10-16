@@ -1,98 +1,15 @@
 /* HUD, radar, toasts */
-import { $, PI, CHUNK, clamp, fmtTime } from './utils.js';
-import { game, player, sight, police, civs, spikes, calcScore } from './state.js';
+import { $, PI, clamp, fmtTime } from './utils.js';
+import { game, player, sight, calcScore } from './state.js';
 import { DIFF, POLICE_TIERS } from './config.js';
 import { env } from './environment.js';
-import { nearChunks } from './world.js';
 import { helicopter } from './helicopter.js';
-import { radarStreets } from './flyover.js';
-import { AVENUES, AVENUE_W } from './avenues.js';
-import { currentMark, currentRoute } from './map.js';
 export function toast(text, ms = 1500) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; $('toasts').appendChild(d); setTimeout(() => d.remove(), ms);
   if ($('toasts').children.length > 3) $('toasts').firstChild.remove();
 }
-const radar = $('radar'), rctx = radar.getContext('2d');
-export function drawRadar() {
-  const S = 260, R = 130, range = 95, s = R / range;
-  rctx.clearRect(0, 0, S, S); rctx.save(); rctx.beginPath(); rctx.arc(R, R, R - 2, 0, PI * 2); rctx.clip();
-  rctx.fillStyle = '#4b5d4e'; rctx.fillRect(0, 0, S, S);
-  rctx.translate(R, R); const h = player.h, co = Math.cos(h), si = Math.sin(h);
-  rctx.transform(-co * s, -si * s, si * s, -co * s, 0, 0); rctx.translate(-player.x, -player.z);
-  rctx.fillStyle = '#23262d';
-  const gx0 = Math.floor((player.x - range * 1.5) / CHUNK), gx1 = Math.ceil((player.x + range * 1.5) / CHUNK), gz0 = Math.floor((player.z - range * 1.5) / CHUNK), gz1 = Math.ceil((player.z + range * 1.5) / CHUNK);
-  // The streets, as far as they really run: a closed arm (a three-way junction, see segClosed) and a filled one are grass,
-  // so they are not drawn, and a junction square shows only while one of its arms is open.
-  for (const [x, z, w, d] of radarStreets(gx0, gx1, gz0, gz1)) rctx.fillRect(x, z, w, d);
-  // the diagonal avenues (js/avenues.js): the road, in world metres (the transform above is already on)
-  rctx.strokeStyle = '#23262d'; rctx.lineWidth = AVENUE_W; rctx.lineCap = 'butt';
-  for (const av of AVENUES) { rctx.beginPath(); rctx.moveTo(av.a[0], av.a[1]); rctx.lineTo(av.b[0], av.b[1]); rctx.stroke(); }
-  // water (the river, a harbour basin) and bridge decks: closed streets are not in radarStreets, so they come from the chunks
-  for (const ch of nearChunks(player.x, player.z)) for (const [x, z, w, d, k] of ch.radarWater || []) {
-    rctx.fillStyle = k === 'water' ? '#2d6f8c' : '#7a8088'; rctx.fillRect(x, z, w, d);
-  }
-  for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
-    if (pk.taken) continue;
-    rctx.fillStyle = pk.kind === 'nitro' ? '#4aa8ff' : pk.kind === 'repair' ? '#44ff77' : '#ffd23b';
-    rctx.fillRect(pk.x - 1.4 / s * 1.2, pk.z - 1.4 / s * 1.2, 2.8 / s * 1.2, 2.8 / s * 1.2);
-  }
-  for (const c of civs) { rctx.fillStyle = c.wrecked ? '#666' : '#e8e8e8'; rctx.beginPath(); rctx.arc(c.x, c.z, 3 / s, 0, PI * 2); rctx.fill(); }
-  // the route to the marked place, on the streets (js/map.js): a white casing and a blue line, in the radar's frame
-  const rt = currentMark() ? currentRoute() : null;
-  if (rt) {
-    rctx.lineJoin = 'round'; rctx.lineCap = 'round';
-    for (const [w, c] of [[6 / s, '#ffffff'], [3.6 / s, '#4285f4']]) {
-      rctx.strokeStyle = c; rctx.lineWidth = w;
-      rctx.beginPath(); rt.pts.forEach(([x, z], k) => (k ? rctx.lineTo(x, z) : rctx.moveTo(x, z))); rctx.stroke();
-    }
-  }
-  const ph = Math.floor(game.t * 6) % 2;
-  for (const sp of spikes) { // spike strips: blinking red bars
-    rctx.fillStyle = ph ? '#ff2a2a' : '#ffffff';
-    const sw = sp.axisZ ? 13 : 5, sh = sp.axisZ ? 5 : 13; rctx.fillRect(sp.x - sw / 2, sp.z - sh / 2, sw, sh);
-  }
-  for (const p of police) {
-    if (p.wrecked) { rctx.fillStyle = '#777'; } else rctx.fillStyle = ph ? '#ff3030' : '#3a6bff';
-    rctx.beginPath(); rctx.arc(p.x, p.z, 4.5 / s, 0, PI * 2); rctx.fill();
-  }
-  if (helicopter && helicopter.visible) { // air unit: spinning police-liveried pinwheel (2x scale), synced to the real 3D rotor
-    const locked = sight.heliOn;
-    rctx.save();
-    rctx.globalAlpha = locked ? 1 : 0.55;                              // dimmer while only searching
-    rctx.translate(helicopter.x, helicopter.z);
-    // faint rotor-disc ring — reads as the silhouette of a spinning fan
-    rctx.strokeStyle = 'rgba(255,255,255,0.4)'; rctx.lineWidth = 2 / s;
-    rctx.beginPath(); rctx.arc(0, 0, 14 / s, 0, PI * 2); rctx.stroke();
-    // blades — rotate with the real 3D rotor; two pairs flash red/blue like a cop beacon
-    rctx.rotate(helicopter.rotor.rotation.y);
-    const bl = 13.2 / s, bw = 4.8 / s;
-    const cA = ph ? '#ff3030' : '#2a6bff', cB = ph ? '#2a6bff' : '#ff3030';
-    rctx.fillStyle = cA; rctx.fillRect(-bl, -bw / 2, bl * 2, bw);
-    rctx.fillStyle = cB; rctx.fillRect(-bw / 2, -bl, bw, bl * 2);
-    // hub
-    rctx.fillStyle = '#17232e';
-    rctx.beginPath(); rctx.arc(0, 0, 4.4 / s, 0, PI * 2); rctx.fill();
-    rctx.restore();
-  }
-  rctx.restore();
-  // the marked place (the pin on the map, js/map.js): drawn upright in screen space, at the spot in the radar's frame. A
-  // mark outside the radar's range sits on the rim in its direction, dimmed.
-  const mk = currentMark();
-  if (mk) {
-    const dx = mk.x - player.x, dz = mk.z - player.z, co = Math.cos(player.h), si = Math.sin(player.h);
-    let X = (-co * dx + si * dz) * s, Y = (-si * dx - co * dz) * s;      // the same rotation as the radar's transform
-    const dist = Math.hypot(X, Y), rim = R - 18, inside = dist <= rim;
-    if (!inside) { X *= rim / dist; Y *= rim / dist; }
-    const tx = R + X, ty = R + Y, hy = ty - 15;                           // the tip is the marked spot, the head 15 px above
-    rctx.save(); rctx.globalAlpha = inside ? 1 : 0.6;
-    rctx.fillStyle = '#ea4335'; rctx.strokeStyle = '#a52714'; rctx.lineWidth = 1.2;
-    rctx.beginPath(); rctx.moveTo(tx, ty); rctx.lineTo(tx - 4.7, hy + 2.7); rctx.lineTo(tx + 4.7, hy + 2.7); rctx.closePath(); rctx.fill(); rctx.stroke();
-    rctx.beginPath(); rctx.arc(tx, hy, 6.5, 0, PI * 2); rctx.fill(); rctx.stroke();
-    rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.arc(tx, hy, 2.5, 0, PI * 2); rctx.fill();
-    rctx.restore();
-  }
-  rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.moveTo(R, R - 11); rctx.lineTo(R - 7, R + 8); rctx.lineTo(R + 7, R + 8); rctx.closePath(); rctx.fill();
-}
+// The radar lives in js/radar.js (the map's picture of the city, with the chase on it); update.js draws it from here.
+export { drawRadar } from './radar.js';
 let hudCache = {};
 // The dial, after the reference design. Angles are degrees, clockwise from 3 o'clock, as SVG draws them. The scale
 // runs from 0 at 88 degrees (bottom) to 8 at 312 degrees (upper right), 28 degrees a unit, and the redline covers 7-8.
