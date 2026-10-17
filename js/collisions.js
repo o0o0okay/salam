@@ -74,6 +74,7 @@ export function collideSolids(c) {
   const reach = c.box.e1 + c.box.e2; const b = carBox(c);
   for (const s of solidsNear(c.x, c.z, reach, _hitSolids)) {
     if (s.maxY !== undefined && c.y > s.maxY) continue;          // a wall under a deck: only for what is under it
+    if (s.headroom !== undefined && c.y + (c.height || 0) <= s.headroom) continue;   // a roof: a car this low drives in under it
     if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
     if (!sat(b, s.box)) continue;
     if (s.tree && !s.tree.broken) {

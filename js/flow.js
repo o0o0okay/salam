@@ -34,7 +34,7 @@ export function resetWorld() {
   game.debugWanted = 1;
   warmTextCache();                                      // merge every sign string now, not mid-race
   updateChunks(player.x, player.z, 999);
-  camState.h = 0; camState.pos.set(3, 9, -40); camState.look.set(3, 1.5, -10);
+  camState.h = 0; camState.pos.set(3, 9, -40); camState.look.set(3, 1.5, -10); camState.roofY = Infinity; camState.duck = 0;
   game.civT = 0;
   sight.x = player.x; sight.z = player.z; sight.vx = sight.vz = 0; sight.t = game.t; sight.heliLock = 0; sight.heliOn = false; sight.lostFlag = false;
   ensureHelicopter();

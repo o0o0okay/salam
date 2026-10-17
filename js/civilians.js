@@ -217,9 +217,9 @@ export function civAI(c, dt) {
   // 3 m/s and steered for the centre of the ramp. At grade, and under the structure, the slices still stop it.
   // The flank walls and the abutment are not ramp slices and still count.
   const skipRamp = surfaceAt(c.x, c.z, c.y) > 0;
-  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp)) {
+  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp, c.height)) {
     target = Math.min(target, 3);
-    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp) ? -1 : 1;
+    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp, c.height) ? -1 : 1;
   }
 
   // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.

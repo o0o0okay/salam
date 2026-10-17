@@ -84,8 +84,9 @@ function navWaypoint(p, tx, tz) {
 // navWaypoint only knows the road grid. When the straight line to the player is blocked and he is in a gap the grid
 // does not reach (a passage between buildings, a car lot, a service lane), the pursuer searches the ground itself: a
 // breadth-first search over 0.6 m cells that are free for its own half width at its own height, within ROUTE.R metres
-// of it. The route is then cut to the furthest point on it that the pursuer can see straight to, and that point is
-// the aim until the next search (a few tenths of a second later).
+// of it (and for its own height: under a construction frame's open ground floor a pursuer too tall for the first floor
+// meets a wall, see solidAt). The route is then cut to the furthest point on it that the pursuer can see straight to,
+// and that point is the aim until the next search (a few tenths of a second later).
 const ROUTE = { cell: 0.6, R: 18, reach: 1.5, fit: 1.0, far: 80 };   // fit: the share of the half width the search keeps clear of walls (the collision is an exact box test, not a square)
 const RN = Math.round(2 * ROUTE.R / ROUTE.cell) + 1;               // grid side in cells (61)
 const RN2 = RN * RN;
@@ -94,7 +95,7 @@ const _rNb = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Can the pursuer see straight to (x, z) with its half width between it and the point?
 function clearTo(p, x, z, m) {
   const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(d / ROUTE.cell));
-  for (let i = 1; i < n; i++) { const t = i / n; if (solidAt(p.x + dx * t, p.z + dz * t, m, p.y)) return false; }
+  for (let i = 1; i < n; i++) { const t = i / n; if (solidAt(p.x + dx * t, p.z + dz * t, m, p.y, false, p.height)) return false; }
   return true;
 }
 // The aim for a pursuer that cannot see the player: the furthest point of a route to him that it can see straight to,
@@ -115,7 +116,7 @@ function findRoute(p, tx, tz) {
       if (ni < 0 || nj < 0 || ni >= RN || nj >= RN) continue;
       const nc = nj * RN + ni;
       if (_rSt[nc]) continue;
-      if (solidAt(ox + ni * h, oz + nj * h, m, p.y)) { _rSt[nc] = 2; continue; }
+      if (solidAt(ox + ni * h, oz + nj * h, m, p.y, false, p.height)) { _rSt[nc] = 2; continue; }
       _rSt[nc] = 1; _rPar[nc] = c; _rQ[tail++] = nc;
     }
   }
@@ -429,7 +430,7 @@ export function policeAI(p, dt) {
   // Not beside a flyover: the bridge rules above and below own the speed there.
   if (!ramming && p.role === 'chaser' && p.y <= 1.2 && d < 12 && Math.abs(diff) > 0.5 && vf > 8 && !pf && !flyoverNear(p.x, p.z, roadEdge() + 16)) throttle = -1;
   if (d > 14) {
-    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y); };
+    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y, false, p.height); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
     if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
     else if (l) { steer = -1; p.avoidDir = 0; } else if (r) { steer = 1; p.avoidDir = 0; } else p.avoidDir = 0;

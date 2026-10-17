@@ -34,6 +34,7 @@ node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, 
 node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
 node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
 node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down, break up, crumble away
+node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -527,6 +528,43 @@ no pieces in a new run. The street, on real chunks: a prop, a tree (fast, and sl
 window, a building's wall (slow, whole; fast, broken up). The traffic: what `logAhead` sees, and a real civilian car
 driven by `civAI` that stops short of a log lying across its lane. And the clearing and the drawing: `resetWorld`, the
 two instanced meshes, each log's own `LOG_LIFE`, crumbling with its underside on the road, the distance, `LOG_MAX`.
+
+### Under a construction frame
+
+The half-built concrete frame on a barred street's building site (`siteOn` in `js/world.js`) has an open ground floor.
+A car that breaks through the barricades at the mouth drives in under the first floor and on down the lane between the
+two rows of columns (3.9 m clear between their faces), the length of the frame, or out at the side between two columns,
+across the 2 m alley and through the frame next door. What stops it there is solid: each of the fourteen columns (with
+the box that is drawn) and the brick infill along the ground floor. The footprint stays a solid too, as a roof: its
+`headroom` is the first floor's underside (3.2 m), and `collideSolids` and `solidAt` treat it as solid only for a car
+whose top is above that. A car's top is `c.height`, the top of its model (`carHeight` in `js/carModels.js`, taken once
+a kind). So the patrol cars, the vans, the city bus, the fire engine and the ambulance drive in, and the Juggernaut
+(`police5`, its light bar at 3.25 m), the fuel tanker, the cement mixer, the semis, the garbage truck and the ice cream
+van stop at the first floor. The school bus is exactly as tall as the opening (3.20 m), so the checks leave it out; as
+built it stops. The AI asks with its own height (the pursuers' probes and route search, the traffic's
+look-ahead); a sight line or a hiding place asks with none, and the roof is open to it. Whole, the roof is still what
+the map draws for the frame, and nothing is spawned or set down under it, so the map data needs no new bake.
+The chase camera comes down under the first floor (`roofLimit` in `js/camera.js`). The line from the car up to the camera
+has to stay `ROOF_GAP` (0.5 m) under the roof for as long as it is beneath it. The limit is also taken from where the car
+will be in `ROOF_LEAD` (0.3 s), so the camera starts down before the nose is under the slab, and it follows the limit
+down at `ROOF_RATE` instead of dropping onto it. Under the roof itself it is never let nearer the slab than `ROOF_CLEAR`,
+and a shake does not lift it. While the car is under the roof the boom is pulled in by up to `DUCK_PULL` (30%); this
+follows the car, not the camera, so the camera is not swung back under a roof it has just left. Far from a roof it is
+the camera it always was.
+`site-passage.mjs` checks, on thirteen frames along both axes, with a crane and without: the roof (the footprint, its
+headroom the first floor's underside), a solid on each column and on the brick infill, nothing else solid, the lane clear
+for a car the length of the frame and walled for one too tall, 3.9 m between the columns, the map's building for the
+frame and the baked map data. It casts rays against the frame as drawn: up from the lane to the first floor's underside,
+along the lane at four heights clear, across onto a column, onto the brick and through the open gaps. With the game's
+own physics it drives the player's car through every frame, either way, coming out faster than it went in, and twelve
+other vehicles that fit. It checks that the seven too tall stop at the mouth, and it covers the side exits, the alley
+crossing, a column and the brick infill stopping a car, and the Juggernaut at full tilt. It checks the AI's probes
+(`solidAt` with and without a height, a pursuer's look-ahead: a patrol car drives on in, the Juggernaut backs off),
+`carHeight` and the camera. Far from a frame the camera matches its old formula step by step. Through three frames at 4
+to 40 m/s, either way, the camera checks are: the line to the car never through the slab, never nearer the slab than
+`ROOF_CLEAR`, settled at the slab less `ROOF_GAP`, no jump, the boom pulled in, back up a second after it is out, and
+under the roof once. Two more cases are checked: a camera swung in over a frame is under the first floor at once, and a
+shake does not lift it.
 
 ### Flyover approach nose protection
 

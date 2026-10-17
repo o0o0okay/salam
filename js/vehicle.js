@@ -4,7 +4,7 @@ import { clamp, lerp } from './utils.js';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 import { weatherSystem } from './weather.js';
-import { CAR_DIMS, buildCar, isPoliceKind } from './carModels.js';
+import { CAR_DIMS, buildCar, isPoliceKind, carHeight } from './carModels.js';
 import { cars, police, civs } from './state.js';
 import { surfaceAt } from './flyover.js';
 
@@ -19,6 +19,7 @@ export function createCar(kind, x, z, h, params, color) {
   const isPolice = isPoliceKind(kind), isCiv = kind !== 'player' && !isPolice;
   return {
     kind, isPlayer: kind === 'player', isPolice, isCiv, isTanker: kind === 'fueltanker', x, z, h, vx: 0, vz: 0, steer: 0, yaw: 0, vf: 0, vl: 0, speed: 0, acc: 0, roll: 0, pitch: 0, y: 0, vy: 0,
+    height: carHeight(kind, mesh),          // the top of the model above the road: what has to fit under a roof (collideSolids)
     params, mesh, beam, inner: mesh.userData.inner, lights: mesh.userData.lights, box: { x, z, ux: 0, uz: 1, vx: -1, vz: 0, e1: dims.e1, e2: dims.e2 },
     mass: dims.mass, hp: dims.hp, maxHp: dims.hp, wrecked: false, wreckT: 0, dead: false,
     stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, logHitAt: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,

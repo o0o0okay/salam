@@ -42,6 +42,15 @@ export const CAR_DIMS = {
 
 
 export const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
+// A vehicle's height: the top of its model above the road (the light bar, the cone on an ice cream van's roof and all),
+// taken from the first model of each kind that is built. A car drives in under a roof (a solid with `headroom`, see
+// collideSolids in js/collisions.js) when this fits under it.
+const _heightOf = new Map(), _heightBox = new THREE.Box3();
+export function carHeight(kind, mesh) {
+  let h = _heightOf.get(kind);
+  if (h === undefined) { h = _heightBox.setFromObject(mesh).max.y - mesh.position.y; _heightOf.set(kind, h); }
+  return h;
+}
 
 
 // ---- SCHOOL BUS and ICE CREAM lettering ----

@@ -47,6 +47,7 @@ const weatherSystem = { slickness: 0 };
 const HULK_PARAMS = { maxSpeed: 46, maxReverse: 8, accel: 0, brake: 34, turn: 1.5, turnFalloff: 40, grip: 9.4 };
 const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 const buildCar = () => { const g = new Obj(); g.userData = { inner: new Obj(), lights: {} }; return g; };
+const carHeight = () => 1.6;   // js/carModels.js measures the model; the stub cars have none (no roof in these harnesses)
 class V3 { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
 class Quat { setFromAxisAngle() { return this; } multiply() { return this; } }
 class Obj {
