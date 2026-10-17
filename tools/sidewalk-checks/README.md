@@ -31,6 +31,7 @@ node tools/sidewalk-checks/plan-flyover.mjs  # grade-separated interchange: plan
 node tools/sidewalk-checks/solid-index.mjs  # the solid index (solidsNear) returns exactly what the old 3x3 scan returned
 node tools/sidewalk-checks/districts.mjs  # district map: all four present, mostly one region each, the block mix per district, estates only in suburbs
 node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
+node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -416,6 +417,30 @@ along its whole length the wheel line stays within 0.25 m of the surface. That m
 as a nose meets a ramp's foot at speed. Halfway up a ramp the body leans at the ramp's grade, nose up, and halfway down
 nose down. It then drives every kind at grade across the street under each deck and along the lane beside each structure
 (620 drives) and checks that none is lifted onto the concrete.
+
+### The ice cream van
+
+The ice cream van (`icecream` in `js/carModels.js`) is a white step van with a flat-fronted cab and a short bonnet, its
+livery band and roof line blue or red. On the kerb side (the van's right: traffic drives on the right) is the serving
+window under a striped awning in the other colour of the pair, with the menu board and its row of ice creams under it, a
+painted cone beside it and ICE / CREAM by the cab. ICE CREAM runs along the other flank, over painted ice creams, and
+across the rear doors. On the roof are the big waffle cone with its three scoops (strawberry, mint and chocolate), the
+loudspeaker horn and the cooling unit. It is one civilian car in 25 (`CIV_KINDS` in `js/civilians.js`), about five among
+the 130 cars around the player, and it takes its time (6 to 8.5 m/s). As it goes it plays Greensleeves (`updateIce` in
+`js/audio.js`), like a music box: the nearest van within 75 m sets the volume, louder the nearer it is. Its notes are
+scheduled a little ahead on the audio clock, so the tune keeps its time whatever the frame rate. A note whose time passed
+while the frames stalled is skipped, not struck late. The chime is silent while the game is not running and with the
+sound off (B), and after a silence it starts from the top.
+The pixel lettering it shares with the school bus (`busSignGeometry`) used to set its letters a pixel and a gap apart,
+two pixels on top of each other, so the bus boards never read `SCHOOL BUS`. The letters now stand a letter and a gap
+apart; the bus's are 0.2 m high (they were 0.32), so the 1.74 m of `SCHOOL BUS` fits its 1.98 m board, centred on it. A
+row's run of lit pixels is one box instead of a box a pixel: the same face from two thirds as many boxes.
+`ice-cream.mjs` checks the model: inside its `CAR_DIMS` box and 4.3 m to the top of its scoops, the awning out on the kerb
+side in the other colour, the livery band, the cone and its three scoops, ICE CREAM on both flanks and across the rear
+doors (its letters side by side: the flank's is 2.15 m long), and the body geometry shared by two vans of one livery. It
+checks the traffic share, and the chime on a stand-in audio clock: the tune from its first notes and in time at 60 and
+20 frames a second, round again after its 37 notes, louder nearer the van, silent from 80 m or with the game not
+running, from the top after a silence, and in time after a stall.
 
 ### Flyover approach nose protection
 
