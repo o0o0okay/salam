@@ -16,6 +16,7 @@ export const flying = [];        // broken props in flight
 export const fallingTrees = [];
 export const geysers = [];       // broken hydrants spraying water
 export const fires = [];         // burning wrecks (exploded fuel tankers)
+export const logs = [];          // logs spilled off log trucks, lying and rolling in the street (js/logSpill.js)
 
 
 // Persistent player object: filled with Object.assign(player, createCar(...)) in resetWorld

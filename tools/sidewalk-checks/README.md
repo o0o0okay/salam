@@ -33,6 +33,7 @@ node tools/sidewalk-checks/districts.mjs  # district map: all four present, most
 node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
 node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
+node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -468,6 +469,43 @@ band runs down both flanks. It checks the four beacons, two on the cab roof and 
 each truck owns, and the geometry two trucks share. On real cars (`createCar`, `syncCarMesh`) it checks the flashes,
 about 1.6 a second and lit for about 0.4 of each, two trucks out of step, the dark wreck and the freed material, and
 then the traffic share.
+
+### Log trucks spill their load
+
+A log truck (`logtruck`) that takes a hard hit loses its load. The six logs on its trailer are a group of their own
+(`userData.cargo`: three meshes, the bark in two shades and the light cut ends, shared by every log truck), laid out by
+`LOG_LOAD` in `js/carModels.js`. A crash that closes faster than `LOG_SPILL_V` (8 m/s, `js/config.js`) takes them off
+(`carCar` in `js/collisions.js`), and so does the truck's wreck (`wreckCar` in `js/damage.js`). A nudge in a queue does
+not, and a truck spills once. `spillLogs` (`js/logSpill.js`) hides the load and sends six loose logs off from where they
+lay, with the truck's own speed, over the side each lay on and on the way the hit shoved the trailer. Until a log is
+clear of its truck the trailer bed holds it up and it slides off over the side, so none drops through the trailer.
+A loose log is a small body of its own, moved every frame after the cars (`updateLogs`, called from `js/update.js`). It
+falls, knocks on the road and hops; it rolls easily across its length and hardly slides along it (`LOG_ROLL_DECEL`,
+`LOG_SLIDE_DECEL`), so it ends up lying across the road. Two logs meet as two cylinders: one can come to lie on another
+(across its middle, or across two logs), and one held up well off its own middle tips off. Against the world a log goes
+through the car tests (`collideSolids`, `collideProps`, `collideTrams`, `collideFlyover`) as a wrecked car of `LOG_MASS`:
+it knocks down street props, parked cars, shop windows, bus stops, pumps and fences, breaks a tree when it is fast, and
+stops at a wall. Against the cars it has a contact of its own: the two are pushed apart by their masses, and the car is
+hurt by the closing speed above `LOG_HIT_MIN` (`LOG_DMG_CAR` a m/s, the player's car `LOG_DMG_PLAYER`). A log at 10 m/s
+wrecks a family car and a light patrol car driving into one at speed is wrecked; the armoured tiers take less. A log
+the player spilled credits the player with what it wrecks, a civilian it hits panics, and a log that runs into another
+log truck spills that load too. The traffic slows for a log lying in its lane and stops short of it on the handbrake
+(`logAhead`, used by `civAI`); the police do not, so a spill is something to lead a chase into. The hits knock with a
+wooden thud (`sfx.thud`) and shed bark chips. A log is cleared away after `LOG_LIFE` (50 s, shrinking out), at once
+when it is far from the player, and the oldest go first past `LOG_MAX` (48); a new run starts with none. The loose logs
+are drawn with two instanced meshes. The cooldown between log hits on a car (`logHitAt`) is set by `createCar`, so a
+new run's player car does not carry the last run's clock.
+`log-spill.mjs` checks the load on the trailer: its own group, where `LOG_LOAD` says, every vertex on a log, the cut ends'
+rims on the bark's edge, nothing of it left in the body, its geometry shared, and no load on any other vehicle. Then the
+spill: a nudge does not and a ram does, once; where each log starts, its turn, its bark and its owner; the way they go;
+that they come to rest without ever lying in each other; that a wreck and a patrol car's ram spill a load and a box
+trailer does not. A log on the road: rolling against sliding, coming to rest, turning as it rolls, lying across one log
+or two, tipping off one. The cars: the damage by closing speed, the shove and the panic, a family car wrecked, a light
+and an armoured patrol car driving into a log, the takedown credit, the turn from a blow off the middle, the player's
+car, the chain spill, logs sliding off the trailer and leaving their own truck alone. The street, on real chunks: a
+prop, a tree (fast and slow), a parked car, a shop window, a building's wall. The traffic: what `logAhead` sees, and a
+real civilian car driven by `civAI` that stops short of a log lying across its lane. And the clearing and the drawing:
+`resetWorld`, the two instanced meshes, `LOG_LIFE`, the distance, `LOG_MAX`.
 
 ### Flyover approach nose protection
 

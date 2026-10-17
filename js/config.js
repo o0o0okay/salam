@@ -60,3 +60,24 @@ export const METER_SIDE_P = 0.25;
 // street): now about 930, one per 430 m or so, in two busy blocks out of three and by nearly every bank, hospital, school
 // and filling station. Each block keeps its own roll, so raising a chance only adds booths: none of them move.
 export const BOOTH_P = { downtown: 0.65, shops: 0.65, bazaar: 0.65, commercial: 0.65, bank: 1, hospital: 1, school: 1, fuel: 1, suburb: 0.2, park: 0.25 };
+// ---- Log trucks: a hard hit spills the load (js/logSpill.js) ----
+// The closing speed of a crash that knocks the six logs off a log truck's trailer: about 29 km/h, so a real ram
+// spills the load and a nudge in a queue does not.
+export const LOG_SPILL_V = 8;
+// One log (7.2 m long, 0.6 m across) in CAR_DIMS mass units: a little heavier than a family car. It shoves the car it
+// hits and a car shoves it; what it knocks down follows from it as well (the thresholds divide by its root, as a car's).
+export const LOG_MASS = 1.4;
+// A log that meets a car hurts it: the damage per m/s of closing speed above LOG_HIT_MIN, to another car and to the
+// player's. A log at 10 m/s wrecks a family car (40 HP), at about 13 m/s the lightest patrol car; the armoured police
+// tiers take less of it (js/damage.js hurtCar). The player's car takes about what a crash into a car costs.
+export const LOG_HIT_MIN = 2;
+export const LOG_DMG_CAR = 5;
+export const LOG_DMG_PLAYER = 0.6;
+// A log rolls easily across its length and hardly slides along it: the two decelerations on the road (m/s²; rolling
+// also loses 0.3 of its speed a second, so a log rolling at 6 m/s comes to rest in about 6 m, at 10 m/s in about 13).
+export const LOG_ROLL_DECEL = 1.8;
+export const LOG_SLIDE_DECEL = 9;
+// How long a spilled log lies in the street before it is cleared away (s), and how many can be out at once (past
+// that, the oldest are cleared first).
+export const LOG_LIFE = 50;
+export const LOG_MAX = 48;

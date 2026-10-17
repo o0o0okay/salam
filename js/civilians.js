@@ -9,6 +9,7 @@ import { onIsland, CORE } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
+import { logAhead } from './logSpill.js';
 import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet, FLY, nodeAt, bridgeHeight, alongOf } from './flyover.js';
 
 export const CIV_KINDS = [
@@ -201,6 +202,11 @@ export function civAI(c, dt) {
       target = Math.min(target, f < 7 + o.box.e1 ? 0 : o.speed * 0.8);
     }
   }
+  // A loose log in its path (js/logSpill.js): the car slows down for it and stops short of it, the last few metres on
+  // the handbrake (below 1.5 m/s the throttle only coasts). The police do not: a log in the road is a hazard the chase
+  // drives into.
+  const logGap = logAhead(c, s, co, 6 + Math.max(0, sp) * 1.2 + c.box.e1) - c.box.e1 - 0.3;    // its nose to the log
+  if (logGap < Infinity) target = Math.min(target, Math.max(0, logGap - 3.5) * 1.2);
 
   const L = 6 + Math.max(0, sp) * 0.4;
   // The look-ahead is asked from the car's own height: on a flyover the embankment below the ramp is not a wall,
@@ -282,7 +288,7 @@ export function civAI(c, dt) {
   }
 
   c.steer += (steer - c.steer) * Math.min(1, dt * 7);
-  return { throttle, hand: false };
+  return { throttle, hand: logGap < 5 };
 }
 
 // Traffic density and jams. A quarter of the lanes (by hash, the same on every visit) are jam lanes: a car spawned there

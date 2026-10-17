@@ -31,6 +31,7 @@ const carBoxSrc = between('export function carBox', 'export function driveCar');
 const driveSrc = strip(between('export function driveCar', 'export function syncCarMesh'));
 const syncSrc = strip(between('export function syncCarMesh'));
 const cfgSrc = fs.readFileSync(path.join(repo, 'js/config.js'), 'utf8');
+const LOG_SPILL_V = Number(cfgSrc.match(/^export const LOG_SPILL_V = ([\d.]+);/m)[1]);   // js/collisions.js carCar spills a log truck's load over this
 const PLAYER_PARAMS = eval('(' + cfgSrc.match(/export const PLAYER_PARAMS = (\{[^}]*\});/)[1] + ')');
 const HULK_PARAMS = eval('(' + cfgSrc.match(/export const HULK_PARAMS = (\{[^}]*\});/)[1] + ')');
 const stubs = `
@@ -59,6 +60,7 @@ const ASSET = new Proxy({ burnt: {} }, { get: (t, k) => (k in t ? t[k] : {}) });
 const TREE_VARIANTS = [{}, {}, {}, {}, {}, {}];
 const setTreeMatrix = () => {}; const _Y = new V3(0, 1, 0);
 const TREE_BREAK_V = 10; const DIFF = {};
+const LOG_SPILL_V = ${LOG_SPILL_V}; const spillLogs = () => false;   // a log truck's load (js/logSpill.js): no loose logs in this harness
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0 };
 const player = { x: 0, z: 0 };
 const cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];

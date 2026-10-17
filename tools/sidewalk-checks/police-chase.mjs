@@ -31,6 +31,7 @@ const carBoxSrc = between('export function carBox', 'export function driveCar');
 const driveSrc = strip(between('export function driveCar', 'export function syncCarMesh'));
 const syncSrc = strip(between('export function syncCarMesh'));
 const cfgSrc = fs.readFileSync(path.join(repo, 'js/config.js'), 'utf8');
+const LOG_SPILL_V = Number(cfgSrc.match(/^export const LOG_SPILL_V = ([\d.]+);/m)[1]);   // js/collisions.js carCar spills a log truck's load over this
 const PLAYER_PARAMS = eval('(' + cfgSrc.match(/export const PLAYER_PARAMS = (\{[^}]*\});/)[1] + ')');
 const DIFF = eval('(' + cfgSrc.match(/export const DIFFICULTIES = (\{[\s\S]*?\n\});/)[1] + ').normal');
 const HEAR_R = +cfgSrc.match(/export const HEAR_R = (\d+)/)[1];
@@ -63,6 +64,7 @@ const ASSET = new Proxy({ burnt: {} }, { get: (t, k) => (k in t ? t[k] : {}) });
 const TREE_VARIANTS = [{}, {}, {}, {}, {}, {}];
 const setTreeMatrix = () => {}; const _Y = new V3(0, 1, 0);
 const TREE_BREAK_V = 11; const DIFF = ${JSON.stringify(DIFF)};
+const LOG_SPILL_V = ${LOG_SPILL_V}; const spillLogs = () => false;   // a log truck's load (js/logSpill.js): no loose logs in this harness
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0, wanted: 1, clock: 0, dist: 0, slow: 1, combo: 0, comboT: 0 };
 const player = {};
 const police = [], civs = [], cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];

@@ -21,7 +21,7 @@ export function createCar(kind, x, z, h, params, color) {
     kind, isPlayer: kind === 'player', isPolice, isCiv, isTanker: kind === 'fueltanker', x, z, h, vx: 0, vz: 0, steer: 0, yaw: 0, vf: 0, vl: 0, speed: 0, acc: 0, roll: 0, pitch: 0, y: 0, vy: 0,
     params, mesh, beam, inner: mesh.userData.inner, lights: mesh.userData.lights, box: { x, z, ux: 0, uz: 1, vx: -1, vz: 0, e1: dims.e1, e2: dims.e2 },
     mass: dims.mass, hp: dims.hp, maxHp: dims.hp, wrecked: false, wreckT: 0, dead: false,
-    stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,
+    stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, logHitAt: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,
     boost: 0, flatT: 0, flatSide: 1, air: false, nmIn: false, nmEnter: 0, nmMin: 99,
     // civilian traffic fields
     axis: 'z', dir: 1, road: 0, off: 2.5, cruise: 11, lastNode: null, panicT: 0, panicCool: 0, panicMode: 0, swerve: 1, tier: 0, flank: Math.random() < .5 ? -1 : 1,

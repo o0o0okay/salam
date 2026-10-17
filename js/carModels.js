@@ -107,6 +107,41 @@ function garbageBeacons() {
   parts.forEach(p => p.dispose());
   return garbageBeaconGeo;
 }
+// ---- the log truck's load ----
+// Six logs in three layers on the log trailer: the (x, y) of each log's axis in the truck's frame, the z of their
+// middle, their radius and length, the bark of the even and the odd ones and the colour of the cut ends. The load is a
+// group of its own on the truck (g.userData.cargo), not merged into the body, so a hard hit can take it off the
+// trailer: js/logSpill.js hides it and sends six loose logs into the street from the same places.
+export const LOG_LOAD = {
+  at: [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]],
+  z: -2.35, r: 0.3, len: 7.2, seg: 8, bark: [0x9c5f30, 0xb8733f], end: 0xd9ab6a,
+};
+// One log lying along z and centred on the origin, in two pieces: its bark (an open cylinder) and its two cut ends.
+// The ends' rims sit on the bark's own edge vertices. Shared by every log truck's load and by every loose log.
+let logGeo = null;
+export function logParts() {
+  if (logGeo) return logGeo;
+  const { r, len, seg } = LOG_LOAD;
+  const bark = new THREE.CylinderGeometry(r, r, len, seg, 1, true).rotateX(Math.PI / 2);
+  const front = new THREE.CircleGeometry(r, seg, -Math.PI / 2).translate(0, 0, len / 2);
+  const back = new THREE.CircleGeometry(r, seg, -Math.PI / 2).rotateY(Math.PI).translate(0, 0, -len / 2);
+  logGeo = { bark, ends: mergeGeometries([front, back], false) };
+  front.dispose(); back.dispose();
+  return logGeo;
+}
+// the whole load, stacked as it lies on the trailer (z about its middle): the bark of the even logs, of the odd ones,
+// and all the cut ends; one geometry each, shared by every log truck
+let logLoadGeo = null;
+function logLoadGeometry() {
+  if (logLoadGeo) return logLoadGeo;
+  const { bark, ends } = logParts(), at = LOG_LOAD.at;
+  const stack = (geo, keep) => {
+    const parts = at.filter((_, i) => keep(i)).map(([x, y]) => geo.clone().translate(x, y, 0));
+    const out = mergeGeometries(parts, false); parts.forEach(p => p.dispose()); return out;
+  };
+  logLoadGeo = [stack(bark, i => i % 2 === 0), stack(bark, i => i % 2 === 1), stack(ends, () => true)];
+  return logLoadGeo;
+}
 // ---- merged body geometry ----
 // A car is some dozens of boxes and cylinders, and each of them was its own draw call (and, in the shadow pass,
 // its own caster). The static pieces that share a material are merged into one geometry per material and shadow
@@ -680,12 +715,16 @@ export function buildCar(kind, color, detail = true) {
       inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.5, 0.85));
       for (const sx of [-1, 1]) { const ramp = box(0.9, 0.06, 2.12, steel, sx * 0.6, 0.55, zr + 1.0); ramp.rotation.x = -0.34; inner.add(ramp); }
     } else {
-      // log trailer: a frame, four pairs of tall stakes and six logs stacked in three layers
-      const logA = mat(0xb8733f), logB = mat(0x9c5f30);
+      // log trailer: a frame, four pairs of tall stakes and the load (LOG_LOAD): six logs stacked in three layers, a
+      // group of its own (g.userData.cargo) that js/logSpill.js takes off the trailer when a hard hit spills it
       inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
       for (const z of [zr + 0.6, zr + 2.4, zr + 4.2, zr + 6.0]) for (const sx of [-1, 1]) inner.add(box(0.12, 1.9, 0.12, trimM, sx * 1.0, 1.85, z, false));
-      const logs = [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]];
-      logs.forEach(([x, y], i) => { const log = cyl(0.3, 0.3, 7.2, 8, i % 2 ? logA : logB, x, y, zc); log.rotation.x = Math.PI / 2; inner.add(log); });
+      const cargo = new THREE.Group(), [evenBark, oddBark, cutEnds] = logLoadGeometry();
+      [[evenBark, LOG_LOAD.bark[0]], [oddBark, LOG_LOAD.bark[1]], [cutEnds, LOG_LOAD.end]].forEach(([geo, hex]) => {
+        const m = new THREE.Mesh(geo, mat(hex)); m.castShadow = true; m.receiveShadow = true; cargo.add(m);
+      });
+      cargo.position.z = zc;                               // LOG_LOAD.z: the middle of the 7.6 m trailer
+      inner.add(cargo); g.userData.cargo = cargo;
     }
     for (const z of dualZ) { dualWheel(-1, z); dualWheel(1, z); }
 

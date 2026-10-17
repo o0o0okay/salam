@@ -5,7 +5,7 @@ import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
-import { DIFF, HULK_PARAMS } from './config.js';
+import { DIFF, HULK_PARAMS, LOG_SPILL_V } from './config.js';
 import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
 import { nearChunks, solidsNear, isHeavyParked, parkedShove, parkedDamage } from './world.js';
 import { insideFootprint, parapetPush } from './flyover.js';
@@ -17,6 +17,7 @@ import { sfx } from './audio.js';
 import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx, wreckCar } from './damage.js';
 import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
+import { spillLogs } from './logSpill.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
 const BUSSTOP_BREAK_V = 7;  // bus shelters are flimsy — break easily
 const SCAFFOLD_BREAK_V = 8; // scaffolding — a bit sturdier, still breaks on a real hit
@@ -491,6 +492,11 @@ export function carCar(A, B) {
     A.vx -= j / mA * nx; A.vz -= j / mA * nz; B.vx += j / mB * nx; B.vz += j / mB * nz;
     const px = (A.x + B.x) / 2, pz = (A.z + B.z) / 2, involved = A.isPlayer || B.isPlayer;
     impactFx(px, pz, rel, nx, nz, involved, (A.y + B.y) / 2);
+    // A log truck that takes a hard hit loses its load (js/logSpill.js): A is shoved along -n and B along +n.
+    if (rel > LOG_SPILL_V) {
+      if (A.kind === 'logtruck') spillLogs(A, -nx, -nz, rel, B.isPlayer);
+      if (B.kind === 'logtruck') spillLogs(B, nx, nz, rel, A.isPlayer);
+    }
     if (rel > 3) {
       A.h += (Math.sin(A.h) * nz - Math.cos(A.h) * nx) * rel * 0.008; B.h += (Math.sin(B.h) * -nz - Math.cos(B.h) * -nx) * rel * 0.008;
     }

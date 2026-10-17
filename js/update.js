@@ -25,6 +25,7 @@ import { updateTrams, tramTrackAhead } from './tram.js';
 import { updateParking, updateRooftops } from './traffic.js';
 import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
+import { updateLogs } from './logSpill.js';
 import { updateCamera } from './camera.js';
 import { updateHUD, drawRadar, toast } from './ui.js';
 import { updateRouteArrows } from './routeArrows.js';
@@ -189,7 +190,8 @@ export function update(dt) {
     if (Math.abs(A.y - B.y) > 2.0) continue;
     const dx = A.x - B.x, dz = A.z - B.z, rr = A.box.e1 + B.box.e1 + 1; if (dx * dx + dz * dz > rr * rr) continue; carCar(A, B);
   }
-  // Pair separation can push a car back into the parapet: resolve it before drawing this frame.
+  updateLogs(sdt);                                             // loose logs off a log truck: they roll, and hit
+  // Pair separation (and a log's shove) can push a car back into the parapet: resolve it before drawing this frame.
   for (const c of cars) if (!c.dead) collideFlyover(c);
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);

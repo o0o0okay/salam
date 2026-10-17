@@ -14,11 +14,13 @@ import { resetMap } from './map.js';
 import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
+import { clearLogs } from './logSpill.js';
 export function resetWorld() {
   for (const c of cars.slice()) if (c !== player) removeCar(c);   // cops, traffic, and any burnt hull left over
   for (const f of flying) scene.remove(f.mesh); flying.length = 0; geysers.length = 0; fires.length = 0;
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;
+  clearLogs();                                                   // the logs spilled in the last run
   for (const ch of chunks.values()) disposeChunk(ch); chunks.clear();
   resetMap();                                                    // the mark, the route and the map start afresh
   clearTrams();
