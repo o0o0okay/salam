@@ -43,6 +43,24 @@ export const POLICE_TIERS = [
     maxSpeed: 47, accel: 32, brake: 75, turn: 1.82, grip: 10.5, hp: 520, mass: 8.3, prediction: 2.05, impact: 2.15,
     roles: ['headon', 'pinner', 'pincer', 'rammer'] },
 ];
+// ---- Holding a pinned player (js/police.js holdPin, js/update.js) ----
+// Once the player is pinned (the BUSTED bar is filling) the police stop ramming him and hold him for the arrest. A unit at
+// him comes in slowly, stops right up against him and stays there. It never backs off for another run: a unit that
+// reverses for another go opens the box, the bar drains and he drives out through the gap. Nor does it shove him: while
+// the hold lasts, a car right up against him counts as touching him for the bar, and so does a wall.
+//   grace    the hold lasts this long after the last pinned frame, so a moment's lost contact does not undo it, s
+//   hold     a unit this near the player (box to box, on his level: a Juggernaut on his corner can be 9 m centre to
+//            centre) holds him, m
+//   join     a unit this near (centre to centre) comes for the player himself instead of its role's own aim (a pincer's
+//            flank, a head-on's point ahead of him), no faster than it could stop on him in the gap left, m
+//   gap      while he is held, a car or a wall this near him (box to box) counts as touching him, m
+//   snug     a holding unit this near him (box to box) has arrived: it stops and stands, m
+//   side     a holding unit with him at its side stands where it is when he is nearer than this (box to box): it cannot
+//            close in sideways, and through a gap that narrow he cannot get by; further off it goes round to him, m
+//   press    the throttle a holding unit comes in with
+//   close    the speed a unit comes in at as it arrives, and `closeK` more for each metre still between them, box to
+//            box: 6.3 m/s from 3 m out, under 2 m/s as it gets there (a recoil takes a 9 m/s hit), m/s
+export const PIN_HOLD = { grace: 0.6, hold: 5, join: 40, gap: 0.4, snug: 0.15, side: 1.6, press: 0.5, close: 1.5, closeK: 1.6 };
 // Stars rise slower and scale with difficulty
 export const WANTED_AT = [0, 30, 70, 115, 165];
 // A burnt-out hull has no driver: it coasts on the handbrake and skids, so it only needs a top speed it can

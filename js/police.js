@@ -1,13 +1,13 @@
 /* Police AI + spawning */
 import { PI, CHUNK, clamp, lerp, wrapAngle, rnd } from './utils.js';
 import { game, player, sight, reportSighting, police, cars } from './state.js';
-import { DIFF, HEAR_R, POLICE_TIERS } from './config.js';
+import { DIFF, HEAR_R, POLICE_TIERS, PIN_HOLD } from './config.js';
 import { env } from './environment.js';
 import { CAR_DIMS } from './carModels.js';
-import { createCar } from './vehicle.js';
+import { createCar, carBox } from './vehicle.js';
 import { solidAt } from './world.js';
 import { onIsland } from './island.js';
-import { overlapsAnything } from './collisions.js';
+import { overlapsAnything, satGap } from './collisions.js';
 import { tramTrackAhead } from './tram.js';
 import { FLY, flyoverNear, structureLevel, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
@@ -216,6 +216,50 @@ function bridgeHold() {
     if (HOLD.away >= limit) releaseHold();
   }
 }
+// ---------- THE ARREST ----------
+// Is the player held for the arrest? He was pinned less than PIN_HOLD.grace ago (js/update.js keeps game.pinSeen, and asks
+// this too; game.time stands still once the run is over, so a busted player stays held).
+export function pinHold() {
+  return game.state !== 'menu' && game.time - (game.pinSeen ?? -99) < PIN_HOLD.grace;
+}
+// ...and this unit is one of the holders: it is on his level (one up on a deck over him is not part of the box).
+function pinHeld(p) {
+  return pinHold() && Math.abs(p.y - player.y) < 2;
+}
+// A unit at a pinned player holds him for the arrest. It comes in slowly with whichever end is towards him, stops right
+// up against him (PIN_HOLD.snug) and stands there: a wall he cannot drive through (with him at its side and nearer than
+// PIN_HOLD.side, it stands where it is). It never backs off for another run: no recoil after a hit, no stuck-reverse
+// (stopped against him with its foot down reads to the stuck test as stuck). Nor does it shove him: a push keeps the
+// box tight only while he has something solid on his far side, and otherwise walks him out of it (update.js counts a
+// car within PIN_HOLD.gap of him as touching him, so nobody has to push). Knocked off him, it comes straight back.
+function holdPin(p, dt, gap) {
+  const dx = player.x - p.x, dz = player.z - p.z;
+  const diff = wrapAngle(Math.atan2(dx, dz) - p.h), ahead = Math.cos(diff), vf = p.vf || 0;
+  let want = gap < PIN_HOLD.snug ? 0 : PIN_HOLD.close + gap * PIN_HOLD.closeK;     // the speed to come in at; 0: arrived
+  let throttle, steer;
+  if (ahead > 0.35 || (ahead >= 0 && gap >= PIN_HOLD.side)) {         // he is ahead: nose in
+    steer = clamp(diff * 2.35, -1, 1);
+    throttle = vf < want - 0.2 ? PIN_HOLD.press : vf > want + 0.6 ? -1 : 0;   // (-1: a brake, from over 2.3 m/s)
+  } else if (ahead < -0.35 || gap >= PIN_HOLD.side) {                  // he is behind: back in on him, tail first
+    steer = clamp(-wrapAngle(diff - Math.PI) * 2.35, -1, 1);           // (reversing, the wheel turns the other way)
+    throttle = vf > 0.2 - want ? -1 : vf < -want - 1.5 ? 1 : 0;
+  } else { steer = 0; want = 0; }             // at its side, near: it cannot close in sideways, and he cannot get by
+  if (want === 0) throttle = standStill(p, vf, dt);                    // arrived: stand
+  p.recoilT = 0; p.reverseT = 0; p.stuckT = 0;
+  p.steer += (steer - p.steer) * Math.min(1, dt * (p.tier >= 4 ? 11 : 9));
+  return { throttle, hand: false };
+}
+// The throttle that brings a car to a stand without throwing it the other way. driveCar's brake takes brake * dt off in a
+// frame (over 2 m/s at 30 fps), so from less than that it is left to coast; at walking pace -1 is the reverse gear and +1
+// the drive, gentle pulls that stop it in a frame or two.
+function standStill(p, vf, dt) {
+  const b = p.params.brake * dt;
+  if (vf > 0.8) return vf - b >= -0.3 ? -1 : 0;
+  if (vf > 0.3) return -1;
+  if (vf < -0.5) return vf + b <= 0.3 ? 1 : 0;
+  if (vf < -0.3) return PIN_HOLD.press;
+  return 0;
+}
 export function policeAI(p, dt) {
   bridgeHold();
   // ---------- STATIONARY ROADBLOCK ----------
@@ -243,6 +287,7 @@ export function policeAI(p, dt) {
   const rb = d > 45 ? 1 + Math.min(0.12, (d - 45) / 700) : d < 22 ? 0.97 : 1;
   p.params.maxSpeed = p.baseMax * rb * (fresh ? 1 : 0.8);          // slower in search mode
   let tx, tz, ramming = false, blockerHold = false;
+  const held = pinHeld(p);
   if (fresh) {
     p.search = null; p.arrived = false;
     tx = player.x + player.vx * lead; tz = player.z + player.vz * lead;
@@ -257,6 +302,7 @@ export function policeAI(p, dt) {
     else if (p.role === 'pinner') { tx = player.x + side.x * p.flank * 2; tz = player.z + side.z * p.flank * 2; ramming = true; }
     else if (p.role === 'headon') { tx += forward.x * 14; tz += forward.z * 14; ramming = true; }
     if (d < 18 * DIFF.aggr && p.tier >= 3) ramming = true;
+    if (held && d < PIN_HOLD.join) { tx = player.x; tz = player.z; }   // the player is pinned: for him, not for a role's aim
   } else {
     // ---------- SEARCH: last known pos (with motion guess) then patrol nearby roads ----------
     // (a hiding car, hide.js: the search goes to where it is, not to where it was last seen)
@@ -441,6 +487,14 @@ export function policeAI(p, dt) {
     const rails = tramTrackAhead(p);
     if (rails < 0) throttle = 1;
     else if (rails < Infinity && vf > Math.sqrt(2 * 2.5 * Math.max(0, rails - 4))) throttle = -1;
+  }
+  // The player is pinned: a unit at him holds him (holdPin); one on its way comes in no faster than it can stop on him
+  // without knocking him loose, and does not back off for a run at him.
+  if (held && fresh && d < PIN_HOLD.join) {
+    const gap = satGap(carBox(p), carBox(player));
+    if (gap < PIN_HOLD.hold) return holdPin(p, dt, gap);
+    p.recoilT = 0;
+    if (vf > PIN_HOLD.close + gap * PIN_HOLD.closeK) throttle = -1;   // (over 9.5 m/s: a brake, not a reverse)
   }
   if (p.recoilT > 0) { p.recoilT -= dt; throttle = -0.7; steer *= 0.4; }
   if (p.reverseT > 0) { p.reverseT -= dt; throttle = -1; steer = -steer; }

@@ -25,7 +25,7 @@ export function resetWorld() {
   resetMap();                                                    // the mark, the route and the map start afresh
   clearTrams();
   clearParticles(); $('toasts').innerHTML = '';
-  Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
+  Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, pinSeen: -99, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
     nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, roadblockT: 14, roadblockGroup: null, isNight: false,
     hideT: 0, hideBonus: 0, hidePen: 0 });
   if (player.mesh) removeCar(player);

@@ -35,6 +35,7 @@ node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and let
 node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
 node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down, break up, crumble away
 node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
+node tools/sidewalk-checks/pin-hold.mjs  # the police hold a pinned player for the arrest: right up against him, no backing off for another run, the bar filling
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -565,6 +566,44 @@ to 40 m/s, either way, the camera checks are: the line to the car never through 
 `ROOF_CLEAR`, settled at the slab less `ROOF_GAP`, no jump, the boom pulled in, back up a second after it is out, and
 under the roof once. Two more cases are checked: a camera swung in over a frame is under the first floor at once, and a
 shake does not lift it.
+
+### Holding a pinned player for the arrest
+
+Once the police have the player pinned (the BUSTED bar is filling: `pinned` in `js/update.js`), they stop ramming him and
+hold him for the arrest (`holdPin` in `js/police.js`, `PIN_HOLD` in `js/config.js`). Before, a unit that hit him took
+its recoil (0.7 s in reverse), and one stopped against him with its foot down read to the stuck test as stuck and backed
+off for another go. Either way the box opened, the bar drained and he drove out through the gap. Now the hold lasts
+`PIN_HOLD.grace` (0.6 s) after the last pinned frame (`pinHold`, which reads `game.pinSeen`). While it lasts, a unit on his
+level within `PIN_HOLD.hold` (5 m, box to box) comes in with whichever end is towards him: nose first, or backing in
+tail first. It slows as it closes (`close`, plus `closeK` for each metre between them), stops right up against him
+(`snug`, 0.15 m) and stands there. `standStill` pulls it up without throwing it back off him: when a frame's brake would
+take off more than it is doing, it coasts instead. A unit with him at its side stands where it is when he is nearer than
+`side`: it cannot close in sideways, and he cannot get by. No holding unit takes the recoil or the stuck reverse, and
+none shoves him: a push keeps the box tight only while he has something solid on his far side, and otherwise walks him
+out of it. So while the hold lasts the bar counts a car within `PIN_HOLD.gap` (0.4 m, box to box: `satGap` in
+`js/collisions.js`) as touching him, and a solid within it as the wall (`solidWithin`: a wall under a deck counts only
+for what is under it, a roof only for a car too tall for it). A unit further out, within `join` (40 m), comes for him
+instead of its role's aim, no faster than it could stop on him in the gap left. A unit up on a deck over him is not part
+of the box. The bar fills and drains as it always did, `DIFF.pin` is unchanged, and before he is first pinned nothing has
+changed. A player with a way out still gets away: once he is moving again (the bar stops at 9 m/s) the hold ends
+`grace` later, and the chase goes on.
+`pin-hold.mjs` checks what a unit decides while he is held. A unit nose on comes in, braking from speed, and stands on
+arrival. One still rolling onto him pulls up without rocking, at 60 fps and at 30. One tail on backs in, and one knocked
+back off him comes straight back in. A recoil after a hit, a stuck reverse about to fire and one already under way are
+all dropped, and a unit further out brakes to the speed it could stop from. The units on a deck over him, after the
+hold and on the menu's attract mode behave as they always did. With the game's physics a unit backing in arrives and
+never drives off. The test also checks `satGap` (face to face, side by side, overlapping, turned, corner to corner) and
+`solidWithin` (a wall near him, one taken away, a roof he fits under or not, a wall under the deck he is on). For the
+bar it checks a unit 0.2 m off him with and without the hold, one 0.6 m off, the wall 0.25 m or 0.6 m off, two units
+and no wall, and a unit on a deck. The chases run on the game's own update loop, each in a process of its own: the world
+generator keeps caches from one run to the next, so in one process a run would hang on the runs before it. Boxed in by
+three units, sitting still or throwing the car about, he is busted `DIFF.pin` after the first pinned frame, the bar never
+dropping and nobody backing off him. Rammed into the wall by three patrol units, three Enforcers or two Juggernauts,
+three runs each, he is busted every time, unhurt once they have him and with no unit backing off. In at least 7 of the 9
+runs that takes exactly `DIFF.pin`. Before this change he was wrecked in seven of those nine runs. Of the four boxes, he
+was wrecked in one and never busted in another, and in the other two the bar dropped while a unit reversed out of the
+box. A player with a way out drives out, the hold ends `grace` after he gets going, the bar runs empty and the unit
+chases him again.
 
 ### Flyover approach nose protection
 

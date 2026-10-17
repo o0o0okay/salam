@@ -54,9 +54,22 @@ export function sat(A, B) {
   }
   hit.nx = nx; hit.nz = nz; hit.depth = minO; return true;
 }
+// How far apart two boxes are: the widest gap between them along the four box axes (below zero they overlap). Face to
+// face that is the true distance; corner to corner it reads a little short, the safe side for "right up against it".
+export function satGap(A, B) {
+  const dx = B.x - A.x, dz = B.z - A.z; let g = -Infinity;
+  for (let i = 0; i < 4; i++) {
+    let ax, az;
+    if (i === 0) { ax = A.ux; az = A.uz; } else if (i === 1) { ax = A.vx; az = A.vz; } else if (i === 2) { ax = B.ux; az = B.uz; } else { ax = B.vx; az = B.vz; }
+    const ra = A.e1 * Math.abs(A.ux * ax + A.uz * az) + A.e2 * Math.abs(A.vx * ax + A.vz * az);
+    const rb = B.e1 * Math.abs(B.ux * ax + B.uz * az) + B.e2 * Math.abs(B.vx * ax + B.vz * az);
+    g = Math.max(g, Math.abs(dx * ax + dz * az) - ra - rb);
+  }
+  return g;
+}
 // Scratch lists for solidsNear(). Each query site has its own, because collideSolids() is still looping over its
 // list when hitParkedHeavy() -> canShift() asks for another one.
-const _scanSolids = [], _hitSolids = [], _shiftSolids = [];
+const _scanSolids = [], _hitSolids = [], _shiftSolids = [], _nearSolids = [];
 export function overlapsAnything(b, self) {
   // Nothing spawns inside the interchange at grade: a car placed in the embankment would sit in the concrete. A box
   // placed up on a deck (b.y above the ground) is the one exception: it stands on the slab, above the embankment, and
@@ -68,6 +81,19 @@ export function overlapsAnything(b, self) {
     if (Math.abs(s.x - b.x) > s.hx + 4 || Math.abs(s.z - b.z) > s.hz + 4) continue; if (sat(b, s.box)) return true;
   }
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
+  return false;
+}
+// Is there a solid within g metres of this car that would stop it: one collideSolids() stops it on (a wall under a deck
+// only for what is under it, a roof only for what is too tall for it)? The BUSTED hold (js/update.js) asks: a player the
+// police have on a wall is still on it when nobody is shoving him into it.
+export function solidWithin(c, g) {
+  const b = carBox(c), reach = b.e1 + b.e2 + g;
+  for (const s of solidsNear(c.x, c.z, reach, _nearSolids)) {
+    if (s.maxY !== undefined && c.y > s.maxY) continue;
+    if (s.headroom !== undefined && c.y + (c.height || 0) <= s.headroom) continue;
+    if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
+    if (satGap(b, s.box) < g) return true;
+  }
   return false;
 }
 export function collideSolids(c) {

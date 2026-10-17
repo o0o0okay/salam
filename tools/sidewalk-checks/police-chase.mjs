@@ -36,6 +36,7 @@ const PLAYER_PARAMS = eval('(' + cfgSrc.match(/export const PLAYER_PARAMS = (\{[
 const DIFF = eval('(' + cfgSrc.match(/export const DIFFICULTIES = (\{[\s\S]*?\n\});/)[1] + ').normal');
 const HEAR_R = +cfgSrc.match(/export const HEAR_R = (\d+)/)[1];
 const POLICE_TIERS = eval('(' + cfgSrc.match(/export const POLICE_TIERS = (\[[\s\S]*?\n\]);/)[1] + ')');
+const PIN_HOLD = eval('(' + cfgSrc.match(/export const PIN_HOLD = (\{[^}]*\});/)[1] + ')');   // js/police.js asks every unit whether he is held
 
 const stubs = `
 const PI = Math.PI, CHUNK = 80;
@@ -75,6 +76,7 @@ const env = { phase: 0.8, day: 0, night: 1, dusk: 0, sx: 0.5, sy: 1 };
 const HEAR_R = ${HEAR_R};
 const PLAYER_PARAMS = ${JSON.stringify(PLAYER_PARAMS)};
 const POLICE_TIERS = ${JSON.stringify(POLICE_TIERS)};
+const PIN_HOLD = ${JSON.stringify(PIN_HOLD)};
 const fx = { hurtCar: 0, hurtPlayer: 0, impactFx: 0, sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');

@@ -34,8 +34,10 @@ export const moonDisc = new THREE.Mesh(new THREE.SphereGeometry(11, 12, 8), new 
 export const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2 });
 `;
 
+// A check can drive the player through js/update.js by setting globalThis.__input ({ throttle, steer, hand, nitro });
+// without it the player's car is left alone.
 const INPUT_STUB = `
-export function readInput(){ return { throttle:0, steer:0, hand:false, nitro:false }; }
+export function readInput(){ return { throttle:0, steer:0, hand:false, nitro:false, ...(globalThis.__input || {}) }; }
 export function initInput(){}
 `;
 
