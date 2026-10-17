@@ -11,12 +11,19 @@
      driving into one, and the player's car; the log is shoved and turned; a light patrol car that drives into a log
      at speed is wrecked, an armoured one is not; a log the player spilled credits the player with the takedown; a log
      that runs into another log truck spills its load; a log just off a trailer leaves its own truck alone;
+   * logs break up: a blow wears a log by the closing speed and the two masses (LOG_HP, LOG_WEAR), once a blow; two or
+     three knocks break it, a hard one or a heavy truck at once, and a fall or another log never wears it. The broken
+     log is gone from the street at once, in three pieces and five splinters that fly the car's way, never into the
+     car, come down on the road and are gone in under 2.6 s, drawn with the logs; the car goes on through, losing only
+     the blow it took to break it, so a log stops one car and not the one behind it;
    * the world: a log knocks down a street prop, a parked car and a shop window, breaks a tree when it is fast and stops
-     at one when it is slow, and stops at a building's wall;
+     at one when it is slow (only cracked), and stops at a building's wall when it is slow and breaks up on it when it
+     is fast;
    * the traffic: a civilian car sees a log lying in its path (and not one beside it, behind it or on another level),
      and a civilian car driving down the street stops short of a log lying across its lane;
-   * clearing: a log is cleared away after LOG_LIFE, at once when it is far from the player, the oldest go first past
-     LOG_MAX, and a new run starts with none; the loose logs are drawn with two instanced meshes.
+   * clearing: a log nothing breaks crumbles away after its own time (0.85 to 1.15 LOG_LIFE, a load's six one by one),
+     shrinking with its underside on the road; at once when it is far from the player; the oldest go first past
+     LOG_MAX, and a new run starts with none and no pieces; the loose logs are drawn with two instanced meshes.
    Run:  node tools/sidewalk-checks/log-spill.mjs      (exits non-zero on a failure) */
 import assert from 'node:assert/strict';
 import { installDom } from './dom.mjs';
@@ -34,11 +41,14 @@ const Col = await import('../../js/collisions.js');
 const LS = await import('../../js/logSpill.js');
 const cfg = await import('../../js/config.js');
 const { LOG_LOAD } = C;
-const { LOG_SPILL_V, LOG_MASS, LOG_HIT_MIN, LOG_DMG_CAR, LOG_DMG_PLAYER, LOG_LIFE, LOG_MAX, DIFF, PLAYER_PARAMS } = cfg;
+const { LOG_SPILL_V, LOG_MASS, LOG_HIT_MIN, LOG_DMG_CAR, LOG_DMG_PLAYER, LOG_HP, LOG_WEAR, LOG_KNOCK_MIN, LOG_LIFE, LOG_MAX, DIFF, PLAYER_PARAMS } = cfg;
 const R = LOG_LOAD.r, HALF = LOG_LOAD.len / 2, DT = 1 / 60;
 let checks = 0;
 const ok = (cond, msg) => { assert(cond, msg); checks++; };
 const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg}: ${a.toFixed(3)} (want ${b.toFixed(3)} ± ${tol})`);
+const mu = m => 1 / (1 / m + 1 / LOG_MASS);                     // the reduced mass of a car and a log
+// what a car of mass m loses going through a log it breaks with hp left: the blow that would just have broken it
+const throughLoss = (m, hp = LOG_HP) => 1.25 * (LOG_HIT_MIN + hp / (mu(m) * LOG_WEAR)) * mu(m) / m;
 
 // ---------------------------------------------------------------------------------------------------------------
 // The load on the trailer
@@ -159,12 +169,14 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
   ok(S.logs.length === 6, 'a log truck spills its load once');
   // the logs come down, spread out and lie still, never in each other
   truck.vx = truck.vz = 0;
-  let worstOverlap = 9;
-  run(15, () => { for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) worstOverlap = Math.min(worstOverlap, capsuleGap(S.logs[i], S.logs[j])); });
+  let worstOverlap = 9, packed = 9, fr = 0;       // packed: the first two frames, the six coming off touching each other
+  run(15, () => { fr++; for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) { const g = capsuleGap(S.logs[i], S.logs[j]); if (fr <= 2) packed = Math.min(packed, g); else worstOverlap = Math.min(worstOverlap, g); } });
   const onRoad = L => L.sleep && Math.abs(L.y - R) < 1e-6, across = L => L.y > R + 0.3 && Math.hypot(L.vx, L.vy, L.vz) < 0.1 && S.logs.some(M => M !== L && M.y < L.y && capsuleGap(L, M) < 2 * R + 0.02);
   ok(S.logs.every(L => onRoad(L) || across(L)), 'fifteen seconds on, every log lies still: asleep on the road, or lying on another log');
   ok(S.logs.filter(onRoad).length >= 4, `most of them on the road itself (${S.logs.filter(onRoad).length} of 6)`);
   ok(worstOverlap > 2 * R - 0.12, `no log ever sinks into another (closest ${worstOverlap.toFixed(2)} m between axes, 0.60 is touching)`);
+  ok(packed > 2 * R - 0.25, `nor far as they leave the trailer packed together (closest ${packed.toFixed(2)} m in the first two frames)`);
+  ok(S.logs.every(L => L.hp === LOG_HP), `the fall off the trailer and the other logs wear none of them (${S.logs.map(L => L.hp.toFixed(1)).join(' ')})`);
   const off = S.logs.map(L => -L.x);
   ok(Math.min(...off) > 1.5 && Math.max(...off) < 30, `they lie off the far side of the trailer, 1.5 to 30 m out (${Math.min(...off).toFixed(1)} to ${Math.max(...off).toFixed(1)})`);
   // a wreck spills its load as well, and counts for the player who did it
@@ -235,10 +247,13 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
   ok(Math.abs(slow.c.hp - want) < 2.5 && !slow.c.wrecked, `a log rolling into a family car at 8 m/s takes about ${(40 - want).toFixed(0)} of its 40 HP (${(40 - slow.c.hp).toFixed(1)})`);
   ok(slow.c.vx > 1.5 && slow.L.vx < 8 - 1.5, `the car is shoved (${slow.c.vx.toFixed(1)} m/s) and the log slowed (${slow.L.vx.toFixed(1)} m/s)`);
   ok(slow.c.panicT > 0, 'the driver panics');
+  const slowWear = (8 - 0.2 - LOG_HIT_MIN) * mu(1.0) * LOG_WEAR;
+  ok(S.logs.includes(slow.L) && Math.abs(LOG_HP - slow.L.hp - slowWear) < 1.5, `the log is cracked by it, not broken (${slow.L.hp.toFixed(1)} of ${LOG_HP} left, about ${(LOG_HP - slowWear).toFixed(1)})`);
   const fast = rollInto(12);
   ok(fast.c.wrecked, `a log rolling into it at 12 m/s wrecks it (${fast.c.hp.toFixed(1)} HP left)`);
+  ok(!S.logs.includes(fast.L) && fast.L.hp <= 0, 'and breaks up on it');
   const crawl = rollInto(1.8);
-  ok(crawl.c.hp === 40, 'a log that only bumps it (under LOG_HIT_MIN) does no harm');
+  ok(crawl.c.hp === 40 && crawl.L.hp === LOG_HP, 'a log that only bumps it (under LOG_HIT_MIN) does no harm, and takes none');
   // a patrol car driving into a log lying across its lane
   const driveInto = (kind, v, byPlayer = false) => {
     fresh(); const L = lone(0, 0, 0, 0, 0, R, { byPlayer }), c = car(kind, -(R + C.CAR_DIMS[kind].e1 + 1.2), 0, Math.PI / 2); c.vx = v;
@@ -247,17 +262,19 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
   const light = driveInto('police1', 15, true);
   ok(light.c.wrecked, `the lightest patrol car driving into a log at 15 m/s is wrecked (${light.c.hp.toFixed(1)} HP)`);
   ok(S.game.takedowns === 1, 'a log the player spilled credits the player with that takedown');
-  ok(light.L.vx > 5 && light.c.vx < 15 - 4, `the log is shoved down the road (${light.L.vx.toFixed(1)} m/s) and the car loses its speed (${light.c.vx.toFixed(1)})`);
+  ok(!S.logs.includes(light.L), 'the log breaks up under the blow');
+  near(light.c.vx, 15 - throughLoss(1.0), 0.02, 'the car goes on through it, losing only the blow it took to break it');
   const armoured = driveInto('police4', 15);
   const lost = C.CAR_DIMS.police4.hp - armoured.c.hp;
   ok(!armoured.c.wrecked && lost > 15 && lost < 40, `an armoured patrol car takes the same blow with ${lost.toFixed(1)} of its ${C.CAR_DIMS.police4.hp} HP`);
+  ok(!S.logs.includes(armoured.L), 'and breaks the log as well');
   const noCredit = driveInto('police1', 15, false);
   ok(noCredit.c.wrecked && S.game.takedowns === 0, 'a log the traffic spilled credits no one');
-  // an off-centre blow turns the log
+  // an off-centre blow turns the log (one that leaves it whole)
   {
-    fresh(); const L = lone(0, 0, 0), c = car('sedan', -(R + 2.05 + 1.0), 2.8, Math.PI / 2); c.vx = 14;
+    fresh(); const L = lone(0, 0, 0), c = car('sedan', -(R + 2.05 + 1.0), 2.8, Math.PI / 2); c.vx = 6;
     run(0.4);
-    ok(Math.abs(L.spin) > 0.5 || Math.abs(L.h) > 0.1, `a car striking the end of a log turns it (spin ${L.spin.toFixed(2)} rad/s, turned ${L.h.toFixed(2)} rad)`);
+    ok(S.logs.includes(L) && (Math.abs(L.spin) > 0.5 || Math.abs(L.h) > 0.1), `a car striking the end of a log turns it (spin ${L.spin.toFixed(2)} rad/s, turned ${L.h.toFixed(2)} rad)`);
   }
   // the player's car
   {
@@ -266,13 +283,22 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
     run(0.4); P.coast = false;
     const lostHp = 100 - S.game.hp, expect = (20 - LOG_HIT_MIN) * LOG_DMG_PLAYER * DIFF.dmg;
     ok(Math.abs(lostHp - expect) < 0.8, `the player's car driving into a log at 20 m/s loses ${lostHp.toFixed(1)} HP (about ${expect.toFixed(1)})`);
-    ok(P.vx < 10 && L.vx > 8, `it is stopped hard (${P.vx.toFixed(1)} m/s) and the log flies on (${L.vx.toFixed(1)} m/s)`);
+    ok(!S.logs.includes(L), 'and smashes it to pieces');
+    near(P.vx, 20 - throughLoss(C.CAR_DIMS.player.mass), 0.02, `going on through them at most of its speed`);
+  }
+  // a car pushed against a log lying still (by something else: it has no way of its own), the log against another one:
+  // the log it shoves wakes, so the two part instead of sinking into each other
+  {
+    fresh(); const a = lone(0, 0, 0), b = lone(-2 * R, 0, 0); a.sleep = b.sleep = true;
+    const c = car('sedan', R + 0.95 - 0.01, 0, 0); let worst = 9;
+    run(1, () => { c.x -= 0.01; worst = Math.min(worst, capsuleGap(a, b)); });
+    ok(worst > 2 * R - 0.05, `a car shoved against a log lying against another does not push one into the other (closest ${worst.toFixed(2)} m)`);
   }
   // a log that runs into another log truck knocks that load off too
   {
     fresh(); const L = lone(0, 0, 0, 11, 0, R, { byPlayer: true }), t = car('logtruck', R + 1.35 + 0.4, 0, 0);
     run(0.4);
-    ok(t.spilled && S.logs.length === 7 && S.logs.every(l => l.byPlayer), `a log rolling into a log truck at 11 m/s spills its load as well (${S.logs.length} logs, all on the player's account)`);
+    ok(t.spilled && S.logs.length === 6 && !S.logs.includes(L) && S.logs.every(l => l.byPlayer), `a log rolling into a log truck at 11 m/s spills its load as well, breaking up on it (${S.logs.length} logs, all on the player's account)`);
   }
   // logs with no way of their own off the trailer (a hit straight from behind) still slide off it over the side,
   // and the bed holds them up until they are past its edge: none drops through the trailer onto the road under it
@@ -281,20 +307,142 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
     for (const L of S.logs) { L.vx = t.vx; L.vz = t.vz; L.vy = 0; }
     const BED_Y = LOG_LOAD.at[0][1] - R, s = Math.sin(t.h), co = Math.cos(t.h);
     const local = L => [(L.x - t.x) * co - (L.z - t.z) * s, (L.x - t.x) * s + (L.z - t.z) * co];
-    let through = 0;
-    run(4, () => { for (const L of S.logs) { const [lx, lz] = local(L); if (Math.abs(lx) < 0.95 && Math.abs(lz - LOG_LOAD.z) < 3.7 && L.y < BED_Y + R - 0.05) through++; } });
+    let through = 0, offBy = Infinity, t0 = S.game.time;
+    run(4, () => {
+      for (const L of S.logs) { const [lx, lz] = local(L); if (Math.abs(lx) < 0.95 && Math.abs(lz - LOG_LOAD.z) < 3.7 && L.y < BED_Y + R - 0.05) through++; }
+      if (offBy === Infinity && S.logs.every(L => Math.abs(local(L)[0]) > 1.0 + R)) offBy = S.game.time - t0;
+    });
     ok(through === 0, 'no log drops through the trailer bed');
+    ok(offBy < 1.2, `they are all off the bed within 1.2 s (${offBy.toFixed(2)} s)`);
     ok(S.logs.every(L => Math.abs(local(L)[0]) > 1.35 + R - 0.05), `every log has come off the side of the trailer (${S.logs.map(L => Math.abs(local(L)[0]).toFixed(2)).join(' ')})`);
   }
   // logs coming off a trailer leave their truck alone, and land beside it, not under it
   {
     fresh(); const t = car('logtruck', 0, 0, 0);
     t.vz = 5; LS.spillLogs(t, 0, 0, 0, false);
-    run(4);
+    run(1);                                     // (once down, a log lying by the road may be brushed by the trailer)
     ok(Math.abs(t.vz - 5) < 1e-9 && t.vx === 0, 'the falling load does not shove its own truck');
+    run(3);
     const s = Math.sin(t.h), co = Math.cos(t.h);
     ok(S.logs.every(L => Math.abs((L.x - t.x) * co - (L.z - t.z) * s) > 1.35 || Math.abs((L.x - t.x) * s + (L.z - t.z) * co) > 6.1), 'none of the logs ends up lying under its truck');
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Logs break up
+// ---------------------------------------------------------------------------------------------------------------
+{
+  const { surfaceAt } = await import('../../js/flyover.js');
+  const e1Of = kind => kind === 'player' ? P.box.e1 : C.CAR_DIMS[kind].e1;
+  // how fast a piece (as it was born, a frame back) leaves the face of a car's box it is nearest, against the car
+  const away = (c, p) => {
+    const s = Math.sin(c.h), co = Math.cos(c.h), dx = p.x - p.vx * DT - c.x, dz = p.z - p.vz * DT - c.z, lf = dx * s + dz * co, ll = dx * co - dz * s;
+    const ends = c.box.e1 - Math.abs(lf) < c.box.e2 - Math.abs(ll), sg = (ends ? lf : ll) >= 0 ? 1 : -1;
+    return (p.vx - c.vx) * (ends ? s * sg : co * sg) + (p.vz - c.vz) * (ends ? co * sg : -s * sg);
+  };
+  // a car of a kind driving at v into the log L lying across its way (at the origin, along z), as many times as asked,
+  // the log put back still between knocks; L's strength after each
+  const knocks = (kind, v, n, L) => {
+    const left = [];
+    for (let k = 0; k < n && S.logs.includes(L); k++) {
+      Object.assign(L, { x: 0, y: R, z: 0, h: 0, vx: 0, vy: 0, vz: 0, spin: 0, sleep: false });
+      const c = car(kind, -(R + e1Of(kind) + 0.6), 0, Math.PI / 2); c.vx = v;
+      run(0.4); V.removeCar(c); left.push(S.logs.includes(L) ? L.hp : 0);
+    }
+    return left;
+  };
+  // the wear: by the closing speed over LOG_HIT_MIN and the two masses
+  fresh();
+  let L = lone(0, 0, 0);
+  const w5 = (5 - LOG_HIT_MIN) * mu(1.0) * LOG_WEAR, left = knocks('sedan', 5, 4, L);
+  near(LOG_HP - left[0], w5, 0.01, 'a family car driving into a log at 5 m/s takes (5 - LOG_HIT_MIN) x LOG_WEAR x the reduced mass off it');
+  near(LOG_HP - left[1], 2 * w5, 0.01, 'the next knock as much again');
+  ok(left.length === 3 && left[2] === 0 && !S.logs.includes(L), `and the third breaks it (${left.map(h => h.toFixed(1)).join(', ')})`);
+  fresh(); L = lone(0, 0, 0);
+  const sedan6 = knocks('sedan', 6, 1, L)[0];
+  fresh(); L = lone(0, 0, 0);
+  const heavy6 = knocks('police4', 6, 1, L)[0];
+  ok(sedan6 > 0 && heavy6 === 0, `at 6 m/s a family car only cracks a log (${sedan6.toFixed(1)} left), an armoured patrol truck breaks it at once`);
+  // one blow wears a log once, however many frames the two touch for: a car that keeps driving at 4 m/s into a log
+  // held where it lies (as against a wall)
+  fresh(); L = lone(0, 0, 0);
+  { const c = car('sedan', -(R + 2.05 + 0.3), 0, Math.PI / 2); c.vx = 4; let n = 0, last = LOG_HP;
+    run(0.25, () => { if (L.hp < last) { n++; last = L.hp; } c.vx = 4; L.vx = L.vz = 0; L.x = 0; });
+    ok(n === 1 && S.logs.includes(L), `a car pressing on into a log wears it once in 0.3 s, not every frame it touches (${n})`); }
+  // the break: the log is gone at once, in three pieces and five splinters, drawn with the logs
+  fresh(); L = lone(0, 0, 0);
+  const cop = car('police1', -(R + e1Of('police1') + 0.6), 0, Math.PI / 2); cop.vx = 15;
+  let broke = false;
+  run(0.5, () => { if (!S.logs.includes(L)) { broke = true; return false; } });
+  const pcs = LS.logPieces().slice(), thick = pcs.filter(p => p.r === R), thin = pcs.filter(p => p.r < R);
+  ok(broke && L.hp <= 0, 'the blow that takes the last of a log takes it out of the street that frame');
+  ok(thick.length === 3 && thin.length === 5, `it breaks into three pieces and five splinters (${thick.length}, ${thin.length})`);
+  ok(pcs.every(p => Math.abs((p.x - L.x) * Math.cos(L.h) - (p.z - L.z) * Math.sin(L.h)) < 1.2 && Math.abs((p.x - L.x) * Math.sin(L.h) + (p.z - L.z) * Math.cos(L.h)) < HALF + 0.5),
+    'every piece starts where its part of the log lay');
+  ok(thick.reduce((a, p) => a + 2 * p.half, 0) < 2 * HALF && thick.every(p => 2 * p.half > 1 && 2 * p.half < 0.45 * 2 * HALF), `the pieces are short lengths of it (${thick.map(p => (2 * p.half).toFixed(2)).join(', ')} m)`);
+  ok(thin.every(p => p.r <= 0.3 * R + 1e-9 && 2 * p.half <= 1.6 + 1e-9), 'the splinters thin sticks of it');
+  { const slow = Math.min(...pcs.map(p => away(cop, p)));
+    ok(slow > 1 - 1e-6, `every piece and splinter leaves the car's nearest face at 1 m/s or more, none into it (the slowest ${slow.toFixed(2)} m/s)`); }
+  {
+    const byLane = thick.slice().sort((a, b) => Math.abs(a.z) - Math.abs(b.z)), [inWay, ...aside] = byLane;   // the car runs along z = 0
+    ok(pcs.every(p => p.vy > 0) && inWay.vx > cop.vx + 1, `they are thrown up, the piece in the car's way on ahead of it (${inWay.vx.toFixed(1)} m/s; the car ${cop.vx.toFixed(1)})`);
+    ok(aside.every(p => p.vx > 0 && p.vz * Math.sign(p.z) > 1.5), `and the others aside, out of its way (${aside.map(p => `${p.vx.toFixed(1)}, ${p.vz.toFixed(1)}`).join('; ')})`);
+  }
+  {
+    const { bark, ends } = LS.logMeshes(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), k = new THREE.Vector3();
+    ok(bark.count === S.logs.length + pcs.length && ends.count === bark.count && bark.visible, `the pieces are drawn after the logs, with the same two meshes (${bark.count})`);
+    const i = S.logs.length + pcs.indexOf(thick[0]), p = thick[0], kk = Math.min(1, (p.life - p.age) / 0.45);
+    bark.getMatrixAt(i, m); m.decompose(pos, q, k);
+    ok(Math.abs(k.z - 2 * p.half / LOG_LOAD.len * kk) < 1e-6 && Math.abs(k.x - kk) < 1e-6 && pos.distanceTo(new THREE.Vector3(p.x, p.y - (p.half * Math.abs(Math.sin(p.pitch)) + p.r * Math.abs(Math.cos(p.pitch))) * (1 - kk), p.z)) < 1e-6,
+      'a piece is drawn where it is, as short as it is');
+  }
+  // they fly, never into the car and never into the road, come down and are gone
+  let inCar = 0, sunk = 0, maxY = 0;
+  run(2.7, () => {
+    const s = Math.sin(cop.h), co = Math.cos(cop.h);
+    for (const p of LS.logPieces()) {
+      const dx = p.x - cop.x, dz = p.z - cop.z;
+      if (p.r === R && Math.abs(dx * s + dz * co) < cop.box.e1 && Math.abs(dx * co - dz * s) < cop.box.e2 && p.y - p.r < 1.6) inCar++;
+      sunk = Math.min(sunk, p.y - (p.half * Math.abs(Math.sin(p.pitch)) + p.r * Math.abs(Math.cos(p.pitch))) - surfaceAt(p.x, p.z, p.y));
+      maxY = Math.max(maxY, p.y);
+    }
+  });
+  ok(inCar === 0, `no piece goes through the car that broke it (${inCar} frames)`);
+  ok(sunk > -1e-9 && maxY > 1 && maxY < 6, `they fly (up to ${maxY.toFixed(1)} m) and come down on the road, never into it`);
+  ok(LS.logPieces().length === 0 && LS.logMeshes().bark.count === 0, 'and are all gone in under 2.6 s');
+  // a log rolling into a car standing still breaks up on it: every piece leaves the car's side, none goes into it
+  {
+    fresh(); L = lone(0, 0, 0.4, 15, 0); const c = car('sedan', R + 0.95 + 0.6, 0, 0);
+    const out = p => { const s = Math.sin(c.h), co = Math.cos(c.h), dx = p.x - c.x, dz = p.z - c.z; return Math.max(Math.abs(dx * s + dz * co) - c.box.e1, Math.abs(dx * co - dz * s) - c.box.e2); };
+    let born = null, slowest = Infinity;
+    run(0.5, () => { if (!born && LS.logPieces().length) { born = LS.logPieces().map(p => [p, out(p)]); slowest = Math.min(...LS.logPieces().map(p => away(c, p))); } });
+    ok(slowest > 1 - 1e-6, `every piece leaves the car's nearest face at 1 m/s or more (the slowest ${slowest.toFixed(2)} m/s)`);
+    run(0.25);
+    ok(born && born.length === 8 && born.every(([p, d0]) => out(p) > d0 + 0.1), `the pieces of a log that breaks on a car standing still all fly off it (${born && born.map(([p, d0]) => (out(p) - d0).toFixed(2)).join(' ')} m further out)`);
+  }
+  // a log stops one car, not the one behind it
+  fresh(); L = lone(0, 0, 0);
+  const first = car('police1', -(R + e1Of('police1') + 0.6), 0, Math.PI / 2), second = car('police1', first.x - 9, 0, Math.PI / 2);
+  first.vx = second.vx = 15;
+  run(1.2);
+  ok(first.wrecked && !S.logs.includes(L), 'the first patrol car into a log is wrecked and breaks it');
+  ok(second.hp === C.CAR_DIMS.police1.hp && second.vx === 15 && second.x > 5, `the one right behind it drives on through, untouched (${second.hp} HP, ${second.vx} m/s)`);
+  // two cars into one log in the same frame: it breaks once, and the second car goes through what is left
+  fresh(); L = lone(0, 0, 0);
+  {
+    const a = car('police1', -(R + e1Of('police1') + 0.6), -1.6, Math.PI / 2), b = car('police1', a.x, 1.6, Math.PI / 2);
+    a.vx = b.vx = 15; let n = 0;
+    run(0.4, () => { n = Math.max(n, LS.logPieces().length); });
+    ok(!S.logs.includes(L) && n === 8, `two patrol cars driving into one log side by side break it once (${n} pieces)`);
+    ok(Math.min(a.vx, b.vx) > 15 - throughLoss(1.0) - 1e-6, `and neither is stopped harder than one going through it (${a.vx.toFixed(2)}, ${b.vx.toFixed(2)} m/s)`);
+  }
+  // a new run: no pieces left over
+  fresh(); L = lone(0, 0, 0); { const c = car('police1', -(R + e1Of('police1') + 0.6), 0, Math.PI / 2); c.vx = 20; run(0.2); }
+  ok(LS.logPieces().length > 0, 'pieces in the air');
+  const { resetWorld } = await import('../../js/flow.js');
+  resetWorld();
+  ok(LS.logPieces().length === 0 && LS.logMeshes().bark.count === 0, 'a new run starts with no pieces of logs either');
+  fresh();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -348,6 +496,7 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
   const L2 = roll(t2.a, 5, 2);
   ok(!t2.t.tree.broken, 'a log at 5 m/s does not');
   ok(past(L2, t2) < 0.05, `it stops at the tree, not through it (${past(L2, t2).toFixed(2)} m)`);
+  ok(S.logs.includes(L2) && L2.hp > LOG_HP / 2, `and is no more than cracked by it (${L2.hp.toFixed(1)} of ${LOG_HP} left)`);
   // a parked car and a shop window
   const pk = pickSolid(solids.filter(s => s.parked && !s.parked.broken && !W.isHeavyParked(s.parked.mass)));
   ok(pk, 'a parked car to roll a log into');
@@ -360,9 +509,13 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
   // a building's wall stops it
   const bw = pickSolid(solids.filter(s => s.kind === 'building' && s.hx > 3 && s.hz > 3));
   ok(bw, 'a building to roll a log at');
-  const Lw = roll(bw.a, 8, 2);
-  ok(past(Lw, bw) < 0.05, `a log rolling at a wall at 8 m/s stops outside it (${past(Lw, bw).toFixed(2)} m)`);
+  const Lw = roll(bw.a, 5, 2);
+  ok(past(Lw, bw) < 0.05, `a log rolling at a wall at 5 m/s stops outside it (${past(Lw, bw).toFixed(2)} m)`);
   ok(Lw.vx * bw.a.ux + Lw.vz * bw.a.uz <= 0.05, 'and is not still going into it');
+  ok(S.logs.includes(Lw) && Lw.hp > LOG_HP / 2, `nor much the worse for it (${Lw.hp.toFixed(1)} of ${LOG_HP} left)`);
+  const Lf = roll(bw.a, 9, 0.5);
+  ok(!S.logs.includes(Lf) && LS.logPieces().length === 8 && past(Lf, bw) < 0.05, 'one rolling at it at 9 m/s breaks up against it');
+  LS.clearLogs();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -390,8 +543,8 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
     const along = c.axis === 'z' ? c.z : c.x, lo = Math.min(along, along + c.dir * 34) - 12, hi = Math.max(along, along + c.dir * 34) + 12;
     return Math.ceil(lo / 80) * 80 > hi;                                // no junction (and so no lights) on the way
   };
-  const c = S.civs.find(clearRun);
-  ok(c, 'a car in the traffic with a clear run down its street');
+  const c = S.civs.find(c => clearRun(c) && c.cruise >= 6);              // (not one queued in a jam, crawling)
+  ok(c, 'a car in the traffic cruising down a street with a clear run');
   for (const o of S.cars.slice()) if (o !== P && o !== c) V.removeCar(o);
   const lx = c.axis === 'z' ? c.road - c.dir * c.off : c.x + c.dir * 24, lz = c.axis === 'z' ? c.z + c.dir * 24 : c.road + c.dir * c.off;
   ok(surfaceAt(lx, lz, 5) === 0, 'the log lies on the street, not under a flyover');
@@ -439,13 +592,21 @@ const capsuleGap = (A, B) => {                // the distance between two logs' 
     bark.getColorAt(i, col);
     ok(col.getHex() === LOG_LOAD.bark[L.shade], `log ${i} in its own bark`);
   });
-  run(LOG_LIFE - 1 - 0.5);
-  ok(S.logs.length === 6, 'the logs lie in the street for LOG_LIFE');
-  run(1);
-  const going = S.logs[0]; bark.getMatrixAt(0, m); m.decompose(p, q, k);
-  ok(going.out > 0 && k.x < 1, `then they are cleared away, shrinking out (scale ${k.x.toFixed(2)})`);
-  run(1);
-  ok(S.logs.length === 0 && bark.count === 0 && !bark.visible, 'and are gone');
+  // nothing breaks them: each lies for a time of its own, from 0.85 LOG_LIFE to 1.15, so the load goes a log at a time
+  const lives = S.logs.map(L => L.life), all = S.logs.slice(), byLife = lives.slice().sort((a, b) => a - b);
+  ok(byLife.every((l, k) => Math.abs(l - LOG_LIFE * (0.85 + 0.06 * k)) < 1e-9), `the six lie from 0.85 to 1.15 LOG_LIFE, 0.06 LOG_LIFE apart: one at a time (${lives.map(l => l.toFixed(1)).join(' ')} s)`);
+  ok(Math.abs(all[2].life - byLife[0]) < 1e-9 && Math.abs(all[3].life - byLife[5]) < 1e-9, 'and not from one end of the stack to the other');
+  run(0.85 * LOG_LIFE - 1 - 0.1);
+  ok(S.logs.length === 6 && S.logs.every(L => !L.out), 'they all lie in the street for most of LOG_LIFE');
+  let going = null;
+  run(0.35 * LOG_LIFE, () => { going = S.logs.find(L => L.out > 0.3); if (going) return false; });
+  ok(going && S.logs.every(L => (L.out > 0) === (L.age > L.life)), 'then each starts to crumble away when its own time is up, and only then');
+  { const i = S.logs.indexOf(going), kk = 1 - going.out / 0.8; bark.getMatrixAt(i, m); m.decompose(p, q, k);
+    ok(Math.abs(k.x - kk) < 1e-6 && kk < 1 && Math.abs(p.y - R * k.x - (going.y - R)) < 1e-6, `shrinking out with its underside on the road (scale ${k.x.toFixed(2)})`); }
+  run(0.8);
+  ok(!S.logs.includes(going), 'and is gone');
+  run(0.3 * LOG_LIFE + 1);
+  ok(S.logs.length === 0 && all.every(L => L.hp === LOG_HP) && bark.count === 0 && !bark.visible, 'by 1.15 LOG_LIFE they are all gone, none of them broken');
   // far from the player, at once
   fresh(); lone(0, 0, 0); Object.assign(P, { x: 0, z: 300 }); run(DT);
   ok(S.logs.length === 0, 'a log far from the player is cleared at once');

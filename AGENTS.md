@@ -58,7 +58,8 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 - `js/collisions.js`, `js/damage.js` — car-vs-world and car-vs-car collisions and all damage.
   `ENV_DMG` in `js/config.js` scales the damage from hits on the scenery (walls, trees, props).
 - `js/logSpill.js` — a log truck's load spilled by a hard hit: the loose logs (their rolling, their hits on cars
-  and on the street), the traffic's look-out for them (`logAhead`) and their instanced meshes.
+  and on the street, the wear that breaks them up into pieces, their crumbling away after `LOG_LIFE`), the traffic's
+  look-out for them (`logAhead`) and their instanced meshes.
 - `js/config.js` — difficulty table and tunables. Prefer changing a constant here to editing logic.
 - `js/perf.js` — the `?debug` overlay (frame, update and render time, draw calls, counts). Off by default.
 

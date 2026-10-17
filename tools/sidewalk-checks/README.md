@@ -33,7 +33,7 @@ node tools/sidewalk-checks/districts.mjs  # district map: all four present, most
 node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
 node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
-node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down
+node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down, break up, crumble away
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -491,21 +491,42 @@ wrecks a family car and a light patrol car driving into one at speed is wrecked;
 the player spilled credits the player with what it wrecks, a civilian it hits panics, and a log that runs into another
 log truck spills that load too. The traffic slows for a log lying in its lane and stops short of it on the handbrake
 (`logAhead`, used by `civAI`); the police do not, so a spill is something to lead a chase into. The hits knock with a
-wooden thud (`sfx.thud`) and shed bark chips. A log is cleared away after `LOG_LIFE` (50 s, shrinking out), at once
-when it is far from the player, and the oldest go first past `LOG_MAX` (48); a new run starts with none. The loose logs
+wooden thud (`sfx.thud`) and shed bark chips.
+A log is no wall, though: every blow wears it down. `LOG_HP` (20) is what it can take; a blow between a log and a car
+takes `LOG_WEAR` (5) off it for every m/s of closing speed over `LOG_HIT_MIN`, times the reduced mass of the two (the
+heavier the car, the harder the blow), once a blow (a car pushing a log along wears it once in 0.3 s, not every frame).
+So the player's car breaks a log at about 8 m/s (29 km/h), a family car or the lightest patrol car at about 9, a bus or
+a heavy truck at 5 or 6; a slower knock cracks it (a few chips of the light wood fly), and two or three of those break
+it. A knock off the world wears it by the speed it loses in it over `LOG_KNOCK_MIN` (6 m/s), times its mass: a log
+rolling at a wall at 8 m/s breaks up on it and one at 5 m/s does not, and smashing through a street prop costs it
+little. The fall off the trailer and the other logs never wear one. The blow that takes the last of a log breaks it up:
+it is out of the street that frame, in three pieces and five long splinters (the logs' own two meshes, scaled), with a
+burst of bark and light-wood chips, a puff of dust and a crack (`sfx.splinter`). The car is hurt by the blow as before
+and goes on through, losing only the blow that would just have broken the log; the piece in its way flies on ahead of it
+and off to the side, the others are knocked aside, and none flies into the car. The pieces tumble, bounce, scrape to a
+stop and shrink out in under 2.6 s, and touch nothing: a log stops one car, not every car after it.
+A log that nothing breaks crumbles away after a time of its own: the six of a load at 0.85 to 1.15 `LOG_LIFE` (20 s),
+1.2 s apart, so a load goes a log at a time, with a little dust, shrinking out with its underside on the road. One far from the player goes at once,
+and the oldest go first past `LOG_MAX` (48); a new run starts with no logs and no pieces. The loose logs and the pieces
 are drawn with two instanced meshes. The cooldown between log hits on a car (`logHitAt`) is set by `createCar`, so a
 new run's player car does not carry the last run's clock.
 `log-spill.mjs` checks the load on the trailer: its own group, where `LOG_LOAD` says, every vertex on a log, the cut ends'
 rims on the bark's edge, nothing of it left in the body, its geometry shared, and no load on any other vehicle. Then the
 spill: a nudge does not and a ram does, once; where each log starts, its turn, its bark and its owner; the way they go;
-that they come to rest without ever lying in each other; that a wreck and a patrol car's ram spill a load and a box
-trailer does not. A log on the road: rolling against sliding, coming to rest, turning as it rolls, lying across one log
+that they come to rest without ever lying in each other, none worn by the fall; that a wreck and a patrol car's ram
+spill a load and a box trailer does not. A log on the road: rolling against sliding, coming to rest, turning as it rolls, lying across one log
 or two, tipping off one. The cars: the damage by closing speed, the shove and the panic, a family car wrecked, a light
 and an armoured patrol car driving into a log, the takedown credit, the turn from a blow off the middle, the player's
-car, the chain spill, logs sliding off the trailer and leaving their own truck alone. The street, on real chunks: a
-prop, a tree (fast and slow), a parked car, a shop window, a building's wall. The traffic: what `logAhead` sees, and a
-real civilian car driven by `civAI` that stops short of a log lying across its lane. And the clearing and the drawing:
-`resetWorld`, the two instanced meshes, `LOG_LIFE`, the distance, `LOG_MAX`.
+car, the chain spill, logs sliding off the trailer and leaving their own truck alone. The breaking: the wear by the
+closing speed and the masses, three knocks of a family car at 5 m/s, one blow worn once however long a car pushes, a
+family car against an armoured truck at 6 m/s, the pieces (three and five, where the log lay, their lengths, thrown up,
+the one in the car's way on ahead and the others aside, drawn after the logs, never in the car nor in the road, gone in
+2.6 s), the car going on at its speed less the blow, the logs cracked and broken in the checks above (a family car's
+8 and 12 m/s, the patrol cars, the player's car, the chain spill), the patrol car behind the one that broke a log, and
+no pieces in a new run. The street, on real chunks: a prop, a tree (fast, and slow, only cracked), a parked car, a shop
+window, a building's wall (slow, whole; fast, broken up). The traffic: what `logAhead` sees, and a real civilian car
+driven by `civAI` that stops short of a log lying across its lane. And the clearing and the drawing: `resetWorld`, the
+two instanced meshes, each log's own `LOG_LIFE`, crumbling with its underside on the road, the distance, `LOG_MAX`.
 
 ### Flyover approach nose protection
 

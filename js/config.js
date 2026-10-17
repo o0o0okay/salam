@@ -77,7 +77,18 @@ export const LOG_DMG_PLAYER = 0.6;
 // also loses 0.3 of its speed a second, so a log rolling at 6 m/s comes to rest in about 6 m, at 10 m/s in about 13).
 export const LOG_ROLL_DECEL = 1.8;
 export const LOG_SLIDE_DECEL = 9;
-// How long a spilled log lies in the street before it is cleared away (s), and how many can be out at once (past
-// that, the oldest are cleared first).
-export const LOG_LIFE = 50;
+// A log is no wall: the blows it takes wear it down, and then it breaks up. LOG_HP is how much it can take. A blow
+// between a log and a car takes LOG_WEAR off it for every m/s of closing speed over LOG_HIT_MIN, times the reduced mass
+// of the two (m·M/(m+M): the heavier the car, the harder the blow). So the player's car breaks a log at about 8 m/s
+// (29 km/h), a family car or the lightest patrol car at about 9, a bus or a heavy truck at 5 or 6; a slower blow cracks
+// it, and two or three of those break it. The car is hurt by the blow as before and goes on through the pieces, losing
+// only the speed it took to break the log. A knock off the world (a wall, a parapet, a tram) wears a log by the speed
+// it loses in it over LOG_KNOCK_MIN (m/s), times its own mass: rolling at a wall at 8 m/s breaks it, at 5 it does not.
+export const LOG_HP = 20;
+export const LOG_WEAR = 5;
+export const LOG_KNOCK_MIN = 6;
+// How long a spilled log that nothing breaks lies in the street before it crumbles away (s; the six logs of a load
+// from 0.85 to 1.15 times this, 1.2 s apart at 20 s, so a load goes one log at a time), and how many can be out at
+// once (past that, the oldest go first).
+export const LOG_LIFE = 20;
 export const LOG_MAX = 48;
