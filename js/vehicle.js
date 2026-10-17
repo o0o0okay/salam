@@ -34,7 +34,7 @@ export function createCar(kind, x, z, h, params, color) {
 
 export function removeCar(c) {
   scene.remove(c.mesh);
-  if (c.lights) { if (c.lights.red) c.lights.red.dispose(); if (c.lights.blue) c.lights.blue.dispose(); }
+  if (c.lights) { if (c.lights.red) c.lights.red.dispose(); if (c.lights.blue) c.lights.blue.dispose(); if (c.lights.amber) c.lights.amber.dispose(); }
   const i = cars.indexOf(c); if (i >= 0) cars.splice(i, 1);
   const j = police.indexOf(c); if (j >= 0) police.splice(j, 1);
   const k = civs.indexOf(c); if (k >= 0) civs.splice(k, 1);
@@ -109,6 +109,7 @@ export function driveCar(c, inp, dt) {
 
 
 
+const BEACON_HZ = 1.6, BEACON_ON = 0.4;                      // the beacons' flashes a second, and how much of each it is lit
 export function syncCarMesh(c, dt) {
   c.mesh.position.set(c.x, c.y, c.z); c.mesh.rotation.y = c.h;
   const tr = clamp(c.steer * c.speed * 0.0007 + c.vl * 0.004, -0.09, 0.09), tp = clamp(-c.acc * 0.0016, -0.05, 0.05);
@@ -121,4 +122,8 @@ export function syncCarMesh(c, dt) {
   c.gpitch = lerp(c.gpitch || 0, target, 1 - Math.exp(-dt * (c.air ? 4.5 : 8)));
   c.inner.rotation.z = c.roll; c.inner.rotation.x = c.pitch + c.gpitch;
   if (c.mesh.userData.mixer) c.mesh.userData.mixer.rotation.z += dt * (0.6 + Math.min(2, c.speed * 0.08));
+  // the garbage truck's amber beacons turn: a flash 1.6 times a second, each truck on its own phase (flashPh, random
+  // when the car was made), and dark once the truck is wrecked
+  const beacon = c.mesh.userData.beacon;
+  if (beacon) { c.flashPh += dt; beacon.color.setHex(!c.wrecked && (c.flashPh * BEACON_HZ) % 1 < BEACON_ON ? 0xffa41f : 0x3a2406); }
 }

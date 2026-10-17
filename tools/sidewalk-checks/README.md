@@ -32,6 +32,7 @@ node tools/sidewalk-checks/solid-index.mjs  # the solid index (solidsNear) retur
 node tools/sidewalk-checks/districts.mjs  # district map: all four present, mostly one region each, the block mix per district, estates only in suburbs
 node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
+node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -441,6 +442,32 @@ doors (its letters side by side: the flank's is 2.15 m long), and the body geome
 checks the traffic share, and the chime on a stand-in audio clock: the tune from its first notes and in time at 60 and
 20 frames a second, round again after its 37 notes, louder nearer the van, silent from 80 m or with the game not
 running, from the top after a silence, and in time after a stall.
+
+### The garbage truck
+
+The garbage truck (`garbage` in `js/carModels.js`) is a rear-loading refuse truck, 8.7 m long on three axles: one under
+the cab and a tandem at the back. The flat-fronted cab has a black grille, mirrors, steps, a trim stripe and two amber
+beacons on its roof, with the exhaust stack behind it. The compactor body is ribbed down its flanks, with a logo panel (a
+recycling triangle) and a red and white reflective strip along its foot; between the axles are the guard rails, the fuel
+tank and the battery box. At the back the tailgate's face slopes out over the loading mouth, and the mouth is open: bags,
+a blue bin, a carton and odds and ends lie in it, in front of its dark back wall. Under it are the red and white chevron
+bar, the crew's steps and grab handles; the hydraulic rams run up the tailgate's sides and two more beacons stand on top.
+It comes in three liveries (`GARBAGE_LIVERIES`): green with a white cab, grey with orange trim, and white with a yellow
+band. Two trucks of one livery share their geometry. The four beacons are a light material the truck owns, so they are
+not merged with the body: `syncCarMesh` (`js/vehicle.js`) flashes them 1.6 times a second, each truck on its own phase,
+and they go dark on a wreck. `removeCar` frees that material. It never freed the school bus's and the fire engine's
+amber lights either, and now does. The truck is one civilian car in 26 (`CIV_KINDS` in `js/civilians.js`), about five
+among the 130 cars around the player. It drives like the cement mixer, heavy and slow, and crawls along its round at
+5.5 to 8 m/s.
+`garbage-truck.mjs` checks the model in each livery: inside its `CAR_DIMS` box and 3.6 to 4 m high, three axles (one
+under the cab, a tandem at the back) with a tyre each side, the cab in its colour with its windscreen, the trim stripe
+and the exhaust stack. Rays from behind check that the tailgate's face slopes out over the mouth, that the mouth is open
+(every ray goes past the face, and the back wall stands well inside it) with rubbish in four colours or more, and that
+the chevron bar is red and white. Rays from the side check the reflective strip on both flanks, and the white truck's
+band runs down both flanks. It checks the four beacons, two on the cab roof and two on the tailgate, in an amber light
+each truck owns, and the geometry two trucks share. On real cars (`createCar`, `syncCarMesh`) it checks the flashes,
+about 1.6 a second and lit for about 0.4 of each, two trucks out of step, the dark wreck and the freed material, and
+then the traffic share.
 
 ### Flyover approach nose protection
 
