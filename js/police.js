@@ -383,7 +383,7 @@ export function policeAI(p, dt) {
   //    It runs its own lane out past the end of the structure first when it is still alongside it, then crosses
   //    to the lane on the player's side: the structure's own retaining wall runs the whole length of the ramp, so
   //    a diagonal aim across it just scrapes along the wall.
-  let bridgeTurn = false;
+  let bridgeTurn = false, rideRamp = false;
   const plv = structureLevel(player.x, player.y, player.z), pf = plv && plv.level === 'deck' ? plv.f : null;
   if (pf) {                                // the player is up on the structure
     if (p.y > 1.2 && (p.role === 'bridgeBlock' || (p.role === 'bridgeAtk' && HOLD.attack))) {
@@ -408,7 +408,7 @@ export function policeAI(p, dt) {
     const onF = !ramming && p.y > FLY.on && surfaceAt(p.x, p.z, p.y) > 0 ? flyoverNear(p.x, p.z) : null;
     if (onF) {                                             // this one is up on the structure, the player is not: come down
       rampExit(onF, p.x, p.z, onF.axis === 'z' ? Math.cos(p.h) : Math.sin(p.h), 2.5, 9, _lane);
-      tx = _lane.x; tz = _lane.z;
+      tx = _lane.x; tz = _lane.z; rideRamp = true;
     } else if (!ramming && player.y <= 2) {                 // both on the ground: the structure may be in between
       const nf = flyoverNear(p.x, p.z, roadEdge() + 16);
       if (nf && moundInWay(p, nf, aimX, aimZ)) {
@@ -462,7 +462,7 @@ export function policeAI(p, dt) {
           // than the few metres left. (Cars sent sideways from here swung in between the walls all the same, or stopped
           // against the wall's end.) So it carries straight on up the ramp in its own lane, and the rule for a car up on
           // the structure (rampExit) brings it down the far side.
-          else if (inward && out < beyondGuard - 0.5) laneAim(nf, u + dirU * 12, midV, _lane);
+          else if (inward && out < beyondGuard - 0.5) { laneAim(nf, u + dirU * 12, midV, _lane); rideRamp = true; }
           else if (out < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), midV, _lane);
           else laneAim(nf, spanEnd(nf, u, beyondGuard), my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
@@ -487,8 +487,15 @@ export function policeAI(p, dt) {
   // comes to rest against the wall of the alley it has just passed.
   // Not beside a flyover: the bridge rules above and below own the speed there.
   if (!ramming && p.role === 'chaser' && p.y <= 1.2 && d < 12 && Math.abs(diff) > 0.5 && vf > 8 && !pf && !flyoverNear(p.x, p.z, roadEdge() + 16)) throttle = -1;
+  // A car that a bridge rule is taking up or over the structure (rampExit, or on up the ramp from its foot) reads the
+  // ramp's slices as road, the way the traffic does once it is riding the structure (js/civilians.js). Each slice tops
+  // out below the ramp surface at its own downhill end, so the slices further up the ramp stand above the car's own
+  // height and the probe read them as a wall ahead. The car swerved into the parapet, scraped along it, and the stuck
+  // test reversed it back off the ramp. The retaining walls and the abutment's end face are not slices and are still
+  // seen. Pursuers climbing to a player up on the deck keep the old reading: the bridge trap's timing (the checkpoint
+  // parks first, then the rams arrive) depends on how long they take to get up there.
   if (d > 14) {
-    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y, false, p.height); };
+    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y, rideRamp, p.height); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
     // Blocked ahead: swerve to the side the aim is on (a random side only when it is dead ahead). A random side whatever
     // the aim sent a pursuer that had just come off a ramp into the block beside the lane, away from the player in it.

@@ -206,11 +206,15 @@ with the player in the at-grade lane on the far side of the junction. A pursuer 
 far end of the ramp's nose guard has no room left to turn out into the at-grade lane before the wall (a police car
 turns on about a 3 m radius even at a crawl). It now carries on up the ramp in its own lane, and the rampExit rule
 brings it down the far side. Before, it was aimed at the guard's far end, which was behind it: a U-turn between the
-walls that pinned it against a parapet. When a pursuer's probe finds something solid dead ahead, it now swerves to the
-side its aim is on. A random side sent the car that had just come off the ramp into the block beside the lane and on
-into the back gardens. Over 30 random streams (the default and `CHASE_SEED=1` to `29`) it now reaches the player in
-all 30 runs (10 to 18 s), against 27 before. The harness stubs `tramTrackAhead()` (there are no tram lines in it).
-Without that stub the stitched module had not run at all since the trams arrived.
+walls that pinned it against a parapet. A car that a bridge rule is taking up or over the structure now reads the
+ramp's slices as road in its look-ahead probe. Before, the slices higher up the ramp read as a wall ahead, so the car
+swerved into the parapet and the stuck test reversed it back off the ramp. Pursuers climbing to a player on the deck
+keep the old reading, because the bridge trap's timing depends on it. When a pursuer's probe finds something solid
+dead ahead, it now swerves to the side its aim is on. A random side sent the car that had just come off the ramp into
+the block beside the lane and on into the back gardens. Over 30 random streams (the default and `CHASE_SEED=1` to
+`29`), the car now reaches the player in all 30 runs, in 7.2 to 13.0 s (median 7.4 s). Before, it reached him in 27
+of 30 (median 11.1 s). The harness stubs `tramTrackAhead()` (there are no tram lines in it). Without that stub the
+stitched module had not run at all since the trams arrived.
 
 The bridge trap is the second half of that test. A player who sits on the deck, slow, for five seconds has one end of
 the structure closed by a checkpoint (up to three cruisers parked across the deck, eight metres beyond the span's end,
