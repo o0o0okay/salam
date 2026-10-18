@@ -9,6 +9,7 @@ import { segClosed } from './flyover.js';
 import { segFilled } from './flyover.js';
 import { nbhdJunction } from './flyover.js';
 import { riverSeg } from './flyover.js';
+import { inIslandChunk } from './island.js';
 
 // ---- Construction scaffolding — 4 distinct "installer styles" with randomized size/colors per instance ----
 export const FRAME_COLORS = [0x8a8f96, 0x6f7a8c, 0xe8b23a, 0xb5651d];
@@ -150,9 +151,28 @@ export function siteMachine(kind) {
 }
 // Moves a machine's centre to zc and returns its footprint: length L along z, width W along x.
 export function finishMachine(g, L, W, zc) { g.position.z = -zc; return { g, L, W }; }
-// The construction sites of block (cx, cz) as footprints (the frame, and the crane base where there is one): the same
-// streets and rules that generateChunk uses for the grass half of a barred street (see `site` there). A pure function of
-// the street plan, so a pickup on a block's edge can ask about the site next door.
+// The tower crane of a building site. A barred street holds two frames side by side, one on each block's half of it
+// (siteOn in js/world.js): 6 m deep, centred 4 m either side of the street's centre line, so their slabs leave 2 m
+// between them and their inner columns 2.3 m. The crane stands in that gap, on the centre line, which is CRANE.ac
+// across from the centre of the frame that builds it (the one on the block east or north of the street, always 4 m
+// in from that block's edge). Along the street it is level with the middle of the frames: CRANE.al is the middle of the
+// bay between the columns at -1.4 and 2.6. Its base is CRANE.half either way, so it is clear of both rows of
+// columns and of the brick infill next to it. That leaves the lane under each frame open from end to end, and the
+// earth past the frames clear up to the machines.
+export const CRANE = { ac: -4, al: 0.6, half: 0.8 };
+// On the west and south coasts the street's other half is the sea (js/island.js), so the frame there has no twin and
+// there is no gap to stand in. Its crane stands on the seawall instead, the 3 m wall along the coast line: 1.5 m in
+// from the coast, wholly on the wall, and 22 m past the frame's centre (8 m past its far end), where the mast is clear
+// of the frame. The wall already bounds the lane on that side, so the crane takes nothing more from it.
+export const CRANE_COAST = { ac: -2.5, al: 22, half: 0.8 };
+// Where the crane of the frame on the west ('z') or south ('x') street of block (cx, cz) stands, relative to that
+// frame: between it and its twin, or on the seawall when the twin's block is the sea.
+export function cranePlace(axis, cx, cz) {
+  return inIslandChunk(axis === 'z' ? cx - 1 : cx, axis === 'z' ? cz : cz - 1) ? CRANE : CRANE_COAST;
+}
+// The construction sites of block (cx, cz) as footprints (the frame, and the crane base where there is one, marked
+// `crane`): the same streets and rules that generateChunk uses for the grass half of a barred street (see `site` there).
+// A pure function of the street plan, so a pickup on a block's edge can ask about the site next door.
 export function siteSpots(cx, cz) {
   const x0 = cx * CHUNK, z0 = cz * CHUNK, out = [];
   const segs = [['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]];
@@ -163,10 +183,9 @@ export function siteSpots(cx, cz) {
     if (!segClosed(a, jx, jz) || segFilled(a, jx, jz)) continue;
     if (riverSeg(a, jx, jz)) continue;                     // the river is water: no site on it (closedStreets in js/world.js)
     if (nbhdJunction(ends[k][0][0], ends[k][0][1]) || nbhdJunction(ends[k][1][0], ends[k][1][1])) continue;
-    const [acr, alc, crane] = place[k];
-    const ma = 22;   // the crane base stands this far past the frame's centre (see siteOn)
-    if (a === 'z') { out.push({ x: acr, z: alc, hx: 3, hz: 14 }); if (crane) out.push({ x: acr, z: alc + ma, hx: 1.3, hz: 1.3 }); }
-    else { out.push({ x: alc, z: acr, hx: 14, hz: 3 }); if (crane) out.push({ x: alc + ma, z: acr, hx: 1.3, hz: 1.3 }); }
+    const [acr, alc, crane] = place[k], P = cranePlace(a, cx, cz), ch_ = P.half;
+    if (a === 'z') { out.push({ x: acr, z: alc, hx: 3, hz: 14 }); if (crane) out.push({ x: acr + P.ac, z: alc + P.al, hx: ch_, hz: ch_, crane: true }); }
+    else { out.push({ x: alc, z: acr, hx: 14, hz: 3 }); if (crane) out.push({ x: alc + P.al, z: acr + P.ac, hx: ch_, hz: ch_, crane: true }); }
   }
   return out;
 }
