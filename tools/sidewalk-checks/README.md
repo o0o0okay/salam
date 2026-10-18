@@ -239,11 +239,11 @@ only trees near it. The other was inside a building, so the player's car was pus
 the ones the check was first written for, a shop front 2.8 m from a parked car's nose, are still in the city (six
 within 400 m of the centre), but the parked car covers only 2.5 m of the passage. Run there, the pursuit without its
 route search gets in 14 times in 16 and with it 16, so those spots no longer test the route search, and the scan asks
-for a gap at least a car's length long. Eight random streams per gap, 26 s each: at least 10 of the 16 pursuers must
-come within 4 m of the spot where he parked. The pursuit reaches him in 15. With its route search (`findRoute`)
-switched off it heads off for the road grid and reaches him in 6. A pursuer that only drives straight at him reaches
-him in none. With both the route search and the grid waypoints switched off, its look-ahead swerve alone brings it in
-10 times, just enough to pass.
+for a gap at least a car's length long. Eight random streams per gap, 26 s each: at least 12 of the 16 pursuers must
+come within 4 m of the spot where he parked (the bar was 10 on the old spots). The pursuit reaches him in 15. With its
+route search (`findRoute`) switched off it heads off for the road grid and reaches him in 6. A pursuer that only drives
+straight at him reaches him in none. With both the route search and the grid waypoints switched off, its look-ahead
+swerve alone brings it in 10 times, and the police as of the pin-hold change (`a8cfc65`) 9 times: both fail.
 
 The last part of that test hides the player down a narrow street. Each of thirty scenes parks him, hand brake on, in a
 street 5 to 14 m wide between walls, and starts two pursuers side by side on open ground 26 m away, round the corner:

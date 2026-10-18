@@ -276,14 +276,15 @@ for (const [name, player, cops, limit] of cases) {
 }
 
 // ---- narrow gaps: a pursuer finds its own way into a gap the road grid does not reach ----
-// Two gaps inside blocks, off the road grid, printed by scan-gaps.mjs from a scan of the current city: 3.18 m between two
-// buildings and 3.33 m between a scaffold and a building, the player's car parked in the middle, facing along the gap.
-// The pursuer starts about 30 m off on open ground with a building between them (6 m or more of wall on the straight
-// line), where a car that only drives at him and slides along the walls stalls: it has to find the way round the building
-// and into the gap. [player x, z, heading, pursuer x, z]; the pursuer starts facing the player. Eight random streams for
-// each gap, 26 s each: at least 10 of the 16 must reach him (come within 4 m of the spot he parked on). The route search
-// reaches him in 15; without it the pursuit heads off for the road grid and reaches him in 6, and a pursuer that only
-// drives at him in none. (Spots like the ones the check was first written for, a shop front 2.8 m from a parked car's
+// Two gaps inside blocks, off the road grid, printed by scan-gaps.mjs from a scan of the current city: 3.18 m between
+// two buildings and 3.33 m between a scaffold and a building, the player's car parked in the middle, facing along the
+// gap. The pursuer starts about 30 m off on open ground with a building between them (6 m or more of wall on the
+// straight line), where a car that only drives at him and slides along the walls stalls: it has to find the way round
+// the building and into the gap. [player x, z, heading, pursuer x, z]; the pursuer starts facing the player. Eight
+// random streams for each gap, 26 s each: at least 12 of the 16 must reach him (come within 4 m of the spot he parked
+// on). The route search reaches him in 15; without it the pursuit heads off for the road grid and reaches him in 6, a
+// pursuer that only drives at him in none, and one that only swerves round what is ahead of it (no route search, no
+// grid waypoints) in 10. (Spots like the ones the check was first written for, a shop front 2.8 m from a parked car's
 // nose, are still in the city, but the car covers only 2.5 m of the passage: there the pursuit gets in as often without
 // its route search as with it, so the scan asks for a gap at least a car's length long.)
 {
@@ -300,8 +301,8 @@ for (const [name, player, cops, limit] of cases) {
     if (tr.some(p => p.d < 4)) reached++;
   }
   if (keep === undefined) delete process.env.CHASE_SEED; else process.env.CHASE_SEED = keep;
-  if (reached >= 10) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
-  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+  if (reached >= 12) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 12 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 12 or more)`);
 }
 
 // ---- alley mouths: a pursuer on the avenue finds the way into a narrow street where the player hides ----
