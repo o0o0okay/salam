@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { rnd, CHUNK } from './utils.js';
 import { mat, box } from './assets.js';
-import { isFlyoverNode, nbhdInterior, atGradeSide, roadEdge, FLY } from './flyover.js';
+import { isFlyoverNode, nbhdInterior, coastQuiet, atGradeSide, roadEdge, FLY } from './flyover.js';
 import { onIsland } from './island.js';
 
 const GREEN = 7, YELLOW = 1.6;
@@ -83,7 +83,9 @@ export function buildIntersection(ix, iz, group, ch) {
   // registered (no heads, and a phase that never advances) so lightGo() answers for it and nothing else in the
   // game has to know the junction is special.
   // A neighbourhood's centre junction is inside the neighbourhood: no traffic reaches it, so it is free like a flyover node.
-  if (isFlyoverNode(ix, iz) || nbhdInterior(Math.round(ix / CHUNK), Math.round(iz / CHUNK))) { lights.set(key(ix, iz), { free: true, phase: 'free', t: Infinity, zHeads: [], xHeads: [] }); return; }
+  // So is a junction on the coast line between the parks there (coastQuiet in flyover.js): poles would stand in a park.
+  const jx = Math.round(ix / CHUNK), jz = Math.round(iz / CHUNK);
+  if (isFlyoverNode(ix, iz) || nbhdInterior(jx, jz) || coastQuiet(jx, jz)) { lights.set(key(ix, iz), { free: true, phase: 'free', t: Infinity, zHeads: [], xHeads: [] }); return; }
   const zHeads = [], xHeads = [];
   for (const c of cornerPoles(ix, iz)) {
     // A pole out in the sea (a coast junction's far poles, 13 m past the seawall) is not built: the island ends there.

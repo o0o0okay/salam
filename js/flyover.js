@@ -508,18 +508,41 @@ export function nbhdInternalSeg(axis, jx, jz) {
 // walkway or kerb along it; its carriageway and walkway become grass, so the pads of the blocks either side meet. It
 // is still a closed arm (the junction at its end is three-way). Half of the closed streets are filled, chosen by
 // hash so both blocks that share the street agree (fillHash). Neighbourhood inner streets are never filled (they keep
-// their barriers at the mouths). A street on the coast line (coastLineSeg) is always filled: the strip along the sea
-// is a small park behind the seawall, never a building site (siteSpots in js/sites.js builds on barred streets only).
+// their barriers at the mouths). A street that reaches the coast is always filled: the one on the coast line itself
+// (coastLineSeg) and the short ones from it to the first open street, at right angles to it — every street outside the
+// core (segInCore in js/island.js). So the coast is parks, never a building site (siteSpots in js/sites.js builds on
+// barred streets only).
 export function segFilled(axis, jx, jz) {
   if (riverSeg(axis, jx, jz)) return false;                    // the river is water, never grass
   if (!segClosed(axis, jx, jz)) return false;
   if (nbhdInternalSeg(axis, jx, jz)) return false;
-  return coastLineSeg(axis, jx, jz) || fillHash(axis, jx, jz);
+  return !segInCore(axis, jx, jz) || fillHash(axis, jx, jz);
 }
 export const fillHash = (axis, jx, jz) => ((hash2(jx * 29 + (axis === 'x' ? 11 : 3), jz * 23 + (axis === 'x' ? 5 : 17)) >>> 9) & 1) === 1;
 // A street on the island's coast line itself (x or z = ±ISLAND_R blocks, outside the core, so closed): the sea is
 // on its far side. (The short streets from the coast line to the first open street, at right angles to it, are not.)
 export const coastLineSeg = (axis, jx, jz) => (axis === 'z' ? Math.abs(jx) : Math.abs(jz)) === CORE + 1;
+// The streets on the island that meet at a junction on the coast line: the coast line's two (one at a corner of the
+// island) and the one running inland from it. None for a junction off the coast line.
+function coastArms(jx, jz) {
+  const R = CORE + 1;
+  if (Math.abs(jx) !== R && Math.abs(jz) !== R) return [];
+  const onIsle = ([a, x, z]) => a === 'x' ? x >= -R && x + 1 <= R && Math.abs(z) <= R : z >= -R && z + 1 <= R && Math.abs(x) <= R;
+  return [['x', jx, jz], ['x', jx - 1, jz], ['z', jx, jz], ['z', jx, jz - 1]].filter(onIsle);
+}
+// A junction on the coast line whose streets on the island are all filled: the parks meet across it, so its square
+// is grass as well (closedStreets in js/world.js). Not where the river reaches the sea: its deck stays.
+export function coastGreen(jx, jz) {
+  const arms = coastArms(jx, jz);
+  return arms.length > 0 && arms.every(s => segFilled(...s));
+}
+// A junction on the coast line that no open street reaches: its streets on the island are parks, or the river. That
+// is every green one and the river's two mouths. No traffic comes to it, so it has no signals (buildIntersection in
+// js/trafficLights.js).
+export function coastQuiet(jx, jz) {
+  const arms = coastArms(jx, jz);
+  return arms.length > 0 && arms.every(s => segFilled(...s) || riverSeg(...s));
+}
 function segCandidate(axis, jx, jz) {
   const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
   for (const [x, z] of ends) {

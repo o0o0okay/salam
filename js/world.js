@@ -70,10 +70,10 @@ import { PROP_DEFS } from './props.js';
 import { HYDRANT_KEEP, METER_SIDE_P, BOOTH_P } from './config.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { ISLAND_R, inIslandChunk, onIsland } from './island.js';
+import { ISLAND_R, inIslandChunk, onIsland, segInCore } from './island.js';
 import { clearAvenues, blockNearAvenue } from './avenueClear.js';
 import { buildAvenueRoad } from './avenueRoad.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, fillHash, coastLineSeg, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, fillHash, coastLineSeg, coastGreen, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -205,7 +205,8 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
     prop('bench', b1x, b1z, alongZ ? -PI / 2 : 0, 0.3);
     prop('bench', b2x, b2z, alongZ ? PI / 2 : PI, 0.3);
   };
-  // The street on the coast line (coastLineSeg) is always filled: no building site by the sea. Its outer 3 m are under
+  // A street that reaches the coast (outside the core: the coast line, and the short streets from it inland) is always
+  // filled, so no building site stands by the sea. The street on the coast line (coastLineSeg) has its outer 3 m under
   // the seawall (seaWall, below), so its park keeps to the rest of the green: the plot moves 1.5 m in and is 3 m
   // narrower, and no tree or bench stands in the wall. A coast street that the hash alone would have left barred
   // plants its trees from a stream of its own, so the block draws the same numbers as before: its type and the rest
@@ -215,7 +216,7 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
     if (!filled[k]) return;
     closedGrass(w, d, x, z);
     const coast = coastLineSeg(...sideSeg[k]), wall = coast ? SEAWALL_T : 0, inward = k % 2 ? -1 : 1;
-    const own = coast && !fillHash(...sideSeg[k]) ? mulberry32(hash2(cx * 41 + k, cz * 43 - k) ^ 0xC0A57) : undefined;
+    const own = !segInCore(...sideSeg[k]) && !fillHash(...sideSeg[k]) ? mulberry32(hash2(cx * 41 + k, cz * 43 - k) ^ 0xC0A57) : undefined;
     parkPlot(k < 2 ? x + inward * wall / 2 : x, k < 2 ? z : z + inward * wall / 2, k < 2, (k < 2 ? w : d) / 2 - wall / 2, own);
   };
   const filled = [0, 1, 2, 3].map(si => closed[si] && (si === 0 ? segFilled('z', cx, cz) : si === 1 ? segFilled('z', cx + 1, cz) : si === 2 ? segFilled('x', cx, cz) : segFilled('x', cx, cz + 1)));
@@ -236,8 +237,9 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
   if (closed[1]) { if (filled[1]) fillHalf(1, x0 + CHUNK - 6.3, z0 + 40, 12.6, 64); else { closedGrass(8, 64, x0 + 76, z0 + 40, site[1] ? EARTH : GRASS); mouth(cx + 1, cz, x0 + 76, z0 + 8.2, 4, 0.3); mouth(cx + 1, cz + 1, x0 + 76, z0 + 71.8, 4, 0.3); } }
   if (closed[2] && !river[2]) { if (filled[2]) fillHalf(2, x0 + 40, z0 + 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 4, site[2] ? EARTH : GRASS); mouth(cx, cz, x0 + 8.2, z0 + 4, 0.3, 4); mouth(cx + 1, cz, x0 + 71.8, z0 + 4, 0.3, 4); } }
   if (closed[3] && !river[3]) { if (filled[3]) fillHalf(3, x0 + 40, z0 + CHUNK - 6.3, 64, 12.6); else { closedGrass(64, 8, x0 + 40, z0 + 76, site[3] ? EARTH : GRASS); mouth(cx, cz + 1, x0 + 8.2, z0 + 76, 0.3, 4); mouth(cx + 1, cz + 1, x0 + 71.8, z0 + 76, 0.3, 4); } }
+  // So is a junction on the coast line between parks (coastGreen in flyover.js): the coast's green runs on across it.
   for (const [kx, kz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    if (nbhdInterior(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
+    if (nbhdInterior(cx + kx, cz + kz) || coastGreen(cx + kx, cz + kz)) closedGrass(8, 8, x0 + (kx ? 76 : 4), z0 + (kz ? 76 : 4));
   }
   return { closed, filled, site };
 }
@@ -2095,9 +2097,9 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
       // The interchange's embankment stands in the avenue's inner lanes where it passes over the junction, and a
       // roadworks site laid inside it would bury its slabs and cones in the concrete: find a free lane instead.
       const midX = vert ? fixed : alongBase + start + len / 2, midZ = vert ? alongBase + start + len / 2 : fixed;
-      // Nor on the coast line: that street is the park behind the seawall (segFilled), and its inner lane is under the
-      // wall, which would bury the slabs and the cones.
-      const coastSide = coastLineSeg(...[['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]][side]);
+      // Nor on a street that reaches the coast: it is a park (segFilled), and on the coast line the inner lane is under
+      // the seawall, which would bury the slabs and the cones.
+      const coastSide = !segInCore(...[['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]][side]);
       if (!insideFootprint(midX, midZ, 4) && !coastSide) {
       // The resurfaced lane. This used to be one clean rectangle in warm greys and browns, 5 cm thick and 9 cm
       // proud of the asphalt: in daylight that read as a beige sheet lying on the road, with the lane markings

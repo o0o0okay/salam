@@ -633,17 +633,23 @@ shake does not lift it.
 `junctions.mjs` checks the cranes too. In its 17 by 17 blocks, every crane base is solid, on the street's centre line,
 between the street's two frames and clear of both.
 
-No building site stands on the coast. The street on the coast line has the sea on its far side, and it is always filled
-(`coastLineSeg` and `segFilled` in `js/flyover.js`), so its strip is a small park behind the seawall: grass, a path,
-four trees and two benches. The park is set 1.5 m further in than on a street inland, so nothing stands in the 3 m
-wall, and no roadworks are laid on that street. The short streets that run inland from the coast line, at right angles
-to it, keep their sites. A coast street that the hash alone would have left barred takes its park's trees from a random
-stream of its own. The block then draws the same numbers as before, so no block changes its type. `junctions.mjs`
-checks all 200 strips along the island's four coasts:
-- each is filled;
-- it has no frame, column, brick, crane base or machine, and no barricade across it;
+No building site stands on the coast. Every street that reaches it is closed and filled (`segFilled` in
+`js/flyover.js`): the street on the coast line, which has the sea on its far side (`coastLineSeg`), and the short
+streets that run inland from it at right angles (the sea arms). Their strips are small parks: grass, a path, four trees
+and two benches. On the coast line the park is set 1.5 m further in than elsewhere, so nothing stands in the 3 m
+seawall. The junctions on the coast line are grass too (`coastGreen`), so the coast's green runs on across them; only
+the river's two mouths keep their decks. No open street reaches any of these junctions, the mouths included
+(`coastQuiet`), so none of them has traffic lights (`buildIntersection` in `js/trafficLights.js`). No roadworks are
+laid on these streets. A coast street that the hash alone
+would have left barred takes its park's trees from a random stream of its own. The block then draws the same numbers
+as before, so no block changes its type. `junctions.mjs` checks the 200 strips along the island's four coasts and the
+388 halves of the sea arms:
+- each street is filled;
+- it has no frame, column, brick, crane base or machine, no barricade across it and no roadworks;
 - its park's trees and benches are in their places;
-- every solid and prop on it is clear of the seawall.
+- on the coast line, every solid and prop is clear of the seawall;
+- every junction on the coast line is green, except the river's two mouths;
+- no junction on the coast line has signal poles (the blocks on the west and north coasts build 99 of them).
 
 ### Holding a pinned player for the arrest
 
