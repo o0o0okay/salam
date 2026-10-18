@@ -170,21 +170,33 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
       assert(!overlap, `block ${cx},${cz}: ${mc.machine === 1 ? 'mixer' : 'machine ' + mc.machine} at ${mc.x.toFixed(1)},${mc.z.toFixed(1)} overlaps a ${o.kind} at ${o.x.toFixed(1)},${o.z.toFixed(1)}`);
     }
   }
-  // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
-  // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
-  const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
+  // a tower crane's base is solid: each barred, unfilled, non-neighbourhood street holds two frames side by side, one
+  // on each block's half of it, and the block east or north of the street (its west street, its south street) builds
+  // the crane between them (CRANE in js/sites.js): a CRANE.half square solid on the street's centre line, which is this
+  // block's edge, level with the middle of the frames. It stands between the two frames (this block's and the one
+  // across the line, built next door) and overlaps neither, so the lane under each stays open
+  const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK, CR = W.CRANE;
   const siteFree = (a, b) => !F.nbhdJunction(a[0], a[1]) && !F.nbhdJunction(b[0], b[1]);
   const cranes = [
-    [barred('z', cx, cz) && !F.segFilled('z', cx, cz) && siteFree([cx, cz], [cx, cz + 1]), x0 + 4, z0 + 52],
-    [barred('x', cx, cz) && !F.segFilled('x', cx, cz) && siteFree([cx, cz], [cx + 1, cz]), x0 + 52, z0 + 4],
+    [barred('z', cx, cz) && !F.segFilled('z', cx, cz) && siteFree([cx, cz], [cx, cz + 1]), x0 + 4 + CR.ac, z0 + 30 + CR.al, 'z', [cx - 1, cz]],
+    [barred('x', cx, cz) && !F.segFilled('x', cx, cz) && siteFree([cx, cz], [cx + 1, cz]), x0 + 30 + CR.al, z0 + 4 + CR.ac, 'x', [cx, cz - 1]],
   ];
-  for (const [on, bx, bz] of cranes) {
+  for (const [on, bx, bz, axis, [ox, oz]] of cranes) {
     if (!on) continue;
-    const base = ch.solids.find(q => q.kind === 'building' && q.hx === 1.3 && q.hz === 1.3 && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
+    const base = ch.solids.find(q => q.kind === 'building' && q.hx === CR.half && q.hz === CR.half && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
     assert(base, `block ${cx},${cz}: crane base at ${bx},${bz} is not solid`);
+    assert(axis === 'z' ? bx === x0 : bz === z0, `block ${cx},${cz}: the crane at ${bx},${bz} is not on the street's centre line`);
+    const pair = [...W.siteSpots(cx, cz), ...W.siteSpots(ox, oz)].filter(s => Math.max(s.hx, s.hz) === 14 && Math.abs(s.x - bx) < 8 && Math.abs(s.z - bz) < 16);
+    assert.equal(pair.length, 2, `block ${cx},${cz}: the crane at ${bx},${bz} has ${pair.length} frames beside it (want the street's two)`);
+    const sides = pair.map(fr => Math.sign(axis === 'z' ? fr.x - bx : fr.z - bz));
+    assert(sides[0] * sides[1] === -1, `block ${cx},${cz}: the crane at ${bx},${bz} is not between the street's two frames`);
+    for (const fr of pair) {
+      const clear = Math.abs(fr.x - bx) >= fr.hx + CR.half || Math.abs(fr.z - bz) >= fr.hz + CR.half;
+      assert(clear, `block ${cx},${cz}: the crane base at ${bx},${bz} overlaps the frame at ${fr.x},${fr.z}`);
+    }
     cranesChecked++;
   }
 }
 
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${coastJ} on the coast (the sea arm closed and no other, but for ${nbCoast.length} where a neighbourhood's inner street ends: ${nbCoast.join(' ')}), ${riverJ} on the river (bridges, the street across always open), no dead end; ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);
+  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid, each between its street's two frames; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);

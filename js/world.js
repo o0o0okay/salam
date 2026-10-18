@@ -54,7 +54,7 @@ import { bake, finishChunk, flushChunk, buildTreeInstances, mergeStandalone, own
 import { chunks, nearChunks, plazaIn } from './chunkState.js';
 import { solidAt, solidsNear } from './solidIndex.js';
 import { PAVE_IN, PAVE_OUT, WALK_Y, PIT_IN, FACTORY_SHARE, PAD_IN, CURB_TILE, BORDER_TILE, SIDEWALK_SIDES, pickSidewalkStyle, stripStops, sidewalkPieces, treePit, bakeRing } from './sidewalks.js';
-import { FRAME_COLORS, NET_COLORS, PLANK_COLORS, SIGN_COLORS, buildScaffoldMesh, MACH_Y, MIXER_ORANGE, siteMachine, siteSpots } from './sites.js';
+import { FRAME_COLORS, NET_COLORS, PLANK_COLORS, SIGN_COLORS, buildScaffoldMesh, MACH_Y, MIXER_ORANGE, siteMachine, siteSpots, CRANE } from './sites.js';
 import { buildFlyoverNoseGuard, buildFlyoverDelineator, buildFlyoverNameboard, buildFlyoverBillboard, buildFlyoverGantry, buildPlazaIsland, warmTextCache } from './flyoverFurniture.js';
 import { ESTATE_ROAD, ESTATE_DISC, planEstate, utilityNbhd, nbhdPlan, nbhdClip, ESTATE_MEMO_MAX, estatePlanMemo } from './neighbourhoods.js';
 
@@ -233,11 +233,12 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
 function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz }) {
   // ---- construction site on a barred closed street ----
   // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
-  // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
-  // pair, a tower crane. The barricades at the mouths keep the traffic out; a car that breaks through them can drive
-  // in under the frame, whose ground floor is open (see siteOn). Neighbourhood streets (their curved roads run across
-  // the grass) and filled streets get no site.
-  // one or two machines (a random pick of five kinds, never the same kind twice) on the bare earth past the crane, side
+  // slabs, brick infill on its lowest two floors and rebar stubs on top). The street's two halves make a pair of frames
+  // side by side, and a tower crane stands between them, built by the block east or north of the street (CRANE in
+  // js/sites.js). The barricades at the mouths keep the traffic out; a car that breaks through them can drive in under
+  // either frame, whose ground floor is open (see siteOn). Neighbourhood streets (their curved roads run across the
+  // grass) and filled streets get no site.
+  // one or two machines (a random pick of five kinds, never the same kind twice) on the bare earth past the frame, side
   // by side across the strip; they are solid, like the frame, and are marked so the checks can count them
   const siteMachines = (axis, acr, alc, seed) => {
     const n = 1 + ((seed >>> 3) & 1), k1 = (seed >>> 4) % 5, k2 = (k1 + 1 + ((seed >>> 7) % 4)) % 5;
@@ -296,19 +297,24 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
     fix(0, 0, D / 2, L / 2).headroom = H;
     siteMachines(axis, acr, alc, seed);
     if (!crane) return;
-    // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
-    const ma = L / 2 + 8, mastTop = 34;
-    put(0, ma, 2.6, 0.8, 2.6, 0.7, 0x7a7f86);
+    // Tower crane: base, mast, jib, counter-jib, cab and hook. It stands between this frame and its twin on the other
+    // half of the street (the next block builds that one), in the gap between their slabs, level with the middle of
+    // their length (CRANE in js/sites.js, which siteSpots shares). It used to stand in line with this frame's lane,
+    // 8 m past its far end, where it stopped a car that had driven through under the frame.
+    const ca = CRANE.ac, ma = CRANE.al, mastTop = 34;
+    put(ca, ma, 2 * CRANE.half, 0.8, 2 * CRANE.half, 0.7, 0x7a7f86);
     // the crane's base is solid too: the mast stands on it, so a car cannot drive through the foot of the tower
-    solid(axis === 'z' ? acr : alc + ma, axis === 'z' ? alc + ma : acr, 1.3, 1.3, 'building');
-    put(0, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
-    put(0, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
-    put(-1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
+    if (axis === 'z') solid(acr + ca, alc + ma, CRANE.half, CRANE.half, 'building'); else solid(alc + ma, acr + ca, CRANE.half, CRANE.half, 'building');
+    // the mast rises through the 2 m gap between the two frames' slabs; the jib, the counter-jib and the cab are 34 m
+    // up, clear over the tallest frame (seven floors, 22.4 m, and its rebar)
+    put(ca, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
+    put(ca, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
+    put(ca - 1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
     // hook block: four wire ropes run from the jib end down to a yellow and black pulley block with a J hook, as on a
-    // real tower crane. It hangs 15 m up, over the street past the site, so no car at grade can reach it.
+    // real tower crane. It hangs 15 m up, over the street past the frames, so no car at grade can reach it.
     const hbTop = 0.3 + mastTop - 16, hbY = hbTop - 1.1, hbAl = ma + 24, ropeLen = 16;
     const hb = new THREE.Group();
-    hb.position.set(axis === 'z' ? acr : alc + hbAl, hbY, axis === 'z' ? alc + hbAl : acr);
+    hb.position.set(axis === 'z' ? acr + ca : alc + hbAl, hbY, axis === 'z' ? alc + hbAl : acr + ca);
     hb.rotation.y = axis === 'z' ? 0 : PI / 2;                     // local x is across the street, as the machines do
     const hY = mat(0xf2c230), hK = mat(0x1d1d1d), hD = mat(0x2b2b2b), hH = mat(0x2a2d33), hR = mat(0x222222);
     hb.add(box(1.0, 2.2, 0.9, hY, 0, 0, 0));                        // yoke body, yellow
