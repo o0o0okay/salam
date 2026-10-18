@@ -507,14 +507,19 @@ export function nbhdInternalSeg(axis, jx, jz) {
 // A closed street may be FILLED instead of barred: its blocks join across it. A filled street has no barrier and no
 // walkway or kerb along it; its carriageway and walkway become grass, so the pads of the blocks either side meet. It
 // is still a closed arm (the junction at its end is three-way). Half of the closed streets are filled, chosen by
-// hash so both blocks that share the street agree. Neighbourhood inner streets are never filled (they keep their
-// barriers at the mouths).
+// hash so both blocks that share the street agree (fillHash). Neighbourhood inner streets are never filled (they keep
+// their barriers at the mouths). A street on the coast line (coastLineSeg) is always filled: the strip along the sea
+// is a small park behind the seawall, never a building site (siteSpots in js/sites.js builds on barred streets only).
 export function segFilled(axis, jx, jz) {
   if (riverSeg(axis, jx, jz)) return false;                    // the river is water, never grass
   if (!segClosed(axis, jx, jz)) return false;
   if (nbhdInternalSeg(axis, jx, jz)) return false;
-  return ((hash2(jx * 29 + (axis === 'x' ? 11 : 3), jz * 23 + (axis === 'x' ? 5 : 17)) >>> 9) & 1) === 1;
+  return coastLineSeg(axis, jx, jz) || fillHash(axis, jx, jz);
 }
+export const fillHash = (axis, jx, jz) => ((hash2(jx * 29 + (axis === 'x' ? 11 : 3), jz * 23 + (axis === 'x' ? 5 : 17)) >>> 9) & 1) === 1;
+// A street on the island's coast line itself (x or z = ±ISLAND_R blocks, outside the core, so closed): the sea is
+// on its far side. (The short streets from the coast line to the first open street, at right angles to it, are not.)
+export const coastLineSeg = (axis, jx, jz) => (axis === 'z' ? Math.abs(jx) : Math.abs(jz)) === CORE + 1;
 function segCandidate(axis, jx, jz) {
   const ends = axis === 'x' ? [[jx, jz], [jx + 1, jz]] : [[jx, jz], [jx, jz + 1]];
   for (const [x, z] of ends) {

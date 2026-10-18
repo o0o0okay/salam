@@ -54,7 +54,7 @@ import { bake, finishChunk, flushChunk, buildTreeInstances, mergeStandalone, own
 import { chunks, nearChunks, plazaIn } from './chunkState.js';
 import { solidAt, solidsNear } from './solidIndex.js';
 import { PAVE_IN, PAVE_OUT, WALK_Y, PIT_IN, FACTORY_SHARE, PAD_IN, CURB_TILE, BORDER_TILE, SIDEWALK_SIDES, pickSidewalkStyle, stripStops, sidewalkPieces, treePit, bakeRing } from './sidewalks.js';
-import { FRAME_COLORS, NET_COLORS, PLANK_COLORS, SIGN_COLORS, buildScaffoldMesh, MACH_Y, MIXER_ORANGE, siteMachine, siteSpots, cranePlace } from './sites.js';
+import { FRAME_COLORS, NET_COLORS, PLANK_COLORS, SIGN_COLORS, buildScaffoldMesh, MACH_Y, MIXER_ORANGE, siteMachine, siteSpots, CRANE } from './sites.js';
 import { buildFlyoverNoseGuard, buildFlyoverDelineator, buildFlyoverNameboard, buildFlyoverBillboard, buildFlyoverGantry, buildPlazaIsland, warmTextCache } from './flyoverFurniture.js';
 import { ESTATE_ROAD, ESTATE_DISC, planEstate, utilityNbhd, nbhdPlan, nbhdClip, ESTATE_MEMO_MAX, estatePlanMemo } from './neighbourhoods.js';
 
@@ -73,7 +73,7 @@ import { buildIntersection, removeIntersection } from './trafficLights.js';
 import { ISLAND_R, inIslandChunk, onIsland } from './island.js';
 import { clearAvenues, blockNearAvenue } from './avenueClear.js';
 import { buildAvenueRoad } from './avenueRoad.js';
-import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
+import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, fillHash, coastLineSeg, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
 // A coat of the road's own asphalt: the road's material with a plain patch of asphalt on it in place of the
 // painted tile, so a piece that has to cover a marking the texture already drew there — the straight crossings
 // the texture paints at a corner the flyover has cut — lights and reads like the surface it lies on instead of
@@ -195,17 +195,29 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
   // either side join. It takes the walkway too, which is why the walkway side is skipped (sidewalkPieces).
   // A small park on a filled street's green: a pale path down the middle, four trees and two benches. The fill has no
   // barrier, so the park is pads and props only; it stays inside the block's own half, clear of the junction squares.
-  const parkPlot = (sx, sz, alongZ, across) => {
+  const parkPlot = (sx, sz, alongZ, across, rand) => {
     const at = (ac, al) => alongZ ? [sx + ac, sz + al] : [sx + al, sz + ac];
     const [px, pz] = at(0, 0);
     add(box(alongZ ? 2 : 52, 0.02, alongZ ? 52 : 2, mat(0xd8cfb8), px, 0.31, pz, false));
     const trees = [[-0.6, -20], [0.6, -6], [-0.6, 8], [0.6, 22]];
-    for (const [k, al] of trees) { const [tx, tz] = at(k * across, al); tree(tx, tz, 0.3); }
+    for (const [k, al] of trees) { const [tx, tz] = at(k * across, al); tree(tx, tz, 0.3, rand); }
     const [b1x, b1z] = at(0.55 * across, -13), [b2x, b2z] = at(-0.55 * across, 14);
     prop('bench', b1x, b1z, alongZ ? -PI / 2 : 0, 0.3);
     prop('bench', b2x, b2z, alongZ ? PI / 2 : PI, 0.3);
   };
-  const fillHalf = (k, x, z, w, d) => { if (filled[k]) { closedGrass(w, d, x, z); parkPlot(x, z, k < 2, k < 2 ? w / 2 : d / 2); } };
+  // The street on the coast line (coastLineSeg) is always filled: no building site by the sea. Its outer 3 m are under
+  // the seawall (seaWall, below), so its park keeps to the rest of the green: the plot moves 1.5 m in and is 3 m
+  // narrower, and no tree or bench stands in the wall. A coast street that the hash alone would have left barred
+  // plants its trees from a stream of its own, so the block draws the same numbers as before: its type and the rest
+  // of its layout stay as they were.
+  const sideSeg = [['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]];
+  const fillHalf = (k, x, z, w, d) => {
+    if (!filled[k]) return;
+    closedGrass(w, d, x, z);
+    const coast = coastLineSeg(...sideSeg[k]), wall = coast ? SEAWALL_T : 0, inward = k % 2 ? -1 : 1;
+    const own = coast && !fillHash(...sideSeg[k]) ? mulberry32(hash2(cx * 41 + k, cz * 43 - k) ^ 0xC0A57) : undefined;
+    parkPlot(k < 2 ? x + inward * wall / 2 : x, k < 2 ? z : z + inward * wall / 2, k < 2, (k < 2 ? w : d) / 2 - wall / 2, own);
+  };
   const filled = [0, 1, 2, 3].map(si => closed[si] && (si === 0 ? segFilled('z', cx, cz) : si === 1 ? segFilled('z', cx + 1, cz) : si === 2 ? segFilled('x', cx, cz) : segFilled('x', cx, cz + 1)));
   // a construction site (siteOn, below) sits on a barred, unfilled, non-neighbourhood street; its grass half is bare earth
   const siteFree = (j1, j2) => !nbhdJunction(j1[0], j1[1]) && !nbhdJunction(j2[0], j2[1]);
@@ -235,10 +247,9 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
   // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
   // slabs, brick infill on its lowest two floors and rebar stubs on top). The street's two halves make a pair of frames
   // side by side, and a tower crane stands between them, built by the block east or north of the street (CRANE in
-  // js/sites.js; on the coast, where the other half is the sea, it stands on the seawall instead, CRANE_COAST). The
-  // barricades at the mouths keep the traffic out; a car that breaks through them can drive in under
+  // js/sites.js). The barricades at the mouths keep the traffic out; a car that breaks through them can drive in under
   // either frame, whose ground floor is open (see siteOn). Neighbourhood streets (their curved roads run across the
-  // grass) and filled streets get no site.
+  // grass) and filled streets get no site, so neither does the street on the coast line (always filled: segFilled).
   // one or two machines (a random pick of five kinds, never the same kind twice) on the bare earth past the frame, side
   // by side across the strip; they are solid, like the frame, and are marked so the checks can count them
   const siteMachines = (axis, acr, alc, seed) => {
@@ -300,15 +311,14 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
     if (!crane) return;
     // Tower crane: base, mast, jib, counter-jib, cab and hook. It stands between this frame and its twin on the other
     // half of the street (the next block builds that one), in the gap between their slabs, level with the middle of
-    // their length; on the coast, where the other half is the sea, on the seawall past the frame's far end (cranePlace
-    // in js/sites.js, which siteSpots shares). It used to stand in line with this frame's lane, 8 m past its far end,
-    // where it stopped a car that had driven through under the frame.
-    const P = cranePlace(axis, cx, cz), ca = P.ac, ma = P.al, mastTop = 34;
-    put(ca, ma, 2 * P.half, 0.8, 2 * P.half, 0.7, 0x7a7f86);
+    // their length (CRANE in js/sites.js, which siteSpots shares). It used to stand in line with this frame's lane,
+    // 8 m past its far end, where it stopped a car that had driven through under the frame.
+    const ca = CRANE.ac, ma = CRANE.al, mastTop = 34;
+    put(ca, ma, 2 * CRANE.half, 0.8, 2 * CRANE.half, 0.7, 0x7a7f86);
     // the crane's base is solid too: the mast stands on it, so a car cannot drive through the foot of the tower
-    if (axis === 'z') solid(acr + ca, alc + ma, P.half, P.half, 'building'); else solid(alc + ma, acr + ca, P.half, P.half, 'building');
-    // the mast rises through the 2 m gap between the two frames' slabs (or from the seawall); the jib, the counter-jib
-    // and the cab are 34 m up, clear over the tallest frame (seven floors, 22.4 m, and its rebar)
+    if (axis === 'z') solid(acr + ca, alc + ma, CRANE.half, CRANE.half, 'building'); else solid(alc + ma, acr + ca, CRANE.half, CRANE.half, 'building');
+    // the mast rises through the 2 m gap between the two frames' slabs; the jib, the counter-jib and the cab are 34 m
+    // up, clear over the tallest frame (seven floors, 22.4 m, and its rebar)
     put(ca, ma, 1.0, mastTop, 1.0, 0.3 + mastTop / 2, 0xe39a2b);
     put(ca, ma + 10, 0.8, 0.8, 34, 0.3 + mastTop + 0.4, 0xd98a22);
     put(ca - 1.2, ma - 2, 1.6, 1.4, 1.6, 0.3 + mastTop - 1.6, 0x3a3f47);
@@ -2085,7 +2095,10 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
       // The interchange's embankment stands in the avenue's inner lanes where it passes over the junction, and a
       // roadworks site laid inside it would bury its slabs and cones in the concrete: find a free lane instead.
       const midX = vert ? fixed : alongBase + start + len / 2, midZ = vert ? alongBase + start + len / 2 : fixed;
-      if (!insideFootprint(midX, midZ, 4)) {
+      // Nor on the coast line: that street is the park behind the seawall (segFilled), and its inner lane is under the
+      // wall, which would bury the slabs and the cones.
+      const coastSide = coastLineSeg(...[['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]][side]);
+      if (!insideFootprint(midX, midZ, 4) && !coastSide) {
       // The resurfaced lane. This used to be one clean rectangle in warm greys and browns, 5 cm thick and 9 cm
       // proud of the asphalt: in daylight that read as a beige sheet lying on the road, with the lane markings
       // cut off at its edge and nothing to say what it was. A repair is now laid the way a real one is — a few
@@ -2319,10 +2332,11 @@ function generateChunk(cx, cz, defer = false) {
     if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;
     reserved.push({ kind, x, z, r: PROP_DEFS[kind].r });
   };
-  const tree = (x, z, y = 0.2) => {
+  // (`rand` is the stream the tree's kind and turn come from: the block's own, unless the caller keeps one apart)
+  const tree = (x, z, y = 0.2, rand = rng) => {
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // nothing is planted in the river
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
-    const v = rng() < 0.45 ? 4 + Math.floor(rng() * 2) : Math.floor(rng() * 4), rot = rng() * PI;
+    const v = rand() < 0.45 ? 4 + Math.floor(rand() * 2) : Math.floor(rand() * 4), rot = rand() * PI;
     if (!onIsland(x, z)) return;                                 // (after the draws, so the rest of the block keeps its trees)
     solid(x, z, 0.65, 0.65, 'tree');
     const t = { x, y, z, v, rot, broken: false, im: null, i: 0, solid: ch.solids[ch.solids.length - 1] };
