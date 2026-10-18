@@ -63,7 +63,8 @@ export function endGame(reason) {
 }
 export function showOver() {
   game.overShown = true; const t = $('overTitle'); t.textContent = game.reason; t.className = 'title ' + (game.reason === 'BUSTED' ? 'busted' : 'wasted');
-  $('overSub').textContent = game.reason === 'BUSTED' ? 'Pinned against the wall — the cops cuffed you.' : 'Your ride is toast. Total wreck.';
+  $('overSub').textContent = game.reason === 'BUSTED' ? 'Pinned against the wall — the cops cuffed you.'
+    : game.reason === 'SUNK' ? 'You went into the water. Your ride sank.' : 'Your ride is toast. Total wreck.';
   $('oScore').textContent = game.score.toLocaleString(); $('oBest').textContent = game.best.toLocaleString(); $('oTime').textContent = fmtTime(game.time);
   $('oDist').textContent = (game.dist / 1000).toFixed(2) + ' km'; $('oCash').textContent = '$' + game.cash; $('oTake').textContent = game.takedowns;
   $('oNear').textContent = game.nearMiss; $('oSpike').textContent = game.spiked;

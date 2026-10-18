@@ -33,6 +33,12 @@ export function wreckCar(c) {
   c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
   if (c.beam) c.beam.visible = false;
   if (c.isTanker) tankerExplode(c); else explosion(c.x, c.z, c.y);
+  wreckReward(c);
+  sfx.crash(40);
+}
+// What the player gets for a car he put out of the chase, his last hit on it under 4 s ago: a takedown for a police car,
+// money for the rest. wreckCar, and sinkCar in js/water.js.
+export function wreckReward(c) {
   if (game.time - c.lastPlayerHit < 4 && game.state === 'playing') {
     if (c.isPolice) {
       const reward = 75 + c.tier * 50; game.takedowns++; game.cash += reward; toast('TAKEDOWN! +$' + reward); sfx.blip(880);
@@ -40,7 +46,6 @@ export function wreckCar(c) {
     }
     else { game.cash += c.isTanker ? 120 : 50; toast(c.isTanker ? 'BOOM! +$120' : 'CHAOS! +$50'); sfx.blip(740); }
   }
-  sfx.crash(40);
 }
 // Fuel tanker: severe chain-reaction explosion on destruction — big fireball, area damage, lingering fire.
 function tankerExplode(c) {

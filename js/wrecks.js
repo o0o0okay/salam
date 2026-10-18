@@ -21,7 +21,7 @@ export function wreckTick(c, sdt) {
 
 export function tickHulks(sdt) {
   for (const c of cars) {
-    if (!c.hulk || !c.wrecked) continue;
+    if (!c.hulk || !c.wrecked || c.sink) continue;
     if (Math.hypot(c.x - player.x, c.z - player.z) > 150) continue;   // nothing to see: leave it be far away
     wreckTick(c, sdt);                                                // it still burns, and it still rolls
     if (c.hulkY !== undefined) { c.y = c.hulkY; c.vy = 0; }            // a hulk stays on the lot it was parked on

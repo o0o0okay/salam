@@ -6,7 +6,7 @@ import { installDom } from './dom.mjs';
 installDom();
 import { register } from 'node:module';
 register('./hooks.mjs', import.meta.url);
-const mods = ['state', 'config', 'utils', 'assets', 'world', 'flyover', 'vehicle', 'collisions', 'trafficLights', 'civilians', 'police', 'roadblock', 'spikes', 'traffic', 'wrecks', 'flying', 'flow', 'main'];
+const mods = ['state', 'config', 'utils', 'assets', 'world', 'flyover', 'vehicle', 'collisions', 'water', 'trafficLights', 'civilians', 'police', 'roadblock', 'spikes', 'traffic', 'wrecks', 'flying', 'flow', 'main'];
 let bad = 0;
 for (const m of mods) {
   try { await import(`../../js/${m}.js`); console.log(`  . js/${m}.js boots`); }

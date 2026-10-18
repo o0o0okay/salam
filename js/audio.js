@@ -100,6 +100,16 @@ export const sfx = {
     og.gain.setValueAtTime(0.0001, now); og.gain.exponentialRampToValueAtTime(0.45 * vol, now + 0.006); og.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
     o.connect(og); og.connect(this.master); o.start(now); o.stop(now + 0.24);
   },
+  // A car going into the water (js/water.js): a burst of noise through a band that sweeps down, the splash and the wash
+  // after it. vol 0..1, already scaled for the distance by the caller.
+  splash(vol) {
+    if (!this.ctx || !this.noise || !(vol > 0.03)) return; const c = this.ctx, now = c.currentTime;
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noise; s.loop = true; f.type = 'bandpass'; f.Q.value = 0.8;
+    f.frequency.setValueAtTime(1800, now); f.frequency.exponentialRampToValueAtTime(260, now + 0.7);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.8 * vol, now + 0.02); g.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(now); s.stop(now + 0.95);
+  },
   blip(freq) {
     if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15); o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + 0.16);

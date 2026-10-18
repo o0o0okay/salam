@@ -141,18 +141,23 @@ export function collideSolids(c) {
     }
     const nx = hit.nx, nz = hit.nz, d = hit.depth;
     c.x -= nx * d; c.z -= nz * d; b.x = c.x; b.z = c.z;
-    const vn = c.vx * nx + c.vz * nz;
-    if (vn > 0) {
-      const heavyWall = s.parked && isHeavyParked(s.parked.mass);          // very little bounce off something heavy
-      const rebound = heavyWall ? 1.02 : 1.28;
-      c.vx -= rebound * vn * nx; c.vz -= rebound * vn * nz;
-      const keep = heavyWall ? 0.86 : 0.99;                                // and a real chunk of speed gone
-      c.vx *= keep; c.vz *= keep;
-      impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer, c.y);
-      if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 8) * 0.6); else hurtCarEnv(c, Math.max(0, vn - 8) * 0.8);
-    }
-    c.lastWall = game.time;
+    wallBounce(c, nx, nz, s.parked && isHeavyParked(s.parked.mass));
   }
+}
+// A car stopped by a wall, `n` the way from the car into it: the speed it had into the wall is turned back (very little
+// of it off something heavy, which takes a real chunk of the rest as well), and a hard hit hurts. collideSolids, and
+// waterGuard in js/water.js for the river's and the sea's edges.
+export function wallBounce(c, nx, nz, heavyWall = false) {
+  const vn = c.vx * nx + c.vz * nz;
+  if (vn > 0) {
+    const rebound = heavyWall ? 1.02 : 1.28;
+    c.vx -= rebound * vn * nx; c.vz -= rebound * vn * nz;
+    const keep = heavyWall ? 0.86 : 0.99;
+    c.vx *= keep; c.vz *= keep;
+    impactFx(c.x + nx * 1.5, c.z + nz * 1.5, vn, nx, nz, c.isPlayer, c.y);
+    if (c.isPlayer) hurtPlayerEnv(Math.max(0, vn - 8) * 0.6); else hurtCarEnv(c, Math.max(0, vn - 8) * 0.8);
+  }
+  c.lastWall = game.time;
 }
 // A tram is solid for every car: a car is pushed out of it and hurt when it arrives fast. The tram itself is not moved.
 export function collideTrams(c) {

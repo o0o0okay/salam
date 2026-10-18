@@ -24,6 +24,8 @@ export function createCar(kind, x, z, h, params, color) {
     mass: dims.mass, hp: dims.hp, maxHp: dims.hp, wrecked: false, wreckT: 0, dead: false,
     stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, logHitAt: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,
     boost: 0, flatT: 0, flatSide: 1, air: false, nmIn: false, nmEnter: 0, nmMin: 99,
+    // the water (js/water.js): where its centre last was on the land, and its sinking once it is in the water
+    landX: x, landZ: z, sink: null,
     // civilian traffic fields
     axis: 'z', dir: 1, road: 0, off: 2.5, cruise: 11, lastNode: null, panicT: 0, panicCool: 0, panicMode: 0, swerve: 1, tier: 0, flank: Math.random() < .5 ? -1 : 1,
     // bus-stop behavior (buses only, harmless on other kinds)

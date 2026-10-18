@@ -39,6 +39,7 @@ node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in 
 node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down, break up, crumble away
 node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
 node tools/sidewalk-checks/pin-hold.mjs  # the police hold a pinned player for the arrest: right up against him, no backing off for another run, the bar filling
+node tools/sidewalk-checks/water.mjs  # no car gets into the river or the sea, whatever shoves it; one that is in it all the same goes under (SUNK)
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -688,6 +689,45 @@ runs that takes exactly `DIFF.pin`. Before this change he was wrecked in seven o
 was wrecked in one and never busted in another, and in the other two the bar dropped while a unit reversed out of the
 box. A player with a way out drives out, the hold ends `grace` after he gets going, the bar runs empty and the unit
 chases him again.
+
+### The water: the river and the sea
+
+No car gets into the river or the sea (`js/water.js`). The river has a bank wall on each side, and a bridge at every
+junction with a parapet on each edge of its deck (`closedStreets` in `js/world.js`). The sea is past the seawall
+(`seaWall`). Those walls are solids, and a solid stops a car by pushing it back out of itself the shortest way
+(`collideSolids`). The river's walls are half a metre thick, and a car that gets more than half its width into one in a
+frame comes out on the far side, in the water. That happened in a slide at speed, in a frame that took 33 ms, or when a
+Juggernaut shoved the car in after the walls were done with for the frame. A car rammed into the seawall could end up
+inside it. At the river's mouth on the east coast there was no wall at all for the last 5.3 m: there is no bridge there,
+so the bank walls stopped short of the seawall. Now they run on to it.
+
+So the water's edges are also kept as edges, not solids. `waterGuard` runs for every car once a frame, after everything
+that moves it (`js/update.js`). A car whose box is in a keep-out goes back out on the side its centre was on at the end of
+the last frame, when it was clear: off the bank onto the bank, off a deck onto the deck. It ends up right against the wall
+and is stopped like a car that hits one (`wallBounce` in `js/collisions.js`). A keep-out is the water and the walls round
+it: the river's runs from one bridge's deck edge to the next, bank face to bank face; the sea's is the seawall's inner
+face. The edges hold at any height. A car over open water all the same (nothing gets there) goes under (`sinkCar`): a
+splash, it sinks out of sight in `SINK_T`, and a car of the traffic or the police is wrecked and taken away. If it is the
+player's car, the run is over: SUNK, on the same end screen as WASTED, with its own line.
+
+`water.mjs` checks:
+- **the edges.** Every river block's bank wall has its faces where the keep-out has them, and it runs from parapet to
+  parapet, or on the east coast to the seawall. Every parapet stands on its deck's edge. Round the river the walls leave
+  no opening wider than 0.5 m (where a parapet meets a bank wall). No flyover is over the river's keep-outs.
+- **the guard, on the game's own loop at 60 and at 30 fps.** These cases run:
+  - slides into both banks, both parapets of a bridge and the seawall on all four coasts, at up to 80 m/s;
+  - the player against each of them, rammed by a Juggernaut or an Enforcer at up to 65 m/s;
+  - a sedan rammed into the bank;
+  - 192 random pile-ups.
+
+  After every frame, every car's box is clear of the water and no car jumped in a frame. Driven into the river's mouth on
+  the east coast, the player stops at the wall. A ram that wrecks him against the seawall leaves his wreck clear of it.
+- **`waterGuard` on cars put by hand.** Cars clear of the water are never touched. Cars that got through a wall are put
+  back the way they came, however deep they got: past the river's middle, through a parapet, at a corner, out past the
+  coast. A car with no place on the land is left to go under.
+- **going under.** The player put down over the river or the sea, or dropped in from 6 m, ends the run SUNK once he is
+  down. His car sinks out of sight and stays down there until the next run, which starts dry. A sedan in the river and a
+  cop in the sea go under and are taken away, and the cop he had just hit counts as his takedown.
 
 ### Flyover approach nose protection
 
