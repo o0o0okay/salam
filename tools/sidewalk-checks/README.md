@@ -17,8 +17,9 @@ node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, cl
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
 node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
-node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover or hidden down a narrow street (behavioural)
+node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover, in a narrow gap or down a narrow street (behavioural)
 node tools/sidewalk-checks/scan-alleys.mjs  # prints police-chase's narrow-street scenes from a scan of the current city (run it again when the city changes)
+node tools/sidewalk-checks/scan-gaps.mjs  # prints police-chase's narrow-gap scenes from a scan of the current city (run it again when the city changes)
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
@@ -226,6 +227,23 @@ when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test th
 from the car's own height. The height probe checks six points against it. A trapped player can still be arrested: the
 existing BUSTED rule in `js/update.js` applies on the deck as anywhere else, and the test does not model it. A few seeds
 still leave one cruiser at the checkpoint, or let the rams push the car off the far ramp.
+
+Then the test hides the player in a narrow gap inside a block, where the road grid does not reach. Two scenes park his
+car in the middle of a gap, facing along it: 3.18 m between two buildings, and 3.33 m between a scaffold and a
+building. One pursuer starts about 30 m off on open ground with a building between them. The scenes come from
+`scan-gaps.mjs`, which scans the current city for gaps 2.4 to 3.6 m wide between two solids, away from the roads, and
+prints the two nearest 2.8 m wide in the test's format. Each comes with a start from which a car that only drives at
+the player and slides along the walls cannot reach him. Run it again whenever the city changes and paste its list over
+the old one. The two spots it replaced no longer matched the city. One was in the open, 60 m from wall to wall with
+only trees near it. The other was inside a building, so the player's car was pushed out of it at the start. Spots like
+the ones the check was first written for, a shop front 2.8 m from a parked car's nose, are still in the city (six
+within 400 m of the centre), but the parked car covers only 2.5 m of the passage. Run there, the pursuit without its
+route search gets in 14 times in 16 and with it 16, so those spots no longer test the route search, and the scan asks
+for a gap at least a car's length long. Eight random streams per gap, 26 s each: at least 10 of the 16 pursuers must
+come within 4 m of the spot where he parked. The pursuit reaches him in 15. With its route search (`findRoute`)
+switched off it heads off for the road grid and reaches him in 6. A pursuer that only drives straight at him reaches
+him in none. With both the route search and the grid waypoints switched off, its look-ahead swerve alone brings it in
+10 times, just enough to pass.
 
 The last part of that test hides the player down a narrow street. Each of thirty scenes parks him, hand brake on, in a
 street 5 to 14 m wide between walls, and starts two pursuers side by side on open ground 26 m away, round the corner:
