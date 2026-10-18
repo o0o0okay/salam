@@ -2469,6 +2469,7 @@ function generateChunk(cx, cz, defer = false) {
 }
 function addPickup(ch, kind, x, z) {
   if (!onIsland(x, z, 4)) return;                       // nothing is placed in the sea, or on the seawall (js/island.js)
+  if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;    // nor on the river, between its bank walls, where no car can reach it
   let m;
   if (kind === 'cash') m = new THREE.Mesh(ASSET.coinGeo, ASSET.coinMat);
   else if (kind === 'nitro') {
