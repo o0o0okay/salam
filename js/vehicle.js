@@ -4,7 +4,7 @@ import { clamp, lerp } from './utils.js';
 import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 import { weatherSystem } from './weather.js';
-import { CAR_DIMS, buildCar, isPoliceKind } from './carModels.js';
+import { CAR_DIMS, buildCar, isPoliceKind, carHeight } from './carModels.js';
 import { cars, police, civs } from './state.js';
 import { surfaceAt } from './flyover.js';
 
@@ -19,9 +19,10 @@ export function createCar(kind, x, z, h, params, color) {
   const isPolice = isPoliceKind(kind), isCiv = kind !== 'player' && !isPolice;
   return {
     kind, isPlayer: kind === 'player', isPolice, isCiv, isTanker: kind === 'fueltanker', x, z, h, vx: 0, vz: 0, steer: 0, yaw: 0, vf: 0, vl: 0, speed: 0, acc: 0, roll: 0, pitch: 0, y: 0, vy: 0,
+    height: carHeight(kind, mesh),          // the top of the model above the road: what has to fit under a roof (collideSolids)
     params, mesh, beam, inner: mesh.userData.inner, lights: mesh.userData.lights, box: { x, z, ux: 0, uz: 1, vx: -1, vz: 0, e1: dims.e1, e2: dims.e2 },
     mass: dims.mass, hp: dims.hp, maxHp: dims.hp, wrecked: false, wreckT: 0, dead: false,
-    stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,
+    stuckT: 0, reverseT: 0, role: 'chaser', lastPlayerHit: -99, lastTouchPlayer: -99, lastWall: -99, logHitAt: -99, smokeT: 0, navT: 0, navX: 0, navZ: 0, navOn: false, avoidDir: 0, flashPh: Math.random() * 6,
     boost: 0, flatT: 0, flatSide: 1, air: false, nmIn: false, nmEnter: 0, nmMin: 99,
     // civilian traffic fields
     axis: 'z', dir: 1, road: 0, off: 2.5, cruise: 11, lastNode: null, panicT: 0, panicCool: 0, panicMode: 0, swerve: 1, tier: 0, flank: Math.random() < .5 ? -1 : 1,
@@ -34,7 +35,7 @@ export function createCar(kind, x, z, h, params, color) {
 
 export function removeCar(c) {
   scene.remove(c.mesh);
-  if (c.lights) { if (c.lights.red) c.lights.red.dispose(); if (c.lights.blue) c.lights.blue.dispose(); }
+  if (c.lights) { if (c.lights.red) c.lights.red.dispose(); if (c.lights.blue) c.lights.blue.dispose(); if (c.lights.amber) c.lights.amber.dispose(); }
   const i = cars.indexOf(c); if (i >= 0) cars.splice(i, 1);
   const j = police.indexOf(c); if (j >= 0) police.splice(j, 1);
   const k = civs.indexOf(c); if (k >= 0) civs.splice(k, 1);
@@ -109,6 +110,7 @@ export function driveCar(c, inp, dt) {
 
 
 
+const BEACON_HZ = 1.6, BEACON_ON = 0.4;                      // the beacons' flashes a second, and how much of each it is lit
 export function syncCarMesh(c, dt) {
   c.mesh.position.set(c.x, c.y, c.z); c.mesh.rotation.y = c.h;
   const tr = clamp(c.steer * c.speed * 0.0007 + c.vl * 0.004, -0.09, 0.09), tp = clamp(-c.acc * 0.0016, -0.05, 0.05);
@@ -121,4 +123,8 @@ export function syncCarMesh(c, dt) {
   c.gpitch = lerp(c.gpitch || 0, target, 1 - Math.exp(-dt * (c.air ? 4.5 : 8)));
   c.inner.rotation.z = c.roll; c.inner.rotation.x = c.pitch + c.gpitch;
   if (c.mesh.userData.mixer) c.mesh.userData.mixer.rotation.z += dt * (0.6 + Math.min(2, c.speed * 0.08));
+  // the garbage truck's amber beacons turn: a flash 1.6 times a second, each truck on its own phase (flashPh, random
+  // when the car was made), and dark once the truck is wrecked
+  const beacon = c.mesh.userData.beacon;
+  if (beacon) { c.flashPh += dt; beacon.color.setHex(!c.wrecked && (c.flashPh * BEACON_HZ) % 1 < BEACON_ON ? 0xffa41f : 0x3a2406); }
 }

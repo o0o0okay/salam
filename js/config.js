@@ -43,6 +43,24 @@ export const POLICE_TIERS = [
     maxSpeed: 47, accel: 32, brake: 75, turn: 1.82, grip: 10.5, hp: 520, mass: 8.3, prediction: 2.05, impact: 2.15,
     roles: ['headon', 'pinner', 'pincer', 'rammer'] },
 ];
+// ---- Holding a pinned player (js/police.js holdPin, js/update.js) ----
+// Once the player is pinned (the BUSTED bar is filling) the police stop ramming him and hold him for the arrest. A unit at
+// him comes in slowly, stops right up against him and stays there. It never backs off for another run: a unit that
+// reverses for another go opens the box, the bar drains and he drives out through the gap. Nor does it shove him: while
+// the hold lasts, a car right up against him counts as touching him for the bar, and so does a wall.
+//   grace    the hold lasts this long after the last pinned frame, so a moment's lost contact does not undo it, s
+//   hold     a unit this near the player (box to box, on his level: a Juggernaut on his corner can be 9 m centre to
+//            centre) holds him, m
+//   join     a unit this near (centre to centre) comes for the player himself instead of its role's own aim (a pincer's
+//            flank, a head-on's point ahead of him), no faster than it could stop on him in the gap left, m
+//   gap      while he is held, a car or a wall this near him (box to box) counts as touching him, m
+//   snug     a holding unit this near him (box to box) has arrived: it stops and stands, m
+//   side     a holding unit with him at its side stands where it is when he is nearer than this (box to box): it cannot
+//            close in sideways, and through a gap that narrow he cannot get by; further off it goes round to him, m
+//   press    the throttle a holding unit comes in with
+//   close    the speed a unit comes in at as it arrives, and `closeK` more for each metre still between them, box to
+//            box: 6.3 m/s from 3 m out, under 2 m/s as it gets there (a recoil takes a 9 m/s hit), m/s
+export const PIN_HOLD = { grace: 0.6, hold: 5, join: 40, gap: 0.4, snug: 0.15, side: 1.6, press: 0.5, close: 1.5, closeK: 1.6 };
 // Stars rise slower and scale with difficulty
 export const WANTED_AT = [0, 30, 70, 115, 165];
 // A burnt-out hull has no driver: it coasts on the handbrake and skids, so it only needs a top speed it can
@@ -60,3 +78,35 @@ export const METER_SIDE_P = 0.25;
 // street): now about 930, one per 430 m or so, in two busy blocks out of three and by nearly every bank, hospital, school
 // and filling station. Each block keeps its own roll, so raising a chance only adds booths: none of them move.
 export const BOOTH_P = { downtown: 0.65, shops: 0.65, bazaar: 0.65, commercial: 0.65, bank: 1, hospital: 1, school: 1, fuel: 1, suburb: 0.2, park: 0.25 };
+// ---- Log trucks: a hard hit spills the load (js/logSpill.js) ----
+// The closing speed of a crash that knocks the six logs off a log truck's trailer: about 29 km/h, so a real ram
+// spills the load and a nudge in a queue does not.
+export const LOG_SPILL_V = 8;
+// One log (7.2 m long, 0.6 m across) in CAR_DIMS mass units: a little heavier than a family car. It shoves the car it
+// hits and a car shoves it; what it knocks down follows from it as well (the thresholds divide by its root, as a car's).
+export const LOG_MASS = 1.4;
+// A log that meets a car hurts it: the damage per m/s of closing speed above LOG_HIT_MIN, to another car and to the
+// player's. A log at 10 m/s wrecks a family car (40 HP), at about 13 m/s the lightest patrol car; the armoured police
+// tiers take less of it (js/damage.js hurtCar). The player's car takes about what a crash into a car costs.
+export const LOG_HIT_MIN = 2;
+export const LOG_DMG_CAR = 5;
+export const LOG_DMG_PLAYER = 0.6;
+// A log rolls easily across its length and hardly slides along it: the two decelerations on the road (m/s²; rolling
+// also loses 0.3 of its speed a second, so a log rolling at 6 m/s comes to rest in about 6 m, at 10 m/s in about 13).
+export const LOG_ROLL_DECEL = 1.8;
+export const LOG_SLIDE_DECEL = 9;
+// A log is no wall: the blows it takes wear it down, and then it breaks up. LOG_HP is how much it can take. A blow
+// between a log and a car takes LOG_WEAR off it for every m/s of closing speed over LOG_HIT_MIN, times the reduced mass
+// of the two (m·M/(m+M): the heavier the car, the harder the blow). So the player's car breaks a log at about 8 m/s
+// (29 km/h), a family car or the lightest patrol car at about 9, a bus or a heavy truck at 5 or 6; a slower blow cracks
+// it, and two or three of those break it. The car is hurt by the blow as before and goes on through the pieces, losing
+// only the speed it took to break the log. A knock off the world (a wall, a parapet, a tram) wears a log by the speed
+// it loses in it over LOG_KNOCK_MIN (m/s), times its own mass: rolling at a wall at 8 m/s breaks it, at 5 it does not.
+export const LOG_HP = 20;
+export const LOG_WEAR = 5;
+export const LOG_KNOCK_MIN = 6;
+// How long a spilled log that nothing breaks lies in the street before it crumbles away (s; the six logs of a load
+// from 0.85 to 1.15 times this, 1.2 s apart at 20 s, so a load goes one log at a time), and how many can be out at
+// once (past that, the oldest go first).
+export const LOG_LIFE = 20;
+export const LOG_MAX = 48;

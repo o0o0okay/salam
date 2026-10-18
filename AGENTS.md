@@ -57,6 +57,9 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 - `js/trafficLights.js`, `js/carModels.js`, `js/props.js`, `js/trees.js` — street furniture and vehicles.
 - `js/collisions.js`, `js/damage.js` — car-vs-world and car-vs-car collisions and all damage.
   `ENV_DMG` in `js/config.js` scales the damage from hits on the scenery (walls, trees, props).
+- `js/logSpill.js` — a log truck's load spilled by a hard hit: the loose logs (their rolling, their hits on cars
+  and on the street, the wear that breaks them up into pieces, their crumbling away after `LOG_LIFE`), the traffic's
+  look-out for them (`logAhead`) and their instanced meshes.
 - `js/config.js` — difficulty table and tunables. Prefer changing a constant here to editing logic.
 - `js/perf.js` — the `?debug` overlay (frame, update and render time, draw calls, counts). Off by default.
 
@@ -73,6 +76,11 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
   shove moves them and a wake puts them back. A new solid that moves at run time must set `parked` or the
   index has to learn about it. Callers that loop over one query's results while another query runs need their
   own `out` list (see `_hitSolids` / `_shiftSolids` in js/collisions.js).
+- A solid with `headroom` is a roof (a construction frame's first floor over its open ground floor): `collideSolids`
+  and `solidAt` count it only for a car whose top (`c.height`, from `carHeight` in js/carModels.js) is above it. When
+  the question is whether a car can drive somewhere, pass its height to `solidAt` (the sixth argument). Leave it out
+  for sight lines and hiding places, so the roof is open to them. The chase camera comes down under a roof
+  (`roofLimit` in js/camera.js).
 - Car bodies: the static pieces that share a material are merged into one cached geometry (`consolidateBody`
   in js/carModels.js). Shared geometry is never disposed. Light materials are per car (update.js flashes them,
   vehicle.js disposes them), so they stay separate meshes.

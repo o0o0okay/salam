@@ -31,10 +31,12 @@ const carBoxSrc = between('export function carBox', 'export function driveCar');
 const driveSrc = strip(between('export function driveCar', 'export function syncCarMesh'));
 const syncSrc = strip(between('export function syncCarMesh'));
 const cfgSrc = fs.readFileSync(path.join(repo, 'js/config.js'), 'utf8');
+const LOG_SPILL_V = Number(cfgSrc.match(/^export const LOG_SPILL_V = ([\d.]+);/m)[1]);   // js/collisions.js carCar spills a log truck's load over this
 const PLAYER_PARAMS = eval('(' + cfgSrc.match(/export const PLAYER_PARAMS = (\{[^}]*\});/)[1] + ')');
 const DIFF = eval('(' + cfgSrc.match(/export const DIFFICULTIES = (\{[\s\S]*?\n\});/)[1] + ').normal');
 const HEAR_R = +cfgSrc.match(/export const HEAR_R = (\d+)/)[1];
 const POLICE_TIERS = eval('(' + cfgSrc.match(/export const POLICE_TIERS = (\[[\s\S]*?\n\]);/)[1] + ')');
+const PIN_HOLD = eval('(' + cfgSrc.match(/export const PIN_HOLD = (\{[^}]*\});/)[1] + ')');   // js/police.js asks every unit whether he is held
 
 const stubs = `
 const PI = Math.PI, CHUNK = 80;
@@ -43,9 +45,11 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const wrapAngle = a => { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; };
 const rnd = (a, b) => a + Math.random() * (b - a);
 const weatherSystem = { slickness: 0 };
+const tramTrackAhead = () => Infinity;   // js/tram.js: no tram lines in this harness (a police car checks the road ahead for one)
 const HULK_PARAMS = { maxSpeed: 46, maxReverse: 8, accel: 0, brake: 34, turn: 1.5, turnFalloff: 40, grip: 9.4 };
 const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 const buildCar = () => { const g = new Obj(); g.userData = { inner: new Obj(), lights: {} }; return g; };
+const carHeight = () => 1.6;   // js/carModels.js measures the model; the stub cars have none (no roof in these harnesses)
 class V3 { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
 class Quat { setFromAxisAngle() { return this; } multiply() { return this; } }
 class Obj {
@@ -63,6 +67,7 @@ const ASSET = new Proxy({ burnt: {} }, { get: (t, k) => (k in t ? t[k] : {}) });
 const TREE_VARIANTS = [{}, {}, {}, {}, {}, {}];
 const setTreeMatrix = () => {}; const _Y = new V3(0, 1, 0);
 const TREE_BREAK_V = 11; const DIFF = ${JSON.stringify(DIFF)};
+const LOG_SPILL_V = ${LOG_SPILL_V}; const spillLogs = () => false;   // a log truck's load (js/logSpill.js): no loose logs in this harness
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0, wanted: 1, clock: 0, dist: 0, slow: 1, combo: 0, comboT: 0 };
 const player = {};
 const police = [], civs = [], cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];
@@ -72,6 +77,7 @@ const env = { phase: 0.8, day: 0, night: 1, dusk: 0, sx: 0.5, sy: 1 };
 const HEAR_R = ${HEAR_R};
 const PLAYER_PARAMS = ${JSON.stringify(PLAYER_PARAMS)};
 const POLICE_TIERS = ${JSON.stringify(POLICE_TIERS)};
+const PIN_HOLD = ${JSON.stringify(PIN_HOLD)};
 const fx = { hurtCar: 0, hurtPlayer: 0, impactFx: 0, sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');

@@ -3,18 +3,18 @@ import { rnd } from './utils.js';
 import { scene } from './renderer.js';
 import { sun, headLight } from './renderer.js';
 import { game, player, police, civs, cars, flying, fallingTrees, geysers, fires, sight } from './state.js';
-import { DIFF } from './config.js';
+import { DIFF, PIN_HOLD } from './config.js';
 import { env, updateEnvironment } from './environment.js';
 import { CAR_DIMS } from './carModels.js';
-import { driveCar, syncCarMesh, removeCar } from './vehicle.js';
+import { driveCar, syncCarMesh, removeCar, carBox } from './vehicle.js';
 import { nearChunks, updateChunks } from './world.js';
 import { emit, smoke, sparks, updateParticles } from './particles.js';
 import { updateChunkSmoke } from './chimneySmoke.js';
 import { sfx } from './audio.js';
 import { readInput } from './input.js';
-import { collideSolids, collideTrams, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses } from './collisions.js';
+import { collideSolids, collideTrams, collideFlyover, collideProps, triggerRamps, carCar, tickPumpFuses, satGap, solidWithin } from './collisions.js';
 import { updateSpikes, deploySpike } from './spikes.js';
-import { policeAI, spawnPolice } from './police.js';
+import { policeAI, spawnPolice, pinHold } from './police.js';
 import { deployRoadblock } from './roadblock.js';
 import { updateHelicopter, helicopter } from './helicopter.js';
 import { civAI, spawnCiv, CIV_MAX, CIV_MAX_MENU } from './civilians.js';
@@ -25,6 +25,7 @@ import { updateTrams, tramTrackAhead } from './tram.js';
 import { updateParking, updateRooftops } from './traffic.js';
 import { wreckTick, tickHulks } from './wrecks.js';
 import { updateFlying } from './flying.js';
+import { updateLogs } from './logSpill.js';
 import { updateCamera } from './camera.js';
 import { updateHUD, drawRadar, toast } from './ui.js';
 import { updateRouteArrows } from './routeArrows.js';
@@ -45,6 +46,11 @@ function warnTram(sdt) {
   if (r === Infinity) return;
   tramMsgT = 3;
   toast(r < 0 ? 'TRAM ON THE TRACK: GET OFF IT' : 'TRAM COMING: DON\'T CROSS THE RAILS');
+}
+// A car right up against the held player (PIN_HOLD.gap, box to box) on his own level: one on a deck over him is not.
+function snugOn(c, pb) {
+  if (Math.abs(c.x - pb.x) > 16 || Math.abs(c.z - pb.z) > 16 || Math.abs((c.y || 0) - (player.y || 0)) > 2) return false;
+  return satGap(carBox(c), pb) < PIN_HOLD.gap;
 }
 export function update(dt) {
   game.t += dt;
@@ -189,7 +195,8 @@ export function update(dt) {
     if (Math.abs(A.y - B.y) > 2.0) continue;
     const dx = A.x - B.x, dz = A.z - B.z, rr = A.box.e1 + B.box.e1 + 1; if (dx * dx + dz * dz > rr * rr) continue; carCar(A, B);
   }
-  // Pair separation can push a car back into the parapet: resolve it before drawing this frame.
+  updateLogs(sdt);                                             // loose logs off a log truck: they roll, and hit
+  // Pair separation (and a log's shove) can push a car back into the parapet: resolve it before drawing this frame.
   for (const c of cars) if (!c.dead) collideFlyover(c);
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
@@ -230,17 +237,20 @@ export function update(dt) {
         if (game.time - c.lastTouchPlayer > 1 && c.lastTouchPlayer < c.nmEnter && c.nmMin < 4.2 && player.speed > 18) nearMissAward();
       }
     }
-    // BUSTED: pinned against structures / wrecks, or boxed in by vehicles, with at least one cruiser on you
+    // BUSTED: pinned against structures / wrecks, or boxed in by vehicles, with at least one cruiser on you.
+    // Once he is pinned the police hold him (police.js holdPin): they park right up against him instead of shoving, so
+    // while the hold lasts a car within PIN_HOLD.gap of him counts as touching him, and so does a wall.
+    const holdOn = pinHold(), pb = holdOn ? carBox(player) : null;
     let policeTouch = 0, vehTouch = 0, wreckTouch = false, policeNear = false;
     for (const c of cars) {
       if (c.isPlayer) continue;
-      const recent = game.time - c.lastTouchPlayer < 0.3;
+      const recent = game.time - c.lastTouchPlayer < 0.3 || (pb !== null && snugOn(c, pb));
       if (recent) { if (c.wrecked) wreckTouch = true; else { vehTouch++; if (c.isPolice) policeTouch++; } }
       if (c.isPolice && !c.wrecked && Math.hypot(c.x - player.x, c.z - player.z) < 9) policeNear = true;
     }
-    const wallLike = game.time - player.lastWall < 0.3 || wreckTouch;
+    const wallLike = game.time - player.lastWall < 0.3 || wreckTouch || (holdOn && solidWithin(player, PIN_HOLD.gap));
     const pinned = player.speed < 9 && ((policeTouch >= 1 && (wallLike || vehTouch >= 2)) || (policeNear && vehTouch >= 3));
-    if (pinned) { game.pin += sdt; } else game.pin = Math.max(0, game.pin - sdt * 1.5);
+    if (pinned) { game.pin += sdt; game.pinSeen = game.time; } else game.pin = Math.max(0, game.pin - sdt * 1.5);
     if (game.pin > DIFF.pin) endGame('BUSTED');
   }
   /* --- world streaming --- */

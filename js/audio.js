@@ -70,6 +70,36 @@ export const sfx = {
     const s = this.ctx.createBufferSource(); s.buffer = this.noise; const g = this.ctx.createGain(); g.gain.value = clamp(power / 35, 0.12, 0.9);
     const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500 + power * 25; s.connect(f); f.connect(g); g.connect(this.master); s.start();
   },
+  // A heavy wooden knock (a loose log landing, or hitting a car or another log, js/logSpill.js): a short low tone that
+  // drops in pitch, over a burst of band-passed noise. vol 0..1, already scaled for the distance by the caller.
+  thud(vol) {
+    if (!this.ctx || !(vol > 0.03)) return; const c = this.ctx, now = c.currentTime;
+    if (now - (this.lastThud || 0) < 0.05) return; this.lastThud = now;
+    const o = c.createOscillator(), g = c.createGain(); o.type = 'sine';
+    o.frequency.setValueAtTime(150, now); o.frequency.exponentialRampToValueAtTime(55, now + 0.18);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.55 * vol, now + 0.008); g.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    o.connect(g); g.connect(this.master); o.start(now); o.stop(now + 0.28);
+    const s = c.createBufferSource(); s.buffer = this.noise; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 1.1;
+    const ng = c.createGain(); ng.gain.setValueAtTime(0.4 * vol, now); ng.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    s.connect(f); f.connect(ng); ng.connect(this.master); s.start(now); s.stop(now + 0.13);
+  },
+  // A log breaking up (js/logSpill.js): the sharp crack of the wood splitting, three splinters snapping just after it,
+  // and a short hollow knock under them. vol 0..1, already scaled for the distance by the caller.
+  splinter(vol) {
+    if (!this.ctx || !(vol > 0.03)) return; const c = this.ctx, now = c.currentTime;
+    if (now - (this.lastSplinter || 0) < 0.06) return; this.lastSplinter = now;
+    for (let k = 0; k < 4; k++) {
+      const t = now + (k ? 0.025 + Math.random() * 0.13 : 0), len = k ? 0.035 : 0.09;
+      const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = this.noise; f.type = k ? 'bandpass' : 'highpass'; f.frequency.value = k ? 2200 + Math.random() * 1800 : 1400; f.Q.value = k ? 2.5 : 0.7;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime((k ? 0.35 : 0.7) * vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      s.connect(f); f.connect(g); g.connect(this.master); s.start(t, Math.random() * 0.05); s.stop(t + len + 0.02);
+    }
+    const o = c.createOscillator(), og = c.createGain(); o.type = 'triangle';
+    o.frequency.setValueAtTime(190, now); o.frequency.exponentialRampToValueAtTime(70, now + 0.16);
+    og.gain.setValueAtTime(0.0001, now); og.gain.exponentialRampToValueAtTime(0.45 * vol, now + 0.006); og.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    o.connect(og); og.connect(this.master); o.start(now); o.stop(now + 0.24);
+  },
   blip(freq) {
     if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15); o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + 0.16);

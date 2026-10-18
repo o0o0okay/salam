@@ -1,13 +1,13 @@
 /* Police AI + spawning */
 import { PI, CHUNK, clamp, lerp, wrapAngle, rnd } from './utils.js';
 import { game, player, sight, reportSighting, police, cars } from './state.js';
-import { DIFF, HEAR_R, POLICE_TIERS } from './config.js';
+import { DIFF, HEAR_R, POLICE_TIERS, PIN_HOLD } from './config.js';
 import { env } from './environment.js';
 import { CAR_DIMS } from './carModels.js';
-import { createCar } from './vehicle.js';
+import { createCar, carBox } from './vehicle.js';
 import { solidAt } from './world.js';
 import { onIsland } from './island.js';
-import { overlapsAnything } from './collisions.js';
+import { overlapsAnything, satGap } from './collisions.js';
 import { tramTrackAhead } from './tram.js';
 import { FLY, flyoverNear, structureLevel, alongOf, latOf, laneOffsetOn, laneOffset, rampApproach, rampExit, laneAim, surfaceAt, bridgeHeight, roadEdge } from './flyover.js';
 function roadPointNear(x, z, spread) { // a random point on a road near (x,z)
@@ -84,8 +84,9 @@ function navWaypoint(p, tx, tz) {
 // navWaypoint only knows the road grid. When the straight line to the player is blocked and he is in a gap the grid
 // does not reach (a passage between buildings, a car lot, a service lane), the pursuer searches the ground itself: a
 // breadth-first search over 0.6 m cells that are free for its own half width at its own height, within ROUTE.R metres
-// of it. The route is then cut to the furthest point on it that the pursuer can see straight to, and that point is
-// the aim until the next search (a few tenths of a second later).
+// of it (and for its own height: under a construction frame's open ground floor a pursuer too tall for the first floor
+// meets a wall, see solidAt). The route is then cut to the furthest point on it that the pursuer can see straight to,
+// and that point is the aim until the next search (a few tenths of a second later).
 const ROUTE = { cell: 0.6, R: 18, reach: 1.5, fit: 1.0, far: 80 };   // fit: the share of the half width the search keeps clear of walls (the collision is an exact box test, not a square)
 const RN = Math.round(2 * ROUTE.R / ROUTE.cell) + 1;               // grid side in cells (61)
 const RN2 = RN * RN;
@@ -94,7 +95,7 @@ const _rNb = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Can the pursuer see straight to (x, z) with its half width between it and the point?
 function clearTo(p, x, z, m) {
   const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(d / ROUTE.cell));
-  for (let i = 1; i < n; i++) { const t = i / n; if (solidAt(p.x + dx * t, p.z + dz * t, m, p.y)) return false; }
+  for (let i = 1; i < n; i++) { const t = i / n; if (solidAt(p.x + dx * t, p.z + dz * t, m, p.y, false, p.height)) return false; }
   return true;
 }
 // The aim for a pursuer that cannot see the player: the furthest point of a route to him that it can see straight to,
@@ -115,7 +116,7 @@ function findRoute(p, tx, tz) {
       if (ni < 0 || nj < 0 || ni >= RN || nj >= RN) continue;
       const nc = nj * RN + ni;
       if (_rSt[nc]) continue;
-      if (solidAt(ox + ni * h, oz + nj * h, m, p.y)) { _rSt[nc] = 2; continue; }
+      if (solidAt(ox + ni * h, oz + nj * h, m, p.y, false, p.height)) { _rSt[nc] = 2; continue; }
       _rSt[nc] = 1; _rPar[nc] = c; _rQ[tail++] = nc;
     }
   }
@@ -215,6 +216,50 @@ function bridgeHold() {
     if (HOLD.away >= limit) releaseHold();
   }
 }
+// ---------- THE ARREST ----------
+// Is the player held for the arrest? He was pinned less than PIN_HOLD.grace ago (js/update.js keeps game.pinSeen, and asks
+// this too; game.time stands still once the run is over, so a busted player stays held).
+export function pinHold() {
+  return game.state !== 'menu' && game.time - (game.pinSeen ?? -99) < PIN_HOLD.grace;
+}
+// ...and this unit is one of the holders: it is on his level (one up on a deck over him is not part of the box).
+function pinHeld(p) {
+  return pinHold() && Math.abs(p.y - player.y) < 2;
+}
+// A unit at a pinned player holds him for the arrest. It comes in slowly with whichever end is towards him, stops right
+// up against him (PIN_HOLD.snug) and stands there: a wall he cannot drive through (with him at its side and nearer than
+// PIN_HOLD.side, it stands where it is). It never backs off for another run: no recoil after a hit, no stuck-reverse
+// (stopped against him with its foot down reads to the stuck test as stuck). Nor does it shove him: a push keeps the
+// box tight only while he has something solid on his far side, and otherwise walks him out of it (update.js counts a
+// car within PIN_HOLD.gap of him as touching him, so nobody has to push). Knocked off him, it comes straight back.
+function holdPin(p, dt, gap) {
+  const dx = player.x - p.x, dz = player.z - p.z;
+  const diff = wrapAngle(Math.atan2(dx, dz) - p.h), ahead = Math.cos(diff), vf = p.vf || 0;
+  let want = gap < PIN_HOLD.snug ? 0 : PIN_HOLD.close + gap * PIN_HOLD.closeK;     // the speed to come in at; 0: arrived
+  let throttle, steer;
+  if (ahead > 0.35 || (ahead >= 0 && gap >= PIN_HOLD.side)) {         // he is ahead: nose in
+    steer = clamp(diff * 2.35, -1, 1);
+    throttle = vf < want - 0.2 ? PIN_HOLD.press : vf > want + 0.6 ? -1 : 0;   // (-1: a brake, from over 2.3 m/s)
+  } else if (ahead < -0.35 || gap >= PIN_HOLD.side) {                  // he is behind: back in on him, tail first
+    steer = clamp(-wrapAngle(diff - Math.PI) * 2.35, -1, 1);           // (reversing, the wheel turns the other way)
+    throttle = vf > 0.2 - want ? -1 : vf < -want - 1.5 ? 1 : 0;
+  } else { steer = 0; want = 0; }             // at its side, near: it cannot close in sideways, and he cannot get by
+  if (want === 0) throttle = standStill(p, vf, dt);                    // arrived: stand
+  p.recoilT = 0; p.reverseT = 0; p.stuckT = 0;
+  p.steer += (steer - p.steer) * Math.min(1, dt * (p.tier >= 4 ? 11 : 9));
+  return { throttle, hand: false };
+}
+// The throttle that brings a car to a stand without throwing it the other way. driveCar's brake takes brake * dt off in a
+// frame (over 2 m/s at 30 fps), so from less than that it is left to coast; at walking pace -1 is the reverse gear and +1
+// the drive, gentle pulls that stop it in a frame or two.
+function standStill(p, vf, dt) {
+  const b = p.params.brake * dt;
+  if (vf > 0.8) return vf - b >= -0.3 ? -1 : 0;
+  if (vf > 0.3) return -1;
+  if (vf < -0.5) return vf + b <= 0.3 ? 1 : 0;
+  if (vf < -0.3) return PIN_HOLD.press;
+  return 0;
+}
 export function policeAI(p, dt) {
   bridgeHold();
   // ---------- STATIONARY ROADBLOCK ----------
@@ -242,6 +287,7 @@ export function policeAI(p, dt) {
   const rb = d > 45 ? 1 + Math.min(0.12, (d - 45) / 700) : d < 22 ? 0.97 : 1;
   p.params.maxSpeed = p.baseMax * rb * (fresh ? 1 : 0.8);          // slower in search mode
   let tx, tz, ramming = false, blockerHold = false;
+  const held = pinHeld(p);
   if (fresh) {
     p.search = null; p.arrived = false;
     tx = player.x + player.vx * lead; tz = player.z + player.vz * lead;
@@ -256,6 +302,7 @@ export function policeAI(p, dt) {
     else if (p.role === 'pinner') { tx = player.x + side.x * p.flank * 2; tz = player.z + side.z * p.flank * 2; ramming = true; }
     else if (p.role === 'headon') { tx += forward.x * 14; tz += forward.z * 14; ramming = true; }
     if (d < 18 * DIFF.aggr && p.tier >= 3) ramming = true;
+    if (held && d < PIN_HOLD.join) { tx = player.x; tz = player.z; }   // the player is pinned: for him, not for a role's aim
   } else {
     // ---------- SEARCH: last known pos (with motion guess) then patrol nearby roads ----------
     // (a hiding car, hide.js: the search goes to where it is, not to where it was last seen)
@@ -336,7 +383,7 @@ export function policeAI(p, dt) {
   //    It runs its own lane out past the end of the structure first when it is still alongside it, then crosses
   //    to the lane on the player's side: the structure's own retaining wall runs the whole length of the ramp, so
   //    a diagonal aim across it just scrapes along the wall.
-  let bridgeTurn = false;
+  let bridgeTurn = false, rideRamp = false;
   const plv = structureLevel(player.x, player.y, player.z), pf = plv && plv.level === 'deck' ? plv.f : null;
   if (pf) {                                // the player is up on the structure
     if (p.y > 1.2 && (p.role === 'bridgeBlock' || (p.role === 'bridgeAtk' && HOLD.attack))) {
@@ -361,7 +408,7 @@ export function policeAI(p, dt) {
     const onF = !ramming && p.y > FLY.on && surfaceAt(p.x, p.z, p.y) > 0 ? flyoverNear(p.x, p.z) : null;
     if (onF) {                                             // this one is up on the structure, the player is not: come down
       rampExit(onF, p.x, p.z, onF.axis === 'z' ? Math.cos(p.h) : Math.sin(p.h), 2.5, 9, _lane);
-      tx = _lane.x; tz = _lane.z;
+      tx = _lane.x; tz = _lane.z; rideRamp = true;
     } else if (!ramming && player.y <= 2) {                 // both on the ground: the structure may be in between
       const nf = flyoverNear(p.x, p.z, roadEdge() + 16);
       if (nf && moundInWay(p, nf, aimX, aimZ)) {
@@ -396,15 +443,27 @@ export function policeAI(p, dt) {
           // lane just outside the ramp's foot - a fixed point, so the aim cannot walk out from under a car that is
           // still crossing. A car that has been carried onto the low end of a ramp is taken off it the same way.
           // Still at the foot of the ramp, the nose guard stands at the lane's edge (lateral -7.3 m) just short of the lane
-          // point, and it is a solid: a diagonal aim from here runs into it, and a car that comes in at an angle wedges
-          // its front corner against it. So first run along the foot to the far side of the guard, drawn in toward the
-          // middle of the road (2.5 m off the centre line), then cut out to the lane.
+          // point: a drum and three posts. A car coming down the ramp at speed that cuts out diagonally wedges its front
+          // corner on them, so it first runs along the foot to the far side of the guard, drawn in toward the middle of
+          // the road (2.5 m off the centre line), then cuts out to the lane.
           const beyondGuard = FLY.rampEnd + 6;
+          // How far past the span's end the car is, and whether it is driving in toward the structure. The run past the
+          // guard is for a car coming *off* a ramp. For one driving in, that point is behind it, and an aim behind a car
+          // turns it round: at the ramp's foot that is a U-turn between the retaining walls, which pinned it against a
+          // parapet, scraped it up the ramp and sent it over the bridge while the player sat in the lane beside it.
+          const out = Math.max(u - nf.hi, nf.lo - u, 0), inward = (u - (nf.lo + nf.hi) / 2) * dirU < 0;
+          const midV = Math.max(-2.5, Math.min(2.5, v));
           // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
           // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
           if (inJunctionBox(nf, u)) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
-          else if (nf.ext > 0 && u > nf.lo && u < nf.hi) laneAim(nf, cross, Math.max(-2.5, Math.min(2.5, v)), _lane);   // mid-span on a long bridge: to the next box, not the far end
-          else if (Math.max(u - nf.hi, nf.lo - u, 0) < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), Math.max(-2.5, Math.min(2.5, v)), _lane);
+          else if (nf.ext > 0 && u > nf.lo && u < nf.hi) laneAim(nf, cross, midV, _lane);   // mid-span on a long bridge: to the next box, not the far end
+          // Driving in, short of the guard's far end, it has no room left to turn out to the lane before the end of the
+          // retaining wall: a police car turns on a radius of about 3 m even at a crawl, and with its own length that is more
+          // than the few metres left. (Cars sent sideways from here swung in between the walls all the same, or stopped
+          // against the wall's end.) So it carries straight on up the ramp in its own lane, and the rule for a car up on
+          // the structure (rampExit) brings it down the far side.
+          else if (inward && out < beyondGuard - 0.5) { laneAim(nf, u + dirU * 12, midV, _lane); rideRamp = true; }
+          else if (out < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), midV, _lane);
           else laneAim(nf, spanEnd(nf, u, beyondGuard), my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
         } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
@@ -428,10 +487,19 @@ export function policeAI(p, dt) {
   // comes to rest against the wall of the alley it has just passed.
   // Not beside a flyover: the bridge rules above and below own the speed there.
   if (!ramming && p.role === 'chaser' && p.y <= 1.2 && d < 12 && Math.abs(diff) > 0.5 && vf > 8 && !pf && !flyoverNear(p.x, p.z, roadEdge() + 16)) throttle = -1;
+  // A car that a bridge rule is taking up or over the structure (rampExit, or on up the ramp from its foot) reads the
+  // ramp's slices as road, the way the traffic does once it is riding the structure (js/civilians.js). Each slice tops
+  // out below the ramp surface at its own downhill end, so the slices further up the ramp stand above the car's own
+  // height and the probe read them as a wall ahead. The car swerved into the parapet, scraped along it, and the stuck
+  // test reversed it back off the ramp. The retaining walls and the abutment's end face are not slices and are still
+  // seen. Pursuers climbing to a player up on the deck keep the old reading: the bridge trap's timing (the checkpoint
+  // parks first, then the rams arrive) depends on how long they take to get up there.
   if (d > 14) {
-    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y); };
+    const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y, rideRamp, p.height); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
-    if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
+    // Blocked ahead: swerve to the side the aim is on (a random side only when it is dead ahead). A random side whatever
+    // the aim sent a pursuer that had just come off a ramp into the block beside the lane, away from the player in it.
+    if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.abs(diff) > 0.15 ? Math.sign(diff) : Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
     else if (l) { steer = -1; p.avoidDir = 0; } else if (r) { steer = 1; p.avoidDir = 0; } else p.avoidDir = 0;
   }
   // Trams: a police car on a live track gets off it; one about to cross a track with a tram coming brakes for it (the same
@@ -440,6 +508,14 @@ export function policeAI(p, dt) {
     const rails = tramTrackAhead(p);
     if (rails < 0) throttle = 1;
     else if (rails < Infinity && vf > Math.sqrt(2 * 2.5 * Math.max(0, rails - 4))) throttle = -1;
+  }
+  // The player is pinned: a unit at him holds him (holdPin); one on its way comes in no faster than it can stop on him
+  // without knocking him loose, and does not back off for a run at him.
+  if (held && fresh && d < PIN_HOLD.join) {
+    const gap = satGap(carBox(p), carBox(player));
+    if (gap < PIN_HOLD.hold) return holdPin(p, dt, gap);
+    p.recoilT = 0;
+    if (vf > PIN_HOLD.close + gap * PIN_HOLD.closeK) throttle = -1;   // (over 9.5 m/s: a brake, not a reverse)
   }
   if (p.recoilT > 0) { p.recoilT -= dt; throttle = -0.7; steer *= 0.4; }
   if (p.reverseT > 0) { p.reverseT -= dt; throttle = -1; steer = -steer; }
