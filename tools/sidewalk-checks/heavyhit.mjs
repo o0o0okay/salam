@@ -91,6 +91,8 @@ const toast = () => {};
 const __world = await import(${JSON.stringify(modulePath)});
 const nearChunks = __world.nearChunks, solidsNear = __world.solidsNear, addParkedCarToChunk = __world.addParkedCarToChunk;
 const CHUNK = __world.CHUNK;
+// what js/flyover.js takes from js/island.js (the coast) and js/districts.js (the district map)
+const CORE = __world.CORE, segInCore = __world.segInCore, districtOfNb = __world.districtOfNb;
 const hash2 = (x, y) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return (h ^ (h >>> 16)) >>> 0; };   // js/utils.js's hash2, which flyover.js imports
 const lotCars = __world.lotCars, ambulanceTarget = __world.ambulanceTarget, RELIEF_DELAY = __world.RELIEF_DELAY;
 const isHeavyParked = __world.isHeavyParked, parkedShove = __world.parkedShove, parkedDamage = __world.parkedDamage;
@@ -135,6 +137,19 @@ const station = [...world.chunks.values()].find(ch => ch.fireSlots);
 const mall = [...world.chunks.values()].find(ch => ch.parkingTotal && !ch.parkingFixed && !ch.fireSlots);
 const school = [...world.chunks.values()].find(ch => (ch.busSlots || []).length);
 if (!hospital || !station || !mall || !school) { console.log('missing test blocks'); process.exit(1); }
+// The block nearest the spawn, ring by ring, for which pred(chunk) holds. A block already streamed in is looked at as it
+// is; any other is built on its own (generateChunk, not in the registry) and thrown away again.
+const nearestBlock = pred => {
+  for (let r = 0; r <= world.CORE; r++) for (let cx = -r; cx <= r; cx++) for (let cz = -r; cz <= r; cz++) {
+    if (Math.max(Math.abs(cx), Math.abs(cz)) !== r) continue;
+    const live = world.chunks.get(world.chunkKey(cx, cz));
+    if (live) { if (pred(live)) return { cx, cz }; continue; }
+    const ch = world.generateChunk(cx, cz, true), hit = pred(ch);
+    world.disposeChunk(ch);
+    if (hit) return { cx, cz };
+  }
+  return null;
+};
 const step = (seconds, phase) => {
   if (phase !== undefined) M.env.phase = phase;
   for (let t = 0; t < seconds * 60; t++) { M.game.time += 1 / 60; M.game.t = M.game.time; M.updateParking(1 / 60); }
@@ -262,6 +277,9 @@ let hulkRef = null;
   if (rec.wrecked && Math.hypot(rec.mesh.position.x - slot.x, rec.mesh.position.z - slot.z) > 4.5) bad('the wreck slid right out of its bay');
   if (rec.wrecked && M.flying.length) bad('the wreck was launched');
   const burning = { x: rec.mesh.position.x, z: rec.mesh.position.z };
+  // updateParking keeps the books of the blocks round the player only (nearChunks), and the hospital stands two blocks
+  // from the spawn (CIVIC_PINNED in js/world.js): the player waits by the bay, or the wreck is never booked against it
+  M.player.x = slot.x; M.player.z = slot.z;
   step(6, 0.8);                                                  // let the books settle after the crash
   const ownedBefore = [...hospital.ambulanceSlots, ...station.fireSlots, ...(school.busSlots || [])].filter(sl => sl.car).length;
   step(90, 0.8);                                                 // a minute and a half more of frames
@@ -452,7 +470,19 @@ let hulkRef = null;
 
 // ==== 5) a dispenser blast is strong enough to destroy a police car standing beside it ====
 {
-  const station = [...world.chunks.values()].find(ch => ch.pumps && ch.pumps.length === 4 && ch.pumps.every(p => !p.broken));
+  const intact = ch => ch.pumps && ch.pumps.length === 4 && ch.pumps.every(p => !p.broken);
+  let station = [...world.chunks.values()].find(intact);
+  // Section 4 sheared a dispenser off the filling station by the spawn, and the next one is out in the industrial
+  // district, over a kilometre away. So that block is built again, as when it streams back in, with its four
+  // dispensers intact.
+  if (!station) {
+    const used = [...world.chunks.values()].find(ch => ch.pumps && ch.pumps.length === 4);
+    if (used) {
+      world.disposeChunk(used); world.chunks.delete(world.chunkKey(used.cx, used.cz));
+      world.updateChunks(0, 0, 999);
+      station = [...world.chunks.values()].find(intact);
+    }
+  }
   if (!station) bad('no intact filling station left to blow up');
   else {
     const pumpA = station.pumps[0];                       // the island pair runs along z, so the run-up is along x
@@ -502,7 +532,17 @@ let hulkRef = null;
 
 // ==== 6) a shop window: a real impact takes the pane out, a crawl leaves it in its frame ====
 {
-  const mall = [...world.chunks.values()].find(ch => (ch.shops || []).length && ch.parades.length);
+  const shopping = ch => (ch.shops || []).length && ch.parades.length;
+  let mall = [...world.chunks.values()].find(shopping);
+  // None stands in the blocks round the spawn (the centre's mix makes one block in twelve a shopping street), so the
+  // nearest one is streamed in, as section 8 streams in its interchanges
+  if (!mall) {
+    const at = nearestBlock(shopping);
+    if (at) {
+      world.updateChunks(at.cx * world.CHUNK + 40, at.cz * world.CHUNK + 40, 999);
+      mall = world.chunks.get(world.chunkKey(at.cx, at.cz));
+    }
+  }
   if (!mall) bad('no shopping street to smash a window on');
   else {
     // the west parade of the shopping street: its windows face the court, so the run-up comes from the court
@@ -540,6 +580,7 @@ let hulkRef = null;
     if (!neighbour || !neighbour.mesh) bad('smashing one shop window destroyed the parade');
     else ok('the shop behind the empty frame carries on trading, and its neighbours are untouched');
   }
+  world.updateChunks(0, 0, 999);                          // back to the spawn: the props below are hit in block (0, 0)
 }
 
 // ==== 8) the interchange: a car drives up one ramp, across the deck and down the far side, while the street it
@@ -820,15 +861,20 @@ for (const f of [M.nearestNode(0, 1), M.nearestNode(1, 0)]) {
 // has to pass underneath, not be lifted onto it. The expected heights are worked out here from the geometry alone.
 {
   const longs = [];
-  // every long bridge in the first 125 blocks, on both main roads (the city's first few are two and three junctions long)
+  // every long bridge on the island, on both main roads and both ways out from the centre (the streets end at the coast,
+  // junction CORE, and so do the flyovers)
   for (const axis of ['z', 'x']) {
-    for (let b = 5; b <= 125; b++) {
+    for (let b = -world.CORE; b <= world.CORE; b++) {
       const f = axis === 'z' ? M.nodeAt(0, b) : M.nodeAt(b, 0);
       if (f && f.ext > 0) longs.push(f);
     }
   }
   if (!longs.some(f => f.axis === 'z') || !longs.some(f => f.axis === 'x')) bad('no long bridge found on the avenue and on the cross street');
-  if (!longs.some(f => f.ext === 1) || !longs.some(f => f.ext === 2)) bad('the city has no two-junction or no three-junction bridge to test');
+  // The island has room for four flyovers each way along each main road (400, 880, 1280 and 1760 m out), and the
+  // extent is a hash of that distance: today the 880 m ones are two junctions long and none is three. A three-junction
+  // bridge is tested whenever the island has one.
+  if (!longs.some(f => f.ext === 1)) bad('the island has no two-junction bridge to test');
+  else ok(`the island's long bridges: ${longs.map(f => `${f.axis}@${f.node} (${f.ext + 1} junctions)`).join(', ')}${longs.some(f => f.ext === 2) ? '' : '; none is three junctions long'}`);
   for (const f of longs) {
     const F = M.FLY, H = F.deckH, alongX = f.axis === 'x';
     const wx = (u, v) => alongX ? f.node + u : f.road + v;
