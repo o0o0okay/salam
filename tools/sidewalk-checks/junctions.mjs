@@ -1,7 +1,13 @@
 /* Junction rules (js/flyover.js: segClosed / closedArm / armOpen / plazaAt), checked over a field of junctions and
    against the blocks js/world.js builds for them:
    * a closed street is a grid segment between two junctions off the main roads, away from spawn and the flyovers;
-   * no junction loses more than one arm, so a three-way junction is a T and never a dead end on a main road;
+   * the coast and the river take arms by design (js/island.js, riverSeg in js/flyover.js): a junction on the coast
+     line (index ±CORE) loses its arm to the sea, two at a corner, and a junction on the river row loses its two arms
+     along the water (the street across it is a bridge);
+   * the closing rule takes at most one arm from a junction, and none from a junction on the coast or the river, so a
+     three-way junction is a T, never an L or a dead end, and every bridge carries a through street. (A neighbourhood's
+     inner streets are closed for good, js/flyover.js nbhdInternalSeg: one that ends on the coast leaves a straight
+     along the coast street there, by design; listed, not failed);
    * a closed street is barred: each closed half of it has a barrier solid at both mouths, and no car can drive in;
    * a closed arm's junction is never a roundabout;
    * about a fifth of the junctions are three-way (the rest stay four-way);
@@ -13,31 +19,49 @@
 import assert from 'node:assert/strict';
 import { modulePath } from './harness.mjs';
 import * as F from '../../js/flyover.js';
+import { CORE, segInCore } from '../../js/island.js';
 
 const W = await import(modulePath);
-const N = Number(process.env.JUNCTION_RANGE || 24);
-let junctions = 0, tees = 0, plazas = 0, closedSegs = 0;
+const N = Number(process.env.JUNCTION_RANGE || CORE);           // the island's junctions are -CORE..CORE
+let junctions = 0, tees = 0, plazas = 0, closedSegs = 0, coastJ = 0, riverJ = 0;
 const plazaSet = new Set();
+const nbCoast = [];                                             // coast junctions where a neighbourhood's inner street ends
 
 for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
   junctions++;
-  const arms = [F.segClosed('x', jx, jz), F.segClosed('x', jx - 1, jz), F.segClosed('z', jx, jz), F.segClosed('z', jx, jz - 1)];
+  const segs = [['x', jx, jz], ['x', jx - 1, jz], ['z', jx, jz], ['z', jx, jz - 1]];
+  const arms = segs.map(s => F.segClosed(...s));
   const n = arms.filter(Boolean).length;
   // a neighbourhood's centre junction is inside it: all four of its streets are closed, and that is the design
   if (F.nbhdInterior(jx, jz)) { assert.equal(n, 4, `interior junction ${jx},${jz} has ${n} closed arms`); continue; }
-  assert(n <= 1, `junction ${jx},${jz} loses ${n} arms`);
+  // the arms the coast and the river take (always closed), and the ones the closing rule takes
+  const sea = segs.map(s => !segInCore(...s)), water = segs.map(s => F.riverSeg(...s));
+  sea.forEach((s, i) => assert(!s || arms[i], `junction ${jx},${jz}: a street runs out to the sea`));
+  water.forEach((w, i) => assert(!w || arms[i], `junction ${jx},${jz}: a street runs along the river`));
+  const nFixed = segs.filter((s, i) => sea[i] || water[i]).length;
+  const ruled = arms.filter((c, i) => c && !sea[i] && !water[i]).length;
+  // of those, the ones the hash rule closes (the rest are a neighbourhood's inner streets)
+  const hashed = arms.filter((c, i) => c && !sea[i] && !water[i] && !F.nbhdInternalSeg(...segs[i])).length;
+  if (Math.abs(jx) === CORE || Math.abs(jz) === CORE) { coastJ++; assert(sea.filter(Boolean).length === (Math.abs(jx) === CORE && Math.abs(jz) === CORE ? 2 : 1), `coast junction ${jx},${jz} keeps an arm to the sea`); }
+  if (jz === F.RIVER_ROW) { riverJ++; assert(water[0] && water[1] && !water[2] && !water[3], `river junction ${jx},${jz}: the water takes the wrong arms`); }
+  assert(ruled <= 1, `junction ${jx},${jz} loses ${ruled} arms to the closing rule`);
+  assert(!(water[0] && ruled), `river junction ${jx},${jz}: the bridge ends in a closed street`);
+  assert(!(nFixed && hashed), `coast junction ${jx},${jz}: the closing rule takes an arm there as well`);
+  if (nFixed && ruled) nbCoast.push(`${jx},${jz}`);
+  assert(n <= 2, `junction ${jx},${jz} is a dead end (${n} arms closed)`);
   const arm = F.closedArm(jx, jz);
-  assert((arm !== null) === (n === 1), `closedArm disagrees with the segments at ${jx},${jz}`);
+  assert((arm !== null) === (n >= 1), `closedArm disagrees with the segments at ${jx},${jz}`);
   if (arm) {
+    const openOut = { e: F.armOpen(jx, jz, 'x', 1), w: F.armOpen(jx, jz, 'x', -1), n: F.armOpen(jx, jz, 'z', 1), s: F.armOpen(jx, jz, 'z', -1) };
+    assert(openOut[arm] === false, `closed arm ${arm} at ${jx},${jz} is still open to a car`);
+    assert(Object.values(openOut).filter(v => v).length === 4 - n, `junction ${jx},${jz} has ${Object.values(openOut).filter(v => v).length} open arms with ${n} closed`);
+  }
+  if (ruled) {
     tees++;
     assert(jx !== 0 && jz !== 0, `a three-way junction on a main road at ${jx},${jz}`);
     assert(!(Math.abs(jx) <= 3 && Math.abs(jz) <= 3), `a three-way junction next to spawn at ${jx},${jz}`);
-    assert(F.plazaAt(jx, jz) === null, `a roundabout on the three-way junction ${jx},${jz}`);
-    // an arm closed toward the wrong way is an error: a car leaving along the closed arm must be refused
-    const openOut = { e: F.armOpen(jx, jz, 'x', 1), w: F.armOpen(jx, jz, 'x', -1), n: F.armOpen(jx, jz, 'z', 1), s: F.armOpen(jx, jz, 'z', -1) };
-    assert(openOut[arm] === false, `closed arm ${arm} at ${jx},${jz} is still open to a car`);
-    assert(Object.values(openOut).filter(v => v).length === 3, `a three-way junction at ${jx},${jz} has ${Object.values(openOut).filter(v => v).length} open arms`);
   }
+  if (arm) assert(F.plazaAt(jx, jz) === null, `a roundabout on the junction ${jx},${jz}, which has a closed arm`);
   if (arms[0]) closedSegs++;
   if (arms[2]) closedSegs++;
   const p = F.plazaAt(jx, jz);
@@ -114,8 +138,9 @@ let barriers = 0, blocksChecked = 0, cranesChecked = 0, pickupsChecked = 0, mach
 for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   // one barricade per mouth (three props); a mouth on a neighbourhood's centre junction has none
   const mouths = (jx, jz) => F.nbhdInterior(jx, jz) ? 0 : 1;
-  // a filled street (segFilled) has no barrier at either mouth: its blocks join across it
-  const barred = (axis, jx, jz) => F.segClosed(axis, jx, jz) && !F.segFilled(axis, jx, jz);
+  // a filled street (segFilled) has no barrier at either mouth: its blocks join across it; the river is water, not a
+  // barred street
+  const barred = (axis, jx, jz) => F.segClosed(axis, jx, jz) && !F.segFilled(axis, jx, jz) && !F.riverSeg(axis, jx, jz);
   const want = (barred('z', cx, cz) ? mouths(cx, cz) + mouths(cx, cz + 1) : 0)
     + (barred('z', cx + 1, cz) ? mouths(cx + 1, cz) + mouths(cx + 1, cz + 1) : 0)
     + (barred('x', cx, cz) ? mouths(cx, cz) + mouths(cx + 1, cz) : 0)
@@ -129,6 +154,8 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   // no pickup (cash, repair, nitro) inside a construction site's frame or crane base, here or on the block next door
   const inSite = (x, z) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const b of W.siteSpots(cx + i, cz + j)) if (Math.abs(x - b.x) < b.hx + 1.5 && Math.abs(z - b.z) < b.hz + 1.5) return true; return false; };
   for (const pk of ch.pickups) assert(!inSite(pk.x, pk.z), `block ${cx},${cz}: a ${pk.kind} pickup at ${pk.x.toFixed(1)},${pk.z.toFixed(1)} is inside a construction site`);
+  // nor on the river, between its bank walls (8.25 m either side of its line), where no car can reach it
+  for (const pk of ch.pickups) assert(Math.abs(pk.z - F.RIVER_ROW * W.CHUNK) >= 8.8, `block ${cx},${cz}: a ${pk.kind} pickup at ${pk.x.toFixed(1)},${pk.z.toFixed(1)} is on the river`);
   pickupsChecked += ch.pickups.length;
   // each construction site has one or two parked machines (never more, never fewer)
   const frames = W.siteSpots(cx, cz).filter(b => b.hz === 14 || b.hx === 14).length;
@@ -159,5 +186,5 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   }
 }
 
-console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
+console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${coastJ} on the coast (the sea arm closed and no other, but for ${nbCoast.length} where a neighbourhood's inner street ends: ${nbCoast.join(' ')}), ${riverJ} on the river (bridges, the street across always open), no dead end; ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
   `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);

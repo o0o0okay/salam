@@ -522,6 +522,14 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
     // The junctions a flyover opens beside: one block either way from the start, or for a long bridge the block in
     // front of its start and the one past its far end (the blocks between are on the deck, with no cut corners).
     const besideAlong = f => { const s = Math.sign(f.node); return f.ext ? [-s, s * (f.ext + 1)] : [-1, 1]; };
+    // The structure casts shadows and its paint does not (js/world.js interchanges). A deck that only receives
+    // shadows lets every shadow from above pass straight through it: a car up on the deck dropped a second shadow
+    // on the street 7.2 m below, and the street under the bridge sat in full sun. One line per junction at most.
+    const PAINT = new Set(['dash', 'hazard']);
+    const checkShadows = (key, parts) => {
+      const wrong = parts.find(p => (PAINT.has(p.role) ? p.cast !== false : p.cast !== true));
+      if (wrong) bad(`${key}: the ${wrong.role} piece ${wrong.cast ? 'casts a shadow' : 'casts no shadow'} (the concrete has to, so the street under the bridge is shaded and no car's shadow falls through the deck; the paint must not)`);
+    };
     // A long bridge (ext > 0) is checked on its own. Its deck is flat over the whole span, so the per-junction ramp rules
     // below do not describe it. What is checked here: the deck tiles the span on both sides with no gaps and sits at the
     // driving height; the start and the far end each carry a ramp on the side away from the span; no ramp stands over
@@ -544,6 +552,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
         }
       }
       if (!parts.length) { bad(`${key}: a long bridge raised no structure at all`); return; }
+      checkShadows(key, parts);
       const RAMP = new Set(['embankment', 'approach', 'parapet-ramp', 'coping-ramp']);
       const DECK = new Set(['deck', 'deck-wear', 'parapet-deck', 'coping-deck', 'dash', 'hazard']);
       for (const p of parts) {
@@ -586,6 +595,7 @@ if (spawnStreetTrees < 6) bad(`the spawn block only got ${spawnStreetTrees} stre
         }
       }
       if (!parts.length) { bad(`the junction at ${f.axis === 'z' ? `${f.road},${f.node}` : `${f.node},${f.road}`} raised no structure at all`); continue; }
+      checkShadows(key, parts);
       const of = role => parts.filter(p => p.role === role);
       // ---- the footprint: half the carriageway on this side of the centre line, out to the end of the ramp ----
       for (const p of parts) {

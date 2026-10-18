@@ -6,9 +6,12 @@ import { chunks } from './chunkState.js';
 
 export const _probeSolids = [];                                     // solidAt() never nests, so one scratch list is enough
 // `skipRamp` leaves out a flyover's ramp slices: a car that is riding the structure's surface reads those as the road.
-export function solidAt(x, z, m, y = 0, skipRamp = false) {
+// `height` is the asking car's own height (vehicle.js): a roof (a solid with `headroom`, a construction frame's first floor
+// over its open ground floor) is solid only for a car too tall to pass under it. Asked without one, the roof is open.
+export function solidAt(x, z, m, y = 0, skipRamp = false, height = 0) {
   for (const s of solidsNear(x, z, m, _probeSolids)) {
     if (s.maxY !== undefined && y > s.maxY) continue;
+    if (s.headroom !== undefined && y + height <= s.headroom) continue;
     if (skipRamp && s.ramp) continue;
     if (Math.abs(x - s.x) < s.hx + m && Math.abs(z - s.z) < s.hz + m) return true;
   }

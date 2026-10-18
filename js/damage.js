@@ -7,6 +7,7 @@ import { sparks, smoke, explosion, emit } from './particles.js';
 import { sfx } from './audio.js';
 import { toast } from './ui.js';
 import { endGame } from './flow.js';
+import { spillLogs } from './logSpill.js';
 
 
 export function hurtPlayer(amt) {
@@ -28,6 +29,7 @@ export function hurtPlayerEnv(amt) { hurtPlayer(amt * ENV_DMG); }
 export function hurtCarEnv(c, amt) { hurtCar(c, amt * ENV_DMG); }
 export function wreckCar(c) {
   c.wrecked = true; c.wreckT = 0; c.mass = Math.max(1.8, c.mass);
+  if (c.kind === 'logtruck') spillLogs(c, 0, 0, 0, game.time - c.lastPlayerHit < 4);   // its load comes off as it goes
   c.mesh.traverse(o => { if (o.isMesh && !o.userData.beam) o.material = ASSET.burnt; });
   if (c.beam) c.beam.visible = false;
   if (c.isTanker) tankerExplode(c); else explosion(c.x, c.z, c.y);

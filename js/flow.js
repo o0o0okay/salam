@@ -14,16 +14,18 @@ import { resetMap } from './map.js';
 import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
+import { clearLogs } from './logSpill.js';
 export function resetWorld() {
   for (const c of cars.slice()) if (c !== player) removeCar(c);   // cops, traffic, and any burnt hull left over
   for (const f of flying) scene.remove(f.mesh); flying.length = 0; geysers.length = 0; fires.length = 0;
   for (const f of fallingTrees) scene.remove(f.mesh); fallingTrees.length = 0;
   for (const sp of spikes) scene.remove(sp.mesh); spikes.length = 0;
+  clearLogs();                                                   // the logs spilled in the last run
   for (const ch of chunks.values()) disposeChunk(ch); chunks.clear();
   resetMap();                                                    // the mark, the route and the map start afresh
   clearTrams();
   clearParticles(); $('toasts').innerHTML = '';
-  Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
+  Object.assign(game, { time: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, pinSeen: -99, shake: 0, spawnT: 2.5, slow: 1, overT: 0, overShown: false, reason: '', score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
     nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, roadblockT: 14, roadblockGroup: null, isNight: false,
     hideT: 0, hideBonus: 0, hidePen: 0 });
   if (player.mesh) removeCar(player);
@@ -32,7 +34,7 @@ export function resetWorld() {
   game.debugWanted = 1;
   warmTextCache();                                      // merge every sign string now, not mid-race
   updateChunks(player.x, player.z, 999);
-  camState.h = 0; camState.pos.set(3, 9, -40); camState.look.set(3, 1.5, -10);
+  camState.h = 0; camState.pos.set(3, 9, -40); camState.look.set(3, 1.5, -10); camState.roofY = Infinity; camState.duck = 0;
   game.civT = 0;
   sight.x = player.x; sight.z = player.z; sight.vx = sight.vz = 0; sight.t = game.t; sight.heliLock = 0; sight.heliOn = false; sight.lostFlag = false;
   ensureHelicopter();

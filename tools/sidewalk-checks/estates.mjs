@@ -7,17 +7,23 @@
    * for both: every house faces its own road, keeps 1.5 m clear of every road's edge and of every cul-de-sac, no two
      houses overlap, every house is a solid, the roads are drawn above the grass top (0.30), and the plan is
      deterministic;
-   * a neighbourhood averages at least 5 houses for now (target about 10); a block estate averages at least 4.
-   Run:  node tools/sidewalk-checks/estates.mjs      (exits non-zero on a failure) */
+   * a neighbourhood averages at least 5 houses for now (target about 10); a block estate averages at least 4;
+   * estates are a suburb's thing (js/districts.js): none outside the suburb district, and in it about as many as the
+     district's share of 'suburb' blocks (62% of its mix), since nearly all of those become estates.
+   The scan covers the whole island (js/island.js, 50 x 50 blocks): the city centre, a disc round the spawn about 15 to
+   21 blocks across, has no suburbs, so a square round the spawn finds no estate at all.
+   Run:  node tools/sidewalk-checks/estates.mjs      (exits non-zero on a failure)
+         ESTATE_RANGE=n   only the blocks within n of the spawn block (on the island) */
 import assert from 'node:assert/strict';
 import { modulePath } from './harness.mjs';
 
 const W = await import(modulePath);
 const CH = 80, PAD = W.PAD_IN, NB = 3;      // NB: blocks a neighbourhood spans a side (NB_BLOCKS in flyover.js)
-const RANGE = Number(process.env.ESTATE_RANGE || 14);
+const RANGE = process.env.ESTATE_RANGE ? Number(process.env.ESTATE_RANGE) : Infinity;
+const LO = Math.max(-W.ISLAND_R, -RANGE), HI = Math.min(W.ISLAND_R - 1, RANGE);   // the island's blocks are -ISLAND_R..ISLAND_R-1
 const ROAD = 3.5, DISC = 6, CLEAR = 1.5;
 let estates = 0, housesTotal = 0, minRoadGap = Infinity, spurs = 0, roadsTotal = 0;
-let nbBlocks = 0, blockEstates = 0, blockHouses = 0;
+let nbBlocks = 0, blockEstates = 0, blockHouses = 0, total = 0, suburbBlocks = 0, suburbEstates = 0;
 const regions = new Map();     // 'RX,RZ' -> { houses, blocks, roads }
 
 // distance from a point to an oriented rectangle (centre, axis t, half sizes)
@@ -27,12 +33,17 @@ const rectDist = (h, px, pz) => {
   return Math.hypot(Math.max(du, 0), Math.max(dn, 0));
 };
 
-for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++) {
+for (let cx = LO; cx <= HI; cx++) for (let cz = LO; cz <= HI; cz++) {
   const ch = W.generateChunk(cx, cz, true);
-  if (!ch.estate) continue;
+  const suburb = W.districtOf(cx, cz) === 'suburb';
+  total++;
+  if (suburb) suburbBlocks++;
+  if (!ch.estate) { W.disposeChunk(ch); continue; }   // 2500 blocks: each one goes once checked, or the heap runs out
   estates++;
   const E = ch.estate, B = E.bounds;
   const where = `block ${cx},${cz}`;
+  assert(suburb, `${where}: an estate in the ${W.districtOf(cx, cz)} district (estates are a suburb's thing)`);
+  suburbEstates++;
   assert(!(cx === 0 && cz === 0) && !(cx === 1 && cz === 0), `${where}: an estate on a spawn block`);
   const nb = E.nb;
   // a neighbourhood's roads stay in its own region; a block estate's roads stay on its own pad
@@ -59,12 +70,19 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
     assert(onEdge[E.side], `${where}: the main road does not enter from the edge it was planned for`);
   }
 
+  // A neighbourhood's main road comes in from the street at its entrance (nbhdEntrance in js/flyover.js): it starts on
+  // the pad's edge, so its first 30 m (60 ribbon points, as the planner exempts them in js/neighbourhoods.js) need only
+  // stay on the region's pads.
+  const entryBox = nb ? { lo_x: reg.x0 + PAD, hi_x: reg.x0 + NB * CH - PAD, lo_z: reg.z0 + PAD, hi_z: reg.z0 + NB * CH - PAD } : B;
   const samples = [];
-  for (const rd of E.roads) {
-    for (const [x, z] of rd.ribbon) {
+  E.roads.forEach((rd, k) => {
+    rd.ribbon.forEach(([x, z], i) => {
       samples.push([x, z]);
-      assert(x >= roadBox.lo_x - 1e-6 && x <= roadBox.hi_x + 1e-6 && z >= roadBox.lo_z - 1e-6 && z <= roadBox.hi_z + 1e-6, `${where}: a road leaves ${nb ? 'its region' : 'the pad'}`);
-    }
+      const box = nb && k === 0 && i < 60 ? entryBox : roadBox;
+      assert(x >= box.lo_x - 1e-6 && x <= box.hi_x + 1e-6 && z >= box.lo_z - 1e-6 && z <= box.hi_z + 1e-6, `${where}: a road leaves ${nb ? 'its region' : 'the pad'}`);
+    });
+  });
+  for (const rd of E.roads) {
     const dc = rd.disc;
     // a cul-de-sac may reach 16 m in from the region's edge (its 6 m disc, around a road end 22 m in); the boundary
     // street is 8 m wide on the lattice line, so the disc still clears it
@@ -112,11 +130,16 @@ for (let cx = -RANGE; cx <= RANGE; cx++) for (let cz = -RANGE; cz <= RANGE; cz++
   // the memo (world.js estatePlanMemo) replays the block's random draws: the rest of the block is the same too
   const sig = c => JSON.stringify(c.solids.map(o => [o.x, o.z, o.hx, o.hz, o.kind])) + '|' + c.geos.length;
   assert.equal(sig(again), sig(ch), `${where}: the block's solids change when it is built again`);
+  W.disposeChunk(again); W.disposeChunk(ch);
 }
 
-// the share of all blocks that are estates: suburb is about 26% of blocks and nearly all of those become estates
-const total = (2 * RANGE + 1) ** 2, share = estates / total;
-assert(share >= 0.18 && share <= 0.32, `estates are ${(share * 100).toFixed(1)}% of ${total} blocks (want about 26%)`);
+// The share of the suburb district's blocks that are estates. The district's mix (js/districts.js) makes 62% of its
+// blocks 'suburb', and nearly all of those become estates (not a block on a tram lane, nor one next to the spawn); a
+// neighbourhood's blocks are all suburb. Over the island that is 222 estates in 371 suburb blocks (60%), 8.9% of all
+// 2500 blocks. (Before the districts, suburb was about 26% of all blocks, spread everywhere, and the test wanted that.)
+assert(suburbBlocks >= 40 || RANGE < Infinity, `only ${suburbBlocks} suburb blocks on the island`);
+const share = suburbEstates / Math.max(1, suburbBlocks);
+if (suburbBlocks >= 40) assert(share >= 0.5 && share <= 0.72, `estates are ${(share * 100).toFixed(1)}% of the ${suburbBlocks} suburb blocks (want about 62%)`);
 // a block estate (outside a neighbourhood) averages at least 4 houses
 const perBlock = blockHouses / Math.max(1, blockEstates);
 assert(perBlock >= 4, `block estates average ${perBlock.toFixed(1)} houses (want at least 4)`);
@@ -128,6 +151,6 @@ for (const [k, R] of whole) assert(R.houses >= 4, `neighbourhood ${k} has ${R.ho
 // INTERIM floor: the approved target is about ten houses per neighbourhood. The 3x3 planner reaches about 7.5 (each
 // house must sit inside one block's pad). Raise this floor when the density is settled.
 assert(nbPer >= 5, `neighbourhoods average ${nbPer.toFixed(1)} houses (want at least 5 now, target about 10)`);
-console.log(`PASS: ${estates} estates in ${total} blocks (${(share * 100).toFixed(1)}%): ${blockEstates} block estates (${perBlock.toFixed(1)} houses each) and ${nbBlocks} blocks in ${regions.size} neighbourhoods ` +
+console.log(`PASS: ${estates} estates in ${total} blocks, all in the suburb district (${(share * 100).toFixed(1)}% of its ${suburbBlocks} blocks): ${blockEstates} block estates (${perBlock.toFixed(1)} houses each) and ${nbBlocks} blocks in ${regions.size} neighbourhoods ` +
   `(${whole.length} whole, ${nbPer.toFixed(1)} houses each); ${roadsTotal} roads (${spurs} spurs), ${housesTotal} houses; ` +
   `the closest house is ${minRoadGap.toFixed(2)} m from a road edge; every road, cul-de-sac and house stays on its pad or region and clear of the others; estates are deterministic`);

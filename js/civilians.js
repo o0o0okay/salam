@@ -2,13 +2,14 @@
    Right-hand traffic. Lane position: axis z -> x = road - dir*off ; axis x -> z = road + dir*off */
 import { PI, CHUNK, clamp, wrapAngle, rnd, hash2 } from './utils.js';
 import { player, police, cars, civs } from './state.js';
-import { CAR_DIMS } from './carModels.js';
+import { CAR_DIMS, GARBAGE_LIVERIES } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
 import { onIsland, CORE } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
+import { logAhead } from './logSpill.js';
 import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet, FLY, nodeAt, bridgeHeight, alongOf } from './flyover.js';
 
 export const CIV_KINDS = [
@@ -23,6 +24,7 @@ export const CIV_KINDS = [
   'oldclassic',
   'limo',
   'icecream',
+  'garbage',
   'cementtruck',
   'fueltanker',
   'semi',
@@ -53,6 +55,7 @@ function civColor(kind) {
   if (kind === 'oldclassic') return PASTEL_COLORS[Math.floor(Math.random() * PASTEL_COLORS.length)];
   if (kind === 'limo') return Math.random() < 0.8 ? 0x111216 : 0xf2f2f2;
   if (kind === 'icecream') return Math.random() < 0.5 ? 0x3f9fe0 : 0xe8434a;   // the blue livery or the red
+  if (kind === 'garbage') return GARBAGE_LIVERIES[Math.floor(Math.random() * GARBAGE_LIVERIES.length)].body;   // green, grey or white
   if (kind === 'cementtruck') return TRUCK_COLORS[Math.floor(Math.random() * TRUCK_COLORS.length)];
   if (kind === 'fueltanker') return TANKER_COLORS[Math.floor(Math.random() * TANKER_COLORS.length)];
   if (['semi', 'semibox', 'flatbed', 'lowboy', 'logtruck'].includes(kind)) return SEMI_COLORS[Math.floor(Math.random() * SEMI_COLORS.length)];
@@ -65,6 +68,7 @@ function civParams(kind) {
     case 'van': return { maxSpeed: 24, maxReverse: 7, accel: 11, brake: 36, turn: 2.0, turnFalloff: 45, grip: 8.5 };
     case 'limo': return { maxSpeed: 25, maxReverse: 7, accel: 10, brake: 34, turn: 1.6, turnFalloff: 48, grip: 8.5 };
     case 'icecream': return { maxSpeed: 21, maxReverse: 6, accel: 9, brake: 32, turn: 1.8, turnFalloff: 42, grip: 8.8 };
+    case 'garbage': return { maxSpeed: 17, maxReverse: 5, accel: 7, brake: 26, turn: 1.25, turnFalloff: 36, grip: 9.5 };   // laden like the mixer
     case 'suv': return { maxSpeed: 27, maxReverse: 8, accel: 13, brake: 38, turn: 2.2, turnFalloff: 48, grip: 8.2 };
     case 'pickup': return { maxSpeed: 27, maxReverse: 8, accel: 14, brake: 40, turn: 2.4, turnFalloff: 50, grip: 8 };
     case 'sportscar': return { maxSpeed: 34, maxReverse: 9, accel: 19, brake: 46, turn: 2.7, turnFalloff: 55, grip: 7.6 };
@@ -84,6 +88,7 @@ function civCruise(kind) {
   if (kind === 'sportscar') return rnd(13, 18);
   if (kind === 'oldclassic') return rnd(7, 10);
   if (kind === 'icecream') return rnd(6, 8.5);                  // the ice cream van takes its time
+  if (kind === 'garbage') return rnd(5.5, 8);                   // and the garbage truck crawls along its round
   if (['cementtruck', 'fueltanker', 'semibox', 'flatbed', 'lowboy', 'logtruck'].includes(kind)) return rnd(6, 8.5);
   if (kind === 'semi') return rnd(8, 11);
   return rnd(9, 14);
@@ -197,6 +202,11 @@ export function civAI(c, dt) {
       target = Math.min(target, f < 7 + o.box.e1 ? 0 : o.speed * 0.8);
     }
   }
+  // A loose log in its path (js/logSpill.js): the car slows down for it and stops short of it, the last few metres on
+  // the handbrake (below 1.5 m/s the throttle only coasts). The police do not: a log in the road is a hazard the chase
+  // drives into.
+  const logGap = logAhead(c, s, co, 6 + Math.max(0, sp) * 1.2 + c.box.e1) - c.box.e1 - 0.3;    // its nose to the log
+  if (logGap < Infinity) target = Math.min(target, Math.max(0, logGap - 3.5) * 1.2);
 
   const L = 6 + Math.max(0, sp) * 0.4;
   // The look-ahead is asked from the car's own height: on a flyover the embankment below the ramp is not a wall,
@@ -207,9 +217,9 @@ export function civAI(c, dt) {
   // 3 m/s and steered for the centre of the ramp. At grade, and under the structure, the slices still stop it.
   // The flank walls and the abutment are not ramp slices and still count.
   const skipRamp = surfaceAt(c.x, c.z, c.y) > 0;
-  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp)) {
+  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp, c.height)) {
     target = Math.min(target, 3);
-    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp) ? -1 : 1;
+    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp, c.height) ? -1 : 1;
   }
 
   // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.
@@ -278,7 +288,7 @@ export function civAI(c, dt) {
   }
 
   c.steer += (steer - c.steer) * Math.min(1, dt * 7);
-  return { throttle, hand: false };
+  return { throttle, hand: logGap < 5 };
 }
 
 // Traffic density and jams. A quarter of the lanes (by hash, the same on every visit) are jam lanes: a car spawned there

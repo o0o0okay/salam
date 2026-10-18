@@ -2,7 +2,7 @@
 import { DIFF } from './config.js';
 
 
-export const game = { state: 'menu', time: 0, t: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, shake: 0, spawnT: 2, slow: 1, overT: 0, overShown: false, reason: '', paused: false, best: 0, score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
+export const game = { state: 'menu', time: 0, t: 0, clock: 0, dist: 0, cash: 0, takedowns: 0, hp: 100, pin: 0, pinSeen: -99, shake: 0, spawnT: 2, slow: 1, overT: 0, overShown: false, reason: '', paused: false, best: 0, score: 0, wanted: 1, wantedLast: 1, tierSpawnPending: 0, civT: 0,
   nitro: 60, nitroLock: false, nitroOn: false, combo: 0, comboT: 0, nearMiss: 0, spiked: 0, spikeT: 6, isNight: false,
   debugWanted: 1 /* DEBUG: manual wanted level (T key) */ };
 try { game.best = parseInt(localStorage.getItem('escape_road_best') || '0') || 0; } catch (e) {}
@@ -16,6 +16,7 @@ export const flying = [];        // broken props in flight
 export const fallingTrees = [];
 export const geysers = [];       // broken hydrants spraying water
 export const fires = [];         // burning wrecks (exploded fuel tankers)
+export const logs = [];          // logs spilled off log trucks, lying and rolling in the street (js/logSpill.js)
 
 
 // Persistent player object: filled with Object.assign(player, createCar(...)) in resetWorld

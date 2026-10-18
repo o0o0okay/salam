@@ -5,7 +5,7 @@ import { scene } from './renderer.js';
 import { ASSET } from './assets.js';
 import { TREE_VARIANTS, setTreeMatrix, _Y } from './trees.js';
 import { TREE_BREAK_V } from './config.js';
-import { DIFF, HULK_PARAMS } from './config.js';
+import { DIFF, HULK_PARAMS, LOG_SPILL_V } from './config.js';
 import { game, cars, flying, fallingTrees, geysers, fires } from './state.js';
 import { nearChunks, solidsNear, isHeavyParked, parkedShove, parkedDamage } from './world.js';
 import { insideFootprint, parapetPush } from './flyover.js';
@@ -17,6 +17,7 @@ import { sfx } from './audio.js';
 import { hurtPlayer, hurtCar, hurtPlayerEnv, hurtCarEnv, impactFx, wreckCar } from './damage.js';
 import { toast } from './ui.js';
 import { civPanic } from './civilians.js';
+import { spillLogs } from './logSpill.js';
 const PARK_BREAK_V = 8;     // speed (divided by sqrt(mass)) needed to total a parked car
 const BUSSTOP_BREAK_V = 7;  // bus shelters are flimsy — break easily
 const SCAFFOLD_BREAK_V = 8; // scaffolding — a bit sturdier, still breaks on a real hit
@@ -53,9 +54,22 @@ export function sat(A, B) {
   }
   hit.nx = nx; hit.nz = nz; hit.depth = minO; return true;
 }
+// How far apart two boxes are: the widest gap between them along the four box axes (below zero they overlap). Face to
+// face that is the true distance; corner to corner it reads a little short, the safe side for "right up against it".
+export function satGap(A, B) {
+  const dx = B.x - A.x, dz = B.z - A.z; let g = -Infinity;
+  for (let i = 0; i < 4; i++) {
+    let ax, az;
+    if (i === 0) { ax = A.ux; az = A.uz; } else if (i === 1) { ax = A.vx; az = A.vz; } else if (i === 2) { ax = B.ux; az = B.uz; } else { ax = B.vx; az = B.vz; }
+    const ra = A.e1 * Math.abs(A.ux * ax + A.uz * az) + A.e2 * Math.abs(A.vx * ax + A.vz * az);
+    const rb = B.e1 * Math.abs(B.ux * ax + B.uz * az) + B.e2 * Math.abs(B.vx * ax + B.vz * az);
+    g = Math.max(g, Math.abs(dx * ax + dz * az) - ra - rb);
+  }
+  return g;
+}
 // Scratch lists for solidsNear(). Each query site has its own, because collideSolids() is still looping over its
 // list when hitParkedHeavy() -> canShift() asks for another one.
-const _scanSolids = [], _hitSolids = [], _shiftSolids = [];
+const _scanSolids = [], _hitSolids = [], _shiftSolids = [], _nearSolids = [];
 export function overlapsAnything(b, self) {
   // Nothing spawns inside the interchange at grade: a car placed in the embankment would sit in the concrete. A box
   // placed up on a deck (b.y above the ground) is the one exception: it stands on the slab, above the embankment, and
@@ -69,10 +83,24 @@ export function overlapsAnything(b, self) {
   for (const c of cars) if (c !== self && Math.hypot(c.x - b.x, c.z - b.z) < 7 + b.e1 + c.box.e1) return true;
   return false;
 }
+// Is there a solid within g metres of this car that would stop it: one collideSolids() stops it on (a wall under a deck
+// only for what is under it, a roof only for what is too tall for it)? The BUSTED hold (js/update.js) asks: a player the
+// police have on a wall is still on it when nobody is shoving him into it.
+export function solidWithin(c, g) {
+  const b = carBox(c), reach = b.e1 + b.e2 + g;
+  for (const s of solidsNear(c.x, c.z, reach, _nearSolids)) {
+    if (s.maxY !== undefined && c.y > s.maxY) continue;
+    if (s.headroom !== undefined && c.y + (c.height || 0) <= s.headroom) continue;
+    if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
+    if (satGap(b, s.box) < g) return true;
+  }
+  return false;
+}
 export function collideSolids(c) {
   const reach = c.box.e1 + c.box.e2; const b = carBox(c);
   for (const s of solidsNear(c.x, c.z, reach, _hitSolids)) {
     if (s.maxY !== undefined && c.y > s.maxY) continue;          // a wall under a deck: only for what is under it
+    if (s.headroom !== undefined && c.y + (c.height || 0) <= s.headroom) continue;   // a roof: a car this low drives in under it
     if (Math.abs(s.x - c.x) > s.hx + reach || Math.abs(s.z - c.z) > s.hz + reach) continue;
     if (!sat(b, s.box)) continue;
     if (s.tree && !s.tree.broken) {
@@ -491,6 +519,11 @@ export function carCar(A, B) {
     A.vx -= j / mA * nx; A.vz -= j / mA * nz; B.vx += j / mB * nx; B.vz += j / mB * nz;
     const px = (A.x + B.x) / 2, pz = (A.z + B.z) / 2, involved = A.isPlayer || B.isPlayer;
     impactFx(px, pz, rel, nx, nz, involved, (A.y + B.y) / 2);
+    // A log truck that takes a hard hit loses its load (js/logSpill.js): A is shoved along -n and B along +n.
+    if (rel > LOG_SPILL_V) {
+      if (A.kind === 'logtruck') spillLogs(A, -nx, -nz, rel, B.isPlayer);
+      if (B.kind === 'logtruck') spillLogs(B, nx, nz, rel, A.isPlayer);
+    }
     if (rel > 3) {
       A.h += (Math.sin(A.h) * nz - Math.cos(A.h) * nx) * rel * 0.008; B.h += (Math.sin(B.h) * -nz - Math.cos(B.h) * -nx) * rel * 0.008;
     }

@@ -37,10 +37,20 @@ export const CAR_DIMS = {
   firesmall:  { e1: 2.6,  e2: 1.05, mass: 2.6,  hp: 120 },
   schoolbus:  { e1: 4.6,  e2: 1.28, mass: 4.4,  hp: 200 },
   icecream:   { e1: 2.9,  e2: 1.15, mass: 2.6,  hp: 110 },   // the ice cream van: a step van with the cone on its roof
+  garbage:    { e1: 4.35, e2: 1.3,  mass: 5.0,  hp: 180 },   // the garbage truck: a rear-loading refuse truck, 8.7 m on three axles
 };
 
 
 export const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
+// A vehicle's height: the top of its model above the road (the light bar, the cone on an ice cream van's roof and all),
+// taken from the first model of each kind that is built. A car drives in under a roof (a solid with `headroom`, see
+// collideSolids in js/collisions.js) when this fits under it.
+const _heightOf = new Map(), _heightBox = new THREE.Box3();
+export function carHeight(kind, mesh) {
+  let h = _heightOf.get(kind);
+  if (h === undefined) { h = _heightBox.setFromObject(mesh).max.y - mesh.position.y; _heightOf.set(kind, h); }
+  return h;
+}
 
 
 // ---- SCHOOL BUS and ICE CREAM lettering ----
@@ -87,6 +97,59 @@ function busSignGeometry(str, h, depth, gap) {
   geos.forEach(g => g.dispose());
   busSignCache.set(key, geo);
   return geo;
+}
+// ---- the garbage truck: its liveries and its beacons ----
+// A livery is the body's colour (the colour the traffic gives the truck) and the cab and trim that go with it.
+export const GARBAGE_LIVERIES = [
+  { body: 0x3e8e47, cab: 0xf2f3f1, trim: 0x2f7a3a, band: null },        // green, with a white cab
+  { body: 0x666d75, cab: 0xb4bac1, trim: 0xff8a1f, band: null },        // grey, with orange trim
+  { body: 0xeef0eb, cab: 0xf2f3f1, trim: 0xf2c230, band: 0xf2c230 },    // white, with a yellow band
+];
+// Its four amber beacons, two on the cab roof and two on the tailgate, are one geometry shared by every truck. Their
+// material is a light the truck owns (js/vehicle.js syncCarMesh flashes it), so they are not merged with the body.
+export const GARBAGE_BEACONS = [[-0.72, 3.2, 3.45], [0.72, 3.2, 3.45], [-1.0, 3.7, -2.75], [1.0, 3.7, -2.75]];
+let garbageBeaconGeo = null;
+function garbageBeacons() {
+  if (garbageBeaconGeo) return garbageBeaconGeo;
+  const parts = GARBAGE_BEACONS.map(([x, y, z]) => new THREE.CylinderGeometry(0.11, 0.11, 0.17, 8).translate(x, y, z));
+  garbageBeaconGeo = mergeGeometries(parts, false);
+  parts.forEach(p => p.dispose());
+  return garbageBeaconGeo;
+}
+// ---- the log truck's load ----
+// Six logs in three layers on the log trailer: the (x, y) of each log's axis in the truck's frame, the z of their
+// middle, their radius and length, the bark of the even and the odd ones and the colour of the cut ends. The load is a
+// group of its own on the truck (g.userData.cargo), not merged into the body, so a hard hit can take it off the
+// trailer: js/logSpill.js hides it and sends six loose logs into the street from the same places.
+export const LOG_LOAD = {
+  at: [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]],
+  z: -2.35, r: 0.3, len: 7.2, seg: 8, bark: [0x9c5f30, 0xb8733f], end: 0xd9ab6a,
+};
+// One log lying along z and centred on the origin, in two pieces: its bark (an open cylinder) and its two cut ends.
+// The ends' rims sit on the bark's own edge vertices. Shared by every log truck's load and by every loose log.
+let logGeo = null;
+export function logParts() {
+  if (logGeo) return logGeo;
+  const { r, len, seg } = LOG_LOAD;
+  const bark = new THREE.CylinderGeometry(r, r, len, seg, 1, true).rotateX(Math.PI / 2);
+  const front = new THREE.CircleGeometry(r, seg, -Math.PI / 2).translate(0, 0, len / 2);
+  const back = new THREE.CircleGeometry(r, seg, -Math.PI / 2).rotateY(Math.PI).translate(0, 0, -len / 2);
+  logGeo = { bark, ends: mergeGeometries([front, back], false) };
+  front.dispose(); back.dispose();
+  return logGeo;
+}
+// the whole load, stacked as it lies on the trailer (z about its middle): the bark of the even logs, of the odd ones,
+// and all the cut ends; one geometry each, shared by every log truck
+let logLoadGeo = null;
+function logLoadGeometry() {
+  if (logLoadGeo) return logLoadGeo;
+  const { bark, ends } = logParts(), at = LOG_LOAD.at;
+  const stack = (geo, keep) => {
+    const parts = at.filter((_, i) => keep(i)).map(([x, y]) => geo.clone().translate(x, y, 0));
+    const out = mergeGeometries(parts, false); parts.forEach(p => p.dispose()); return out;
+  };
+  logLoadGeo = [stack(bark, i => i % 2 === 0), stack(bark, i => i % 2 === 1), stack(ends, () => true)];
+  return logLoadGeo;
 }
 // ---- merged body geometry ----
 // A car is some dozens of boxes and cylinders, and each of them was its own draw call (and, in the shadow pass,
@@ -304,6 +367,106 @@ export function buildCar(kind, color, detail = true) {
     const rim = cyl(0.5, 0.48, 0.1, 9, waffleDk, 0, CM[1], CM[2]); rim.rotation.x = tilt; inner.add(rim);
     for (const [m, r, x, y, z] of [[choc, 0.36, 0, 3.66, -0.45], [pink, 0.33, -0.22, 3.94, -0.68], [mint, 0.35, 0.2, 4.0, -0.42]]) {
       const sc = new THREE.Mesh(SCOOP_GEO, m); sc.position.set(x, y, z); sc.scale.setScalar(r); inner.add(sc);
+    }
+    // one shadow setting for every piece but the glass, so each colour merges into one mesh (consolidateBody keys on it)
+    for (const o of inner.children) if (o.isMesh) { o.castShadow = o.material !== glass; o.receiveShadow = true; }
+
+  } else if (kind === 'garbage') {
+    // The rear-loading refuse truck of the reference pictures: a flat-fronted cab (white, or grey on the grey truck)
+    // with a black grille, mirrors and steps and two amber beacons on its roof, and the exhaust stack behind it; the
+    // compactor body in the truck's colour, ribbed down its flanks, with a logo panel (a recycling triangle) and a red
+    // and white reflective strip along its foot; at the back the tailgate, its face sloping out over the loading mouth,
+    // which is open: bags, a bin and boxes inside it, red and white chevrons under it, the hydraulic rams up its sides
+    // and two more beacons on top. Three axles: one under the cab and a tandem at the back.
+    wheelZ = [3.0, -1.65, -2.75]; wheelX = 1.0; wheelY = 0.53; wheelScale = 1.15; frontZ = 4.26; backZ = -4.26; lightY = 0.9;
+    const L = GARBAGE_LIVERIES.find(l => l.body === color) || { body: color, cab: 0xf2f3f1, trim: color, band: null };
+    const body = mat(color), rib = mat(new THREE.Color(color).multiplyScalar(0.82).getHex()), cab = mat(L.cab), trim = mat(L.trim);
+    const chassis = mat(0x2a2d33), steel = mat(0xaab0b7), chrome = mat(0xc9cdd2), black = mat(0x141518);
+    const red = mat(0xd8302c), white = mat(0xf4f4f2), recycle = mat(0x2f9a4a);
+    lights.amber = new THREE.MeshBasicMaterial({ color: 0xffa41f });
+    inner.add(new THREE.Mesh(garbageBeacons(), lights.amber)); g.userData.beacon = lights.amber;
+    // the chassis, the guard rails between the axles, the fuel tank and the battery box, the mudguards over the tandem
+    inner.add(box(1.0, 0.3, 8.1, chassis, 0, 0.72, -0.1));
+    for (const sx of [-1, 1]) {
+      for (const y of [0.62, 0.86]) inner.add(box(0.05, 0.08, 3.45, steel, sx * 1.17, y, 0.675, false));
+      inner.add(box(0.36, 0.08, 2.35, black, sx * 1.05, 1.1, -2.2, false));
+    }
+    const tank = cyl(0.3, 0.3, 1.1, 10, chrome, -0.85, 0.8, 1.35, false); tank.rotation.x = Math.PI / 2; inner.add(tank);
+    inner.add(box(0.5, 0.45, 0.7, black, 0.85, 0.82, 1.4, false));
+    // the cab, z 2.35 .. 4.18, its floor over the front wheels, and its lower front ahead of them
+    inner.add(box(2.4, 2.0, 1.83, cab, 0, 2.05, 3.265));
+    inner.add(box(2.38, 0.62, 0.62, cab, 0, 0.76, 3.88));
+    inner.add(box(2.46, 0.36, 0.3, black, 0, 0.62, 4.13, false));             // bumper
+    inner.add(box(1.5, 0.62, 0.05, black, 0, 1.42, 4.2, false));              // grille ...
+    for (const y of [1.25, 1.42, 1.59]) inner.add(box(1.4, 0.04, 0.03, steel, 0, y, 4.23, false));   // ... and its slats
+    inner.add(box(2.42, 0.16, 0.05, trim, 0, 1.88, 4.2, false));              // the trim stripe across the front ...
+    const ws = box(2.24, 0.86, 0.06, glass, 0, 2.43, 4.19, false); ws.rotation.x = -0.06; inner.add(ws);   // windscreen
+    inner.add(box(2.3, 0.08, 1.7, cab, 0, 3.09, 3.25, false));                // roof cap
+    for (const [x, , z] of GARBAGE_BEACONS.slice(0, 2)) inner.add(box(0.3, 0.06, 0.3, black, x, 3.13, z, false));   // the beacons' bases
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.05, 0.16, 1.85, trim, sx * 1.205, 1.88, 3.265, false)); // ... and along the cab
+      inner.add(box(0.05, 0.72, 0.95, glass, sx * 1.205, 2.4, 3.55, false));  // door window
+      inner.add(box(0.05, 0.55, 0.42, glass, sx * 1.205, 2.48, 2.72, false)); // the window behind it
+      inner.add(box(0.04, 1.05, 0.04, black, sx * 1.205, 1.4, 3.03, false));  // door seam
+      inner.add(box(0.05, 0.26, 1.2, black, sx * 1.205, 1.18, 3.0, false));   // the wheel arch
+      for (const y of [0.55, 0.85]) inner.add(box(0.3, 0.06, 0.34, black, sx * 1.06, y, 3.75, false));   // steps
+      inner.add(box(0.1, 0.03, 0.03, black, sx * 1.23, 2.62, 4.0, false));    // mirror arm ...
+      inner.add(box(0.06, 0.42, 0.2, black, sx * 1.27, 2.4, 4.0, false));     // ... and its head
+    }
+    // the exhaust stack behind the cab
+    inner.add(cyl(0.07, 0.07, 2.5, 8, chrome, 1.0, 2.35, 2.27, false));
+    inner.add(cyl(0.09, 0.07, 0.25, 8, black, 1.0, 3.7, 2.27, false));
+    // the compactor body: z -2.6 .. 2.2, y 1.12 .. 3.5
+    inner.add(box(2.44, 2.38, 4.8, body, 0, 2.31, -0.2));
+    inner.add(box(2.5, 0.12, 4.86, rib, 0, 3.53, -0.2, false));              // its top rim ...
+    inner.add(box(2.5, 0.14, 4.86, rib, 0, 1.15, -0.2, false));              // ... and its foot
+    for (const sx of [-1, 1]) {
+      for (const z of [-2.25, -1.45, -0.65, 0.95, 1.75]) inner.add(box(0.06, 2.2, 0.12, rib, sx * 1.235, 2.33, z, false));   // ribs
+      if (L.band !== null) inner.add(box(0.03, 0.42, 4.8, mat(L.band), sx * 1.232, 1.65, -0.2, false));   // the band, behind the ribs
+      // the logo panel between two ribs, and on it a recycling triangle (three bars, 0.55 m a side)
+      inner.add(box(0.03, 0.95, 1.2, white, sx * 1.235, 2.45, 0.15, false));
+      inner.add(box(0.03, 0.07, 0.55, recycle, sx * 1.25, 2.291, 0.15, false));
+      const tl = box(0.03, 0.07, 0.55, recycle, sx * 1.25, 2.529, 0.0125, false); tl.rotation.x = -Math.PI / 3; inner.add(tl);
+      const tr = box(0.03, 0.07, 0.55, recycle, sx * 1.25, 2.529, 0.2875, false); tr.rotation.x = Math.PI / 3; inner.add(tr);
+      // the reflective strip along the foot, red and white
+      for (let i = 0; i < 10; i++) inner.add(box(0.03, 0.1, 0.44, i % 2 ? white : red, sx * 1.235, 1.3, -2.37 + i * 0.46, false));
+    }
+    // the tailgate, hinged at the top of the body: its upper block (z -3.6 .. -2.6) over the hopper (z -4.22 .. -3.48)
+    inner.add(box(2.48, 2.4, 0.05, black, 0, 2.33, -2.6, false));            // the seam between the body and the tailgate
+    inner.add(box(2.44, 2.1, 1.0, body, 0, 2.5, -3.1));                      // y 1.45 .. 3.55
+    inner.add(box(2.44, 0.6, 0.88, chassis, 0, 1.15, -3.04, false));         // under it, the hopper's front
+    for (const sx of [-1, 1]) inner.add(box(0.2, 0.12, 0.2, black, sx * 0.6, 3.6, -2.62, false));   // hinges
+    for (const [x, , z] of GARBAGE_BEACONS.slice(2)) inner.add(box(0.28, 0.06, 0.28, black, x, 3.58, z, false));   // the beacons' bases
+    // its face slopes out and down from its top (z -3.6, y 3.55) to the top of the loading mouth (z -4.22, y 1.85):
+    // a block 1.81 m long turned 0.35 rad, its rear face on that line
+    const SB = [1.85, -4.22], ST = [3.55, -3.6], sl = Math.atan2(ST[1] - SB[1], ST[0] - SB[0]), sn = [-Math.sin(sl), Math.cos(sl)];
+    const face = box(2.44, Math.hypot(ST[0] - SB[0], ST[1] - SB[1]), 0.7, body, 0, (SB[0] + ST[0]) / 2 + 0.35 * sn[0], (SB[1] + ST[1]) / 2 + 0.35 * sn[1]);
+    face.rotation.x = sl; inner.add(face);
+    for (const sx of [-1, 1]) for (let i = 0; i < 6; i++) {                   // its edge, red and white down both sides
+      const t = (i + 0.5) / 6, seg = box(0.03, 0.29, 0.08, i % 2 ? white : red, sx * 1.235, SB[0] + t * (ST[0] - SB[0]) + 0.05 * sn[0], SB[1] + t * (ST[1] - SB[1]) + 0.05 * sn[1], false);
+      seg.rotation.x = sl; inner.add(seg);
+    }
+    // the hydraulic rams up its sides, from the body's top corner down to the hopper
+    for (const sx of [-1, 1]) { const ram = box(0.1, 2.05, 0.1, steel, sx * 1.25, 2.45, -3.325, false); ram.rotation.x = 0.596; inner.add(ram); }
+    // the loading mouth, open: the hopper's cheeks, its floor and sill, the lip over it and its dark back wall
+    for (const sx of [-1, 1]) inner.add(box(0.22, 1.0, 0.74, body, sx * 1.11, 1.35, -3.85));
+    inner.add(box(2.0, 0.22, 0.74, steel, 0, 0.96, -3.85, false));
+    inner.add(box(2.44, 0.14, 0.32, body, 0, 1.78, -4.06, false));
+    inner.add(box(2.0, 0.66, 0.06, black, 0, 1.39, -3.62, false));
+    // ... and the rubbish in it: bags, a cardboard box, a blue bin and odds and ends
+    for (const [hex, sx, sy, sz, x, y, z] of [[0x1d1f22, 0.32, 0.24, 0.26, -0.62, 1.3, -3.9], [0xe9e9e4, 0.26, 0.22, 0.22, 0.2, 1.32, -3.95], [0x7d838a, 0.16, 0.2, 0.2, -0.84, 1.28, -3.95]]) {
+      const bag = new THREE.Mesh(SCOOP_GEO, mat(hex)); bag.position.set(x, y, z); bag.scale.set(sx, sy, sz); inner.add(bag);
+    }
+    const carton = box(0.38, 0.32, 0.34, mat(0xc9a26b), -0.2, 1.24, -3.84, false); carton.rotation.y = 0.3; inner.add(carton);
+    inner.add(box(0.3, 0.44, 0.3, mat(0x2e6fd6), 0.6, 1.3, -3.86, false));   // the blue bin
+    const lid = box(0.22, 0.12, 0.3, mat(0x46b54a), -0.35, 1.5, -3.95, false); lid.rotation.z = 0.4; inner.add(lid);
+    inner.add(box(0.18, 0.16, 0.18, mat(0xe85d9a), 0.05, 1.55, -3.9, false));
+    inner.add(box(0.2, 0.14, 0.2, mat(0xf2c230), 0.84, 1.55, -3.95, false));
+    // under the mouth the chevron bar, red and white; the crew's steps and grab handles
+    for (let i = 0; i < 8; i++) inner.add(box(0.2875, 0.34, 0.06, i % 2 ? white : red, -1.00625 + i * 0.2875, 0.6, -4.25, false));
+    for (const sx of [-1, 1]) {
+      inner.add(box(0.5, 0.05, 0.12, steel, sx * 0.75, 0.4, -4.28, false));
+      inner.add(box(0.04, 0.6, 0.04, steel, sx * 1.05, 1.4, -4.25, false));
     }
     // one shadow setting for every piece but the glass, so each colour merges into one mesh (consolidateBody keys on it)
     for (const o of inner.children) if (o.isMesh) { o.castShadow = o.material !== glass; o.receiveShadow = true; }
@@ -561,12 +724,16 @@ export function buildCar(kind, color, detail = true) {
       inner.add(box(2.2, 0.2, 1.2, deck, 0, 1.5, 0.85));
       for (const sx of [-1, 1]) { const ramp = box(0.9, 0.06, 2.12, steel, sx * 0.6, 0.55, zr + 1.0); ramp.rotation.x = -0.34; inner.add(ramp); }
     } else {
-      // log trailer: a frame, four pairs of tall stakes and six logs stacked in three layers
-      const logA = mat(0xb8733f), logB = mat(0x9c5f30);
+      // log trailer: a frame, four pairs of tall stakes and the load (LOG_LOAD): six logs stacked in three layers, a
+      // group of its own (g.userData.cargo) that js/logSpill.js takes off the trailer when a hard hit spills it
       inner.add(box(2.0, 0.3, 7.6, chassis, 0, 0.85, zc, false));
       for (const z of [zr + 0.6, zr + 2.4, zr + 4.2, zr + 6.0]) for (const sx of [-1, 1]) inner.add(box(0.12, 1.9, 0.12, trimM, sx * 1.0, 1.85, z, false));
-      const logs = [[-0.6, 1.15], [0, 1.15], [0.6, 1.15], [-0.3, 1.67], [0.3, 1.67], [0, 2.19]];
-      logs.forEach(([x, y], i) => { const log = cyl(0.3, 0.3, 7.2, 8, i % 2 ? logA : logB, x, y, zc); log.rotation.x = Math.PI / 2; inner.add(log); });
+      const cargo = new THREE.Group(), [evenBark, oddBark, cutEnds] = logLoadGeometry();
+      [[evenBark, LOG_LOAD.bark[0]], [oddBark, LOG_LOAD.bark[1]], [cutEnds, LOG_LOAD.end]].forEach(([geo, hex]) => {
+        const m = new THREE.Mesh(geo, mat(hex)); m.castShadow = true; m.receiveShadow = true; cargo.add(m);
+      });
+      cargo.position.z = zc;                               // LOG_LOAD.z: the middle of the 7.6 m trailer
+      inner.add(cargo); g.userData.cargo = cargo;
     }
     for (const z of dualZ) { dualWheel(-1, z); dualWheel(1, z); }
 
@@ -697,7 +864,7 @@ export function buildCar(kind, color, detail = true) {
     }
   }
   if (detail) {
-    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus') ? 0.85 : kind === 'icecream' ? 0.8 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
+    const hl = ASSET.headMat, tl = ASSET.tailMat, lx = (kind === 'bus' || kind === 'schoolbus' || kind === 'garbage') ? 0.85 : kind === 'icecream' ? 0.8 : (kind === 'cementtruck' || kind === 'fueltanker' || kind === 'semi' || kind === 'semibox' || kind === 'flatbed' || kind === 'lowboy' || kind === 'logtruck') ? 0.95 : 0.65;
     for (const sx of [-1, 1]) { inner.add(box(0.5, 0.22, 0.08, hl, sx * lx, lightY, frontZ, false)); inner.add(box(0.5, 0.2, 0.08, tl, sx * lx, lightY + 0.04, backZ, false)); }
   }
   consolidateBody(inner, new Set(Object.values(lights)));

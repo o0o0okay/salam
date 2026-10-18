@@ -31,10 +31,12 @@ const carBoxSrc = between('export function carBox', 'export function driveCar');
 const driveSrc = strip(between('export function driveCar', 'export function syncCarMesh'));
 const syncSrc = strip(between('export function syncCarMesh'));
 const cfgSrc = fs.readFileSync(path.join(repo, 'js/config.js'), 'utf8');
+const LOG_SPILL_V = Number(cfgSrc.match(/^export const LOG_SPILL_V = ([\d.]+);/m)[1]);   // js/collisions.js carCar spills a log truck's load over this
 const PLAYER_PARAMS = eval('(' + cfgSrc.match(/export const PLAYER_PARAMS = (\{[^}]*\});/)[1] + ')');
 const DIFF = eval('(' + cfgSrc.match(/export const DIFFICULTIES = (\{[\s\S]*?\n\});/)[1] + ').normal');
 const HEAR_R = +cfgSrc.match(/export const HEAR_R = (\d+)/)[1];
 const POLICE_TIERS = eval('(' + cfgSrc.match(/export const POLICE_TIERS = (\[[\s\S]*?\n\]);/)[1] + ')');
+const PIN_HOLD = eval('(' + cfgSrc.match(/export const PIN_HOLD = (\{[^}]*\});/)[1] + ')');   // js/police.js asks every unit whether he is held
 
 const stubs = `
 const PI = Math.PI, CHUNK = 80;
@@ -43,9 +45,11 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const wrapAngle = a => { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; };
 const rnd = (a, b) => a + Math.random() * (b - a);
 const weatherSystem = { slickness: 0 };
+const tramTrackAhead = () => Infinity;   // js/tram.js: no tram lines in this harness (a police car checks the road ahead for one)
 const HULK_PARAMS = { maxSpeed: 46, maxReverse: 8, accel: 0, brake: 34, turn: 1.5, turnFalloff: 40, grip: 9.4 };
 const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 const buildCar = () => { const g = new Obj(); g.userData = { inner: new Obj(), lights: {} }; return g; };
+const carHeight = () => 1.6;   // js/carModels.js measures the model; the stub cars have none (no roof in these harnesses)
 class V3 { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
 class Quat { setFromAxisAngle() { return this; } multiply() { return this; } }
 class Obj {
@@ -63,6 +67,7 @@ const ASSET = new Proxy({ burnt: {} }, { get: (t, k) => (k in t ? t[k] : {}) });
 const TREE_VARIANTS = [{}, {}, {}, {}, {}, {}];
 const setTreeMatrix = () => {}; const _Y = new V3(0, 1, 0);
 const TREE_BREAK_V = 11; const DIFF = ${JSON.stringify(DIFF)};
+const LOG_SPILL_V = ${LOG_SPILL_V}; const spillLogs = () => false;   // a log truck's load (js/logSpill.js): no loose logs in this harness
 const game = { state: 'playing', time: 0, t: 0, cash: 0, shake: 0, hp: 100, takedowns: 0, wanted: 1, clock: 0, dist: 0, slow: 1, combo: 0, comboT: 0 };
 const player = {};
 const police = [], civs = [], cars = [], flying = [], fallingTrees = [], geysers = [], fires = [];
@@ -72,6 +77,7 @@ const env = { phase: 0.8, day: 0, night: 1, dusk: 0, sx: 0.5, sy: 1 };
 const HEAR_R = ${HEAR_R};
 const PLAYER_PARAMS = ${JSON.stringify(PLAYER_PARAMS)};
 const POLICE_TIERS = ${JSON.stringify(POLICE_TIERS)};
+const PIN_HOLD = ${JSON.stringify(PIN_HOLD)};
 const fx = { hurtCar: 0, hurtPlayer: 0, impactFx: 0, sparks: 0, smoke: 0, debris: 0, explosion: 0, crash: 0 };
 const burst = k => () => { fx[k]++; };
 const sparks = burst('sparks'), smoke = burst('smoke'), debris = burst('debris'), explosion = burst('explosion'), impactFx = burst('impactFx');
@@ -147,7 +153,7 @@ function chase(player, cops, seconds = 26) {
     for (const c of M.cars) { M.collideFlyover(c); M.syncCarMesh(c, DT); }
     budgetT += DT;
     if (budgetT > 1) { budgetT = 0; W.updateChunks(player.x, player.z, 999); }
-    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role }));
+    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role, touch: p.lastTouchPlayer >= 0 }));
     plTrace.push({ t: M.game.time, x: M.player.x, z: M.player.z, y: M.player.y, hp: M.game.hp });
   }
   trace.pl = plTrace;
@@ -270,68 +276,82 @@ for (const [name, player, cops, limit] of cases) {
 }
 
 // ---- narrow gaps: a pursuer finds its own way into a gap the road grid does not reach ----
-// Two gaps off the grid (a shop front on one side, a parked car on the other, about 2.8 m between them). The player
-// fits through; the old pursuit stalled against the walls and reached him in 9 of 16 runs. Eight random streams for
-// each gap, 26 s each: at least 10 of the 16 must reach him (the route search reaches 12).
+// Two gaps inside blocks, off the road grid, printed by scan-gaps.mjs from a scan of the current city: 3.18 m between
+// two buildings and 3.33 m between a scaffold and a building, the player's car parked in the middle, facing along the
+// gap. The pursuer starts about 30 m off on open ground with a building between them (6 m or more of wall on the
+// straight line), where a car that only drives at him and slides along the walls stalls: it has to find the way round
+// the building and into the gap. [player x, z, heading, pursuer x, z]; the pursuer starts facing the player. Eight
+// random streams for each gap, 26 s each: at least 12 of the 16 must reach him (come within 4 m of the spot he parked
+// on). The route search reaches him in 15; without it the pursuit heads off for the road grid and reaches him in 6, a
+// pursuer that only drives at him in none, and one that only swerves round what is ahead of it (no route search, no
+// grid waypoints) in 10. (Spots like the ones the check was first written for, a shop front 2.8 m from a parked car's
+// nose, are still in the city, but the car covers only 2.5 m of the passage: there the pursuit gets in as often without
+// its route search as with it, so the scan asks for a gap at least a car's length long.)
 {
-  const gaps = [{ x: -123, z: -63 }, { x: 103, z: 99 }];
+  const gaps = [
+    { x: -52.2, z: -421.7, h: 0, qx: -82, qz: -425 },
+    { x: -118.3, z: -374, h: 0, qx: -88, qz: -376 }
+  ];
   const keep = process.env.CHASE_SEED;
   let reached = 0, total = 0;
   for (const g of gaps) for (let sd = 1; sd <= 8; sd++) {
     process.env.CHASE_SEED = String(1000 * sd + 7);
-    const tr = chase({ x: g.x, z: g.z, h: Math.PI / 2, y: 0 }, [{ x: g.x - 30, z: g.z, h: Math.PI / 2, tier: 1, role: 'chaser' }], 26)[0];
+    const tr = chase({ x: g.x, z: g.z, h: g.h, y: 0 }, [{ x: g.qx, z: g.qz, h: Math.atan2(g.x - g.qx, g.z - g.qz), tier: 1, role: 'chaser' }], 26)[0];
     total++;
     if (tr.some(p => p.d < 4)) reached++;
   }
   if (keep === undefined) delete process.env.CHASE_SEED; else process.env.CHASE_SEED = keep;
-  if (reached >= 10) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
-  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 10 or more)`);
+  if (reached >= 12) ok(`a pursuer reached the player in ${reached} of ${total} runs in the narrow gaps off the road grid (want 12 or more)`);
+  else bad(`a pursuer reached the player in only ${reached} of ${total} runs in the narrow gaps off the road grid (want 12 or more)`);
 }
 
 // ---- alley mouths: a pursuer on the avenue finds the way into a narrow street where the player hides ----
-// Thirty fixed scenes (a scan of the city's street canyons, 5-14 m wide between solids): the player sits in the street, two
-// pursuers start 22-30 m away on open ground with the line of sight blocked. The old pursuit drove into the street mouth and
-// stalled against its corners. [player x, z, street axis (1 = along x), pursuer x, z]. Each pursuer counts; at least 45 of the
-// 60 must reach him within 30 s (the committed pursuit reached 42 of 60).
+// Thirty fixed scenes, printed by scan-alleys.mjs from a scan of the current city's street canyons (5-14 m wide between
+// walls, at least 40 m apart): the player sits in the street, two pursuers start 26 m away on open ground with the line of
+// sight blocked. The old pursuit drove into the street mouth and stalled against its corners. [player x, z, street axis
+// (1 = along x), pursuer x, z]. A pursuer has reached him when it has touched his car (lastTouchPlayer, the contact
+// js/update.js counts for BUSTED), not when it is near the spot he parked on: the first car in rams him and can shove him
+// tens of metres off it, and the second one follows the car. Each pursuer counts; at least 45 of the 60 must reach him
+// within 30 s. Re-run the scan when the city changes (see the README).
 {
   const scenes = [
-    [-150, -106, 0, -150, -84],
-    [-148, 144, 1, -142, 165],
-    [-142, -56, 1, -136, -35],
-    [-142, -10, 1, -142, -32],
-    [-138, 44, 0, -138, 22],
-    [-122, 106, 1, -106, 122],
-    [-116, -138, 0, -116, -116],
-    [-108, 12, 0, -87, 6],
-    [-102, -94, 1, -86, -78],
-    [-96, -30, 1, -85, -11],
-    [-96, 62, 0, -96, 84],
-    [-68, 124, 1, -90, 124],
-    [-60, 32, 0, -60, 54],
-    [-50, -68, 0, -50, -46],
-    [12, 14, 1, 34, 14],
-    [14, 102, 1, 14, 124],
-    [24, -120, 0, 24, -98],
-    [28, 140, 0, 28, 162],
-    [32, -40, 1, 11, -46],
-    [44, 46, 0, 21, 40],
-    [56, 110, 0, 56, 132],
-    [62, -148, 0, 81, -137],
-    [62, -96, 0, 83, -102],
-    [68, -20, 1, 89, -26],
-    [104, -40, 0, 120, -56],
-    [106, -132, 0, 122, -116],
-    [110, 12, 0, 121, -7],
-    [132, -94, 0, 132, -72],
-    [146, -36, 1, 152, -15],
-    [146, 30, 1, 152, 51]
+    [52, -120, 1, 62, -96],
+    [108, 120, 1, 108, 94],
+    [-262, -42, 1, -262, -68],
+    [262, 42, 1, 252, 66],
+    [-122, -270, 0, -146, -260],
+    [42, -218, 0, 66, -228],
+    [280, -134, 0, 306, -134],
+    [-278, 110, 0, -254, 120],
+    [292, -282, 1, 282, -306],
+    [202, -298, 0, 226, -308],
+    [198, 186, 0, 174, 176],
+    [-282, -296, 0, -306, -286],
+    [280, 294, 0, 306, 294],
+    [208, -202, 1, 232, -212],
+    [130, 282, 1, 154, 292],
+    [218, 38, 1, 208, 14],
+    [-58, 278, 1, -58, 252],
+    [190, -120, 1, 166, -130],
+    [120, -56, 0, 94, -56],
+    [-24, 38, 1, -24, 12],
+    [104, -200, 1, 114, -176],
+    [38, 290, 0, 14, 300],
+    [300, 122, 1, 290, 146],
+    [-40, -58, 0, -66, -58],
+    [-42, -136, 0, -68, -136],
+    [-192, 120, 1, -168, 130],
+    [40, -290, 0, 30, -314],
+    [138, 200, 1, 162, 210],
+    [-38, -184, 0, -14, -194],
+    [218, -40, 1, 228, -64]
   ];
   let reached = 0, runs = 0;
   for (const [px, pz, ax, qx, qz] of scenes) {
     const h = ax ? Math.PI / 2 : 0, hc = Math.atan2(px - qx, pz - qz);
     const cops = [{ x: qx, z: qz, h: hc, tier: 2, role: 'chaser' }, { x: qx + 3 * Math.cos(hc), z: qz - 3 * Math.sin(hc), h: hc, tier: 2, role: 'chaser' }];
     const tr = chase({ x: px, z: pz, h, y: 0 }, cops, 30);
-    for (const t of tr) { runs++; if (t.some(p => p.d < 4)) reached++; }
+    for (const t of tr) { runs++; if (t.some(p => p.touch)) reached++; }
   }
   if (reached >= 45) ok(`a pursuer reached the player in ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
   else bad(`a pursuer reached the player in only ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);

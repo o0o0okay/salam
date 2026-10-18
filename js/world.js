@@ -7,11 +7,14 @@
 
    THE CHUNK RECORD (`ch`, created at the top of generateChunk)
      solids     collision footprints the cars test against:
-                { x, z, hx, hz, kind, maxY?, box, ...back-references }
+                { x, z, hx, hz, kind, maxY?, headroom?, box, ...back-references }
                   x, z         centre, in world metres
                   hx, hz       half sizes along x and z (axis-aligned)
                   kind         'building' for walls, 'shopfront' for a shop window, and the feature's own kind
                   maxY         optional: solid only for a car below this height (a wall under a flyover deck)
+                  headroom     optional: a roof, solid only for a car too tall to pass under it (its top above this
+                               height; a construction frame's first floor over its open ground floor). The chase
+                               camera comes down under it (camera.js)
                   box          oriented box used by the SAT test (collideSolids)
                   tree / parked / busstop / shop / pump / scaffold / fencePiece
                                the feature that owns this solid; the collision code breaks or damages it
@@ -231,8 +234,9 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
   // ---- construction site on a barred closed street ----
   // The half of a barred street between its mouths is a building site on bare earth (EARTH, not grass): a half-built concrete frame (columns,
   // slabs, brick infill on its lowest two floors and rebar stubs on top) and, on the west or south street of each
-  // pair, a tower crane. Boxes only, and no solids: the barricades at the mouths keep every car out. Neighbourhood
-  // streets (their curved roads run across the grass) and filled streets get no site.
+  // pair, a tower crane. The barricades at the mouths keep the traffic out; a car that breaks through them can drive
+  // in under the frame, whose ground floor is open (see siteOn). Neighbourhood streets (their curved roads run across
+  // the grass) and filled streets get no site.
   // one or two machines (a random pick of five kinds, never the same kind twice) on the bare earth past the crane, side
   // by side across the strip; they are solid, like the frame, and are marked so the checks can count them
   const siteMachines = (axis, acr, alc, seed) => {
@@ -274,12 +278,22 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
       const [px, pz] = axis === 'z' ? [acr + ac, alc + al] : [alc + al, acr + ac];
       add(box(sx, h, sz, mat(colour), px, y, pz, true));
     };
-    for (let a = -L / 2 + 0.6; a < L / 2; a += 4) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.9, top, 0.9, top / 2 + 0.3, 0xbfc3c7);
+    // The ground floor is open, like the pilotis under a block of flats: a car drives in under the first floor and on
+    // between the two rows of columns, the length of the frame, or out at the side between two columns. What stops it
+    // there is solid: each column (with the same box as the one drawn) and the brick infill along the ground floor.
+    // The footprint stays a solid too, as a roof: its `headroom` is the underside of the first floor (H), and only a
+    // vehicle too tall to pass under that (its top above the slab: the Juggernaut's light bar, the cone on an ice cream
+    // van) is stopped by it (collideSolids, solidAt). Whole, it is still what the map draws for the frame, and nothing
+    // is spawned or set down under it.
+    const fix = (ac, al, hAc, hAl) => {
+      if (axis === 'z') solid(acr + ac, alc + al, hAc, hAl, 'building'); else solid(alc + al, acr + ac, hAl, hAc, 'building');
+      return ch.solids[ch.solids.length - 1];
+    };
+    for (let a = -L / 2 + 0.6; a < L / 2; a += 4) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) { put(ac, a, 0.9, top, 0.9, top / 2 + 0.3, 0xbfc3c7); fix(ac, a, 0.45, 0.45); }
     for (let f = 1; f <= nF; f++) put(0, 0, D, 0.3, L, f * H + 0.15, 0xa9adb1);
-    for (let f = 0; f < 2 && f < nF; f++) put(D / 2 - 0.2, -L / 4, 0.4, H - 0.4, L / 2, 0.3 + f * H + H / 2, 0xb5583a);
+    for (let f = 0; f < 2 && f < nF; f++) { put(D / 2 - 0.2, -L / 4, 0.4, H - 0.4, L / 2, 0.3 + f * H + H / 2, 0xb5583a); if (f === 0) fix(D / 2 - 0.2, -L / 4, 0.2, L / 4); }
     for (let a = -L / 2 + 0.6; a < L / 2; a += 8) for (const ac of [-D / 2 + 0.6, D / 2 - 0.6]) put(ac, a, 0.12, 1.2, 0.12, 0.3 + top + 0.6, 0x6b6f73);
-    // the frame is solid on its footprint: a car cannot drive in under its columns
-    solid(axis === 'z' ? acr : alc, axis === 'z' ? alc : acr, axis === 'z' ? D / 2 : L / 2, axis === 'z' ? L / 2 : D / 2, 'building');
+    fix(0, 0, D / 2, L / 2).headroom = H;
     siteMachines(axis, acr, alc, seed);
     if (!crane) return;
     // tower crane: base, mast, jib, counter-jib, cab and hook; it stands past the building's far end
@@ -363,11 +377,16 @@ function interchanges({ ch, p, add, ramp, group, r, cx, cz }) {
     const W = FLY.halfW, alongX = F.axis === 'x', WEAR = 0.08, PH = 1.0;
     const conc = mat(0xb4b8bc), coping = mat(0xd3d0c8), asphalt = mat(0x3b3f4a), paint = mat(0xffcf2e);
     const at = (u, y, v) => alongX ? [F.node + u, y, F.road + v] : [F.road + v, y, F.node + u];
+    // The bridge casts shadows like any other solid thing in the city. It has to: a surface that only receives
+    // shadows lets every shadow from above pass straight through it, so a car driving on the deck used to drop a
+    // second shadow onto the street 7.2 m below, and the street under the bridge sat in full sun. Casting, the
+    // deck catches the car's shadow itself and lays its own shadow over the street, the way a real bridge does.
+    // Only the painted dashes stay out of the shadow map: they are paint, 5 cm thick.
     const P = (w, h, d, m, u, y, v, role) => {
-      const p = at(u, y, v);
-      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      const p = at(u, y, v), cast = role !== 'dash';
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], cast) : box(w, h, d, m, p[0], y, p[2], cast);
       add(b);
-      fly.pieces.push({ role, axis: F.axis, road: F.road, node: F.node, su: u < 0 ? -1 : 1, sv: F.sv, u, y, v, w, h, d, rot: 0 });
+      fly.pieces.push({ role, axis: F.axis, road: F.road, node: F.node, su: u < 0 ? -1 : 1, sv: F.sv, u, y, v, w, h, d, rot: 0, cast: b.castShadow });
     };
     const a0 = F.a0 - F.node, a1 = F.a1 - F.node, uc = (a0 + a1) / 2, Lu = a1 - a0;
     P(W, FLY.slab, Lu, conc, uc, FLY.deckH - WEAR - FLY.slab / 2, F.sv * W / 2, 'deck');
@@ -393,12 +412,15 @@ function interchanges({ ch, p, add, ramp, group, r, cx, cz }) {
     // One piece of the structure: `w` across, `h` tall, `d` along, laid on the ramp when `tilt` is set. Every
     // piece is recorded as it is built, so the shape can be checked in the Node suite without a graphics device
     // (see run.mjs section 2c-3): the concrete and the contract in js/flyover.js have to stay in step.
+    // The ramp casts shadows for the same reason the deck does (above): otherwise a car on the ramp drops its
+    // shadow through the embankment onto the street beside it. The paint (the dashes and the hazard boards on the
+    // abutment face) stays out of the shadow map.
     const P = (w, h, d, m, u, y, v, tilt, role) => {
-      const p = at(u, y, v);
-      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      const p = at(u, y, v), cast = role !== 'dash' && role !== 'hazard';
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], cast) : box(w, h, d, m, p[0], y, p[2], cast);
       let rot = 0;
       if (tilt) { rot = alongX ? -Q.su * th : Q.su * th; if (alongX) b.rotation.z = rot; else b.rotation.x = rot; }
-      add(b); fly.pieces.push({ role, axis: Q.axis, road: Q.road, node: Q.node, su: Q.su, sv: Q.sv, u, y, v, w, h, d, rot });
+      add(b); fly.pieces.push({ role, axis: Q.axis, road: Q.road, node: Q.node, su: Q.su, sv: Q.sv, u, y, v, w, h, d, rot, cast: b.castShadow });
       return b;
     };
     // Points on the ramp, offset along the ramp's own normal (negative = sunk below the surface). Using the
@@ -2455,6 +2477,7 @@ function generateChunk(cx, cz, defer = false) {
 }
 function addPickup(ch, kind, x, z) {
   if (!onIsland(x, z, 4)) return;                       // nothing is placed in the sea, or on the seawall (js/island.js)
+  if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;    // nor on the river, between its bank walls, where no car can reach it
   let m;
   if (kind === 'cash') m = new THREE.Mesh(ASSET.coinGeo, ASSET.coinMat);
   else if (kind === 'nitro') {

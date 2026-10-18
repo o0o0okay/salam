@@ -15,9 +15,12 @@ node tools/sidewalk-checks/parking.mjs   # drives the live parking system frame 
 node tools/sidewalk-checks/heavyhit.mjs  # drives a real car into a parked ambulance / fire engine (behavioural)
 node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, clear lanes and repeatable placement
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
-node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
-node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
-node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
+node tools/sidewalk-checks/estates.mjs  # residential estates over the whole island: curved road, houses clear of it, cul-de-sac, deterministic, only in the suburbs (about 62% of their blocks)
+node tools/sidewalk-checks/factory.mjs  # industrial plants over the whole island: only in the industrial and harbour districts (about half the industrial blocks), all four layouts, inside their blocks, deterministic
+node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers; none at the coast or the river), roundabout chains, spawn rule
+node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover, in a narrow gap or down a narrow street (behavioural)
+node tools/sidewalk-checks/scan-alleys.mjs  # prints police-chase's narrow-street scenes from a scan of the current city (run it again when the city changes)
+node tools/sidewalk-checks/scan-gaps.mjs  # prints police-chase's narrow-gap scenes from a scan of the current city (run it again when the city changes)
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
@@ -32,6 +35,10 @@ node tools/sidewalk-checks/solid-index.mjs  # the solid index (solidsNear) retur
 node tools/sidewalk-checks/districts.mjs  # district map: all four present, mostly one region each, the block mix per district, estates only in suburbs
 node tools/sidewalk-checks/car-models.mjs  # merged car bodies: triangles kept, geometry shared and bounded, light materials per car
 node tools/sidewalk-checks/ice-cream.mjs  # the ice cream van: its model and lettering, its share of the traffic, its chime
+node tools/sidewalk-checks/garbage-truck.mjs  # the garbage truck: its model in three liveries, its open mouth, its flashing beacons, its share of the traffic
+node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the logs come off a hard hit, roll, hurt the cars and knock the street down, break up, crumble away
+node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
+node tools/sidewalk-checks/pin-hold.mjs  # the police hold a pinned player for the arrest: right up against him, no backing off for another run, the bar filling
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -62,7 +69,9 @@ node tools/sidewalk-checks/boot-check.mjs  # imports every game module in order 
   are settled on, the
   approach slabs lie on their ramps, the parapets leave the drivable width the physics holds cars inside, the
   crossing street's underpass stays clear, and nothing (props, trees, pickups, parked cars, roadworks) is
-  planted in the concrete
+  planted in the concrete. The concrete casts shadows and only its paint (dashes, hazard boards) does not, so the
+  street under the deck lies in the bridge's shadow and a car up on the deck cannot drop its shadow through the
+  deck onto the street below
 * the at-grade street beside the structure is a real street: four lanes wide (14.0 m — twice the 7.0 m street it
   was, which was itself twice the 3.5 m lane before it) and its extra width comes out of the *frontage* — the
   building line on those sides steps back by `FLY.frontage` (11.4 m, `FLY.atGrade` − 2.6: the strip the old kerb
@@ -197,6 +206,21 @@ at-grade lane, under the deck, and beside the abutment, with pursuers coming fro
 at-grade lane, the deck, the ramps and the cross street, and requires the car on the player, at his own height,
 every time.
 
+The hardest of those starts puts the pursuer at rest on the avenue 3 m past the end of the retaining wall, facing in,
+with the player in the at-grade lane on the far side of the junction. A pursuer driving in that is already short of the
+far end of the ramp's nose guard has no room left to turn out into the at-grade lane before the wall (a police car
+turns on about a 3 m radius even at a crawl). It now carries on up the ramp in its own lane, and the rampExit rule
+brings it down the far side. Before, it was aimed at the guard's far end, which was behind it: a U-turn between the
+walls that pinned it against a parapet. A car that a bridge rule is taking up or over the structure now reads the
+ramp's slices as road in its look-ahead probe. Before, the slices higher up the ramp read as a wall ahead, so the car
+swerved into the parapet and the stuck test reversed it back off the ramp. Pursuers climbing to a player on the deck
+keep the old reading, because the bridge trap's timing depends on it. When a pursuer's probe finds something solid
+dead ahead, it now swerves to the side its aim is on. A random side sent the car that had just come off the ramp into
+the block beside the lane and on into the back gardens. Over 30 random streams (the default and `CHASE_SEED=1` to
+`29`), the car now reaches the player in all 30 runs, in 7.2 to 13.0 s (median 7.4 s). Before, it reached him in 27
+of 30 (median 11.1 s). The harness stubs `tramTrackAhead()` (there are no tram lines in it). Without that stub the
+stitched module had not run at all since the trams arrived.
+
 The bridge trap is the second half of that test. A player who sits on the deck, slow, for five seconds has one end of
 the structure closed by a checkpoint (up to three cruisers parked across the deck, eight metres beyond the span's end,
 on the side he faces) while the cruisers at the other end drive up their ramp and ram him. The harness requires the
@@ -206,6 +230,39 @@ when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test th
 from the car's own height. The height probe checks six points against it. A trapped player can still be arrested: the
 existing BUSTED rule in `js/update.js` applies on the deck as anywhere else, and the test does not model it. A few seeds
 still leave one cruiser at the checkpoint, or let the rams push the car off the far ramp.
+
+Then the test hides the player in a narrow gap inside a block, where the road grid does not reach. Two scenes park his
+car in the middle of a gap, facing along it: 3.18 m between two buildings, and 3.33 m between a scaffold and a
+building. One pursuer starts about 30 m off on open ground with a building between them. The scenes come from
+`scan-gaps.mjs`, which scans the current city for gaps 2.4 to 3.6 m wide between two solids, away from the roads, and
+prints the two nearest 2.8 m wide in the test's format. Each comes with a start from which a car that only drives at
+the player and slides along the walls cannot reach him. Run it again whenever the city changes and paste its list over
+the old one. The two spots it replaced no longer matched the city. One was in the open, 60 m from wall to wall with
+only trees near it. The other was inside a building, so the player's car was pushed out of it at the start. Spots like
+the ones the check was first written for, a shop front 2.8 m from a parked car's nose, are still in the city (six
+within 400 m of the centre), but the parked car covers only 2.5 m of the passage. Run there, the pursuit without its
+route search gets in 14 times in 16 and with it 16, so those spots no longer test the route search, and the scan asks
+for a gap at least a car's length long. Eight random streams per gap, 26 s each: at least 12 of the 16 pursuers must
+come within 4 m of the spot where he parked (the bar was 10 on the old spots). The pursuit reaches him in 15. With its
+route search (`findRoute`) switched off it heads off for the road grid and reaches him in 6. A pursuer that only drives
+straight at him reaches him in none. With both the route search and the grid waypoints switched off, its look-ahead
+swerve alone brings it in 10 times, and the police as of the pin-hold change (`a8cfc65`) 9 times: both fail.
+
+The last part of that test hides the player down a narrow street. Each of thirty scenes parks him, hand brake on, in a
+street 5 to 14 m wide between walls, and starts two pursuers side by side on open ground 26 m away, round the corner:
+the straight line to him runs through a wall. The scenes come from `scan-alleys.mjs`, which scans the current city for
+such streets and prints them in the test's format. Run it again whenever the city changes and paste its list over the
+old one. The list it replaced no longer matched the city: not one of its thirty spots was a narrow street any more.
+Eight put a car inside a building or a tree, and the other twenty-two were in the open, 20 m or more from wall to wall.
+A pursuer counts once it has touched the player's car (`lastTouchPlayer`, the contact `js/update.js` counts
+for BUSTED). It used to count when it came within 4 m of the spot where he had parked, but the first car to arrive rams
+him, and the harness models neither BUSTED, WASTED nor the pin hold, so that car shoved him tens of metres off the spot
+and the second car, which followed him, was scored as a miss. Counted that way, the pursuit reaches him in 40 to 47 of
+the 60 runs on the new scenes, under 45 in nine streams of ten. At least 45 of the 60 pursuers must touch him within
+30 s. Over ten random streams the pursuit touches him in 52 to 57 of the 60 runs, the first touch after about 6 s
+(median); before the ramp-foot change above it was 46 to 55, after about 11 s. A pursuer stripped of both its route
+search and its look-ahead swerve drives straight at him and touches him in only 21 to 24. In one or two scenes per
+stream neither car finds the way in, most often at (-278, 110) and (190, -120).
 
 The shopping streets come from `buildShopParadeMesh()` / `buildShopFrontMesh()` in `js/world.js`: fourteen
 invented businesses (cafe, bakery, pizza, market, pharmacy, books, barber, donuts, flowers, hardware, laundry,
@@ -441,6 +498,165 @@ doors (its letters side by side: the flank's is 2.15 m long), and the body geome
 checks the traffic share, and the chime on a stand-in audio clock: the tune from its first notes and in time at 60 and
 20 frames a second, round again after its 37 notes, louder nearer the van, silent from 80 m or with the game not
 running, from the top after a silence, and in time after a stall.
+
+### The garbage truck
+
+The garbage truck (`garbage` in `js/carModels.js`) is a rear-loading refuse truck, 8.7 m long on three axles: one under
+the cab and a tandem at the back. The flat-fronted cab has a black grille, mirrors, steps, a trim stripe and two amber
+beacons on its roof, with the exhaust stack behind it. The compactor body is ribbed down its flanks, with a logo panel (a
+recycling triangle) and a red and white reflective strip along its foot; between the axles are the guard rails, the fuel
+tank and the battery box. At the back the tailgate's face slopes out over the loading mouth, and the mouth is open: bags,
+a blue bin, a carton and odds and ends lie in it, in front of its dark back wall. Under it are the red and white chevron
+bar, the crew's steps and grab handles; the hydraulic rams run up the tailgate's sides and two more beacons stand on top.
+It comes in three liveries (`GARBAGE_LIVERIES`): green with a white cab, grey with orange trim, and white with a yellow
+band. Two trucks of one livery share their geometry. The four beacons are a light material the truck owns, so they are
+not merged with the body: `syncCarMesh` (`js/vehicle.js`) flashes them 1.6 times a second, each truck on its own phase,
+and they go dark on a wreck. `removeCar` frees that material. It never freed the school bus's and the fire engine's
+amber lights either, and now does. The truck is one civilian car in 26 (`CIV_KINDS` in `js/civilians.js`), about five
+among the 130 cars around the player. It drives like the cement mixer, heavy and slow, and crawls along its round at
+5.5 to 8 m/s.
+`garbage-truck.mjs` checks the model in each livery: inside its `CAR_DIMS` box and 3.6 to 4 m high, three axles (one
+under the cab, a tandem at the back) with a tyre each side, the cab in its colour with its windscreen, the trim stripe
+and the exhaust stack. Rays from behind check that the tailgate's face slopes out over the mouth, that the mouth is open
+(every ray goes past the face, and the back wall stands well inside it) with rubbish in four colours or more, and that
+the chevron bar is red and white. Rays from the side check the reflective strip on both flanks, and the white truck's
+band runs down both flanks. It checks the four beacons, two on the cab roof and two on the tailgate, in an amber light
+each truck owns, and the geometry two trucks share. On real cars (`createCar`, `syncCarMesh`) it checks the flashes,
+about 1.6 a second and lit for about 0.4 of each, two trucks out of step, the dark wreck and the freed material, and
+then the traffic share.
+
+### Log trucks spill their load
+
+A log truck (`logtruck`) that takes a hard hit loses its load. The six logs on its trailer are a group of their own
+(`userData.cargo`: three meshes, the bark in two shades and the light cut ends, shared by every log truck), laid out by
+`LOG_LOAD` in `js/carModels.js`. A crash that closes faster than `LOG_SPILL_V` (8 m/s, `js/config.js`) takes them off
+(`carCar` in `js/collisions.js`), and so does the truck's wreck (`wreckCar` in `js/damage.js`). A nudge in a queue does
+not, and a truck spills once. `spillLogs` (`js/logSpill.js`) hides the load and sends six loose logs off from where they
+lay, with the truck's own speed, over the side each lay on and on the way the hit shoved the trailer. Until a log is
+clear of its truck the trailer bed holds it up and it slides off over the side, so none drops through the trailer.
+A loose log is a small body of its own, moved every frame after the cars (`updateLogs`, called from `js/update.js`). It
+falls, knocks on the road and hops; it rolls easily across its length and hardly slides along it (`LOG_ROLL_DECEL`,
+`LOG_SLIDE_DECEL`), so it ends up lying across the road. Two logs meet as two cylinders: one can come to lie on another
+(across its middle, or across two logs), and one held up well off its own middle tips off. Against the world a log goes
+through the car tests (`collideSolids`, `collideProps`, `collideTrams`, `collideFlyover`) as a wrecked car of `LOG_MASS`:
+it knocks down street props, parked cars, shop windows, bus stops, pumps and fences, breaks a tree when it is fast, and
+stops at a wall. Against the cars it has a contact of its own: the two are pushed apart by their masses, and the car is
+hurt by the closing speed above `LOG_HIT_MIN` (`LOG_DMG_CAR` a m/s, the player's car `LOG_DMG_PLAYER`). A log at 10 m/s
+wrecks a family car and a light patrol car driving into one at speed is wrecked; the armoured tiers take less. A log
+the player spilled credits the player with what it wrecks, a civilian it hits panics, and a log that runs into another
+log truck spills that load too. The traffic slows for a log lying in its lane and stops short of it on the handbrake
+(`logAhead`, used by `civAI`); the police do not, so a spill is something to lead a chase into. The hits knock with a
+wooden thud (`sfx.thud`) and shed bark chips.
+A log is no wall, though: every blow wears it down. `LOG_HP` (20) is what it can take; a blow between a log and a car
+takes `LOG_WEAR` (5) off it for every m/s of closing speed over `LOG_HIT_MIN`, times the reduced mass of the two (the
+heavier the car, the harder the blow), once a blow (a car pushing a log along wears it once in 0.3 s, not every frame).
+So the player's car breaks a log at about 8 m/s (29 km/h), a family car or the lightest patrol car at about 9, a bus or
+a heavy truck at 5 or 6; a slower knock cracks it (a few chips of the light wood fly), and two or three of those break
+it. A knock off the world wears it by the speed it loses in it over `LOG_KNOCK_MIN` (6 m/s), times its mass: a log
+rolling at a wall at 8 m/s breaks up on it and one at 5 m/s does not, and smashing through a street prop costs it
+little. The fall off the trailer and the other logs never wear one. The blow that takes the last of a log breaks it up:
+it is out of the street that frame, in three pieces and five long splinters (the logs' own two meshes, scaled), with a
+burst of bark and light-wood chips, a puff of dust and a crack (`sfx.splinter`). The car is hurt by the blow as before
+and goes on through, losing only the blow that would just have broken the log; the piece in its way flies on ahead of it
+and off to the side, the others are knocked aside, and none flies into the car. The pieces tumble, bounce, scrape to a
+stop and shrink out in under 2.6 s, and touch nothing: a log stops one car, not every car after it.
+A log that nothing breaks crumbles away after a time of its own: the six of a load at 0.85 to 1.15 `LOG_LIFE` (20 s),
+1.2 s apart, so a load goes a log at a time, with a little dust, shrinking out with its underside on the road. One far from the player goes at once,
+and the oldest go first past `LOG_MAX` (48); a new run starts with no logs and no pieces. The loose logs and the pieces
+are drawn with two instanced meshes. The cooldown between log hits on a car (`logHitAt`) is set by `createCar`, so a
+new run's player car does not carry the last run's clock.
+`log-spill.mjs` checks the load on the trailer: its own group, where `LOG_LOAD` says, every vertex on a log, the cut ends'
+rims on the bark's edge, nothing of it left in the body, its geometry shared, and no load on any other vehicle. Then the
+spill: a nudge does not and a ram does, once; where each log starts, its turn, its bark and its owner; the way they go;
+that they come to rest without ever lying in each other, none worn by the fall; that a wreck and a patrol car's ram
+spill a load and a box trailer does not. A log on the road: rolling against sliding, coming to rest, turning as it rolls, lying across one log
+or two, tipping off one. The cars: the damage by closing speed, the shove and the panic, a family car wrecked, a light
+and an armoured patrol car driving into a log, the takedown credit, the turn from a blow off the middle, the player's
+car, the chain spill, logs sliding off the trailer and leaving their own truck alone. The breaking: the wear by the
+closing speed and the masses, three knocks of a family car at 5 m/s, one blow worn once however long a car pushes, a
+family car against an armoured truck at 6 m/s, the pieces (three and five, where the log lay, their lengths, thrown up,
+the one in the car's way on ahead and the others aside, drawn after the logs, never in the car nor in the road, gone in
+2.6 s), the car going on at its speed less the blow, the logs cracked and broken in the checks above (a family car's
+8 and 12 m/s, the patrol cars, the player's car, the chain spill), the patrol car behind the one that broke a log, and
+no pieces in a new run. The street, on real chunks: a prop, a tree (fast, and slow, only cracked), a parked car, a shop
+window, a building's wall (slow, whole; fast, broken up). The traffic: what `logAhead` sees, and a real civilian car
+driven by `civAI` that stops short of a log lying across its lane. And the clearing and the drawing: `resetWorld`, the
+two instanced meshes, each log's own `LOG_LIFE`, crumbling with its underside on the road, the distance, `LOG_MAX`.
+
+### Under a construction frame
+
+The half-built concrete frame on a barred street's building site (`siteOn` in `js/world.js`) has an open ground floor.
+A car that breaks through the barricades at the mouth drives in under the first floor and on down the lane between the
+two rows of columns (3.9 m clear between their faces), the length of the frame, or out at the side between two columns,
+across the 2 m alley and through the frame next door. What stops it there is solid: each of the fourteen columns (with
+the box that is drawn) and the brick infill along the ground floor. The footprint stays a solid too, as a roof: its
+`headroom` is the first floor's underside (3.2 m), and `collideSolids` and `solidAt` treat it as solid only for a car
+whose top is above that. A car's top is `c.height`, the top of its model (`carHeight` in `js/carModels.js`, taken once
+a kind). So the patrol cars, the vans, the city bus, the fire engine and the ambulance drive in, and the Juggernaut
+(`police5`, its light bar at 3.25 m), the fuel tanker, the cement mixer, the semis, the garbage truck and the ice cream
+van stop at the first floor. The school bus is exactly as tall as the opening (3.20 m), so the checks leave it out; as
+built it stops. The AI asks with its own height (the pursuers' probes and route search, the traffic's
+look-ahead); a sight line or a hiding place asks with none, and the roof is open to it. Whole, the roof is still what
+the map draws for the frame, and nothing is spawned or set down under it, so the map data needs no new bake.
+The chase camera comes down under the first floor (`roofLimit` in `js/camera.js`). The line from the car up to the camera
+has to stay `ROOF_GAP` (0.5 m) under the roof for as long as it is beneath it. The limit is also taken from where the car
+will be in `ROOF_LEAD` (0.3 s), so the camera starts down before the nose is under the slab, and it follows the limit
+down at `ROOF_RATE` instead of dropping onto it. Under the roof itself it is never let nearer the slab than `ROOF_CLEAR`,
+and a shake does not lift it. While the car is under the roof the boom is pulled in by up to `DUCK_PULL` (30%); this
+follows the car, not the camera, so the camera is not swung back under a roof it has just left. Far from a roof it is
+the camera it always was.
+`site-passage.mjs` checks, on thirteen frames along both axes, with a crane and without: the roof (the footprint, its
+headroom the first floor's underside), a solid on each column and on the brick infill, nothing else solid, the lane clear
+for a car the length of the frame and walled for one too tall, 3.9 m between the columns, the map's building for the
+frame and the baked map data. It casts rays against the frame as drawn: up from the lane to the first floor's underside,
+along the lane at four heights clear, across onto a column, onto the brick and through the open gaps. With the game's
+own physics it drives the player's car through every frame, either way, coming out faster than it went in, and twelve
+other vehicles that fit. It checks that the seven too tall stop at the mouth, and it covers the side exits, the alley
+crossing, a column and the brick infill stopping a car, and the Juggernaut at full tilt. It checks the AI's probes
+(`solidAt` with and without a height, a pursuer's look-ahead: a patrol car drives on in, the Juggernaut backs off),
+`carHeight` and the camera. Far from a frame the camera matches its old formula step by step. Through three frames at 4
+to 40 m/s, either way, the camera checks are: the line to the car never through the slab, never nearer the slab than
+`ROOF_CLEAR`, settled at the slab less `ROOF_GAP`, no jump, the boom pulled in, back up a second after it is out, and
+under the roof once. Two more cases are checked: a camera swung in over a frame is under the first floor at once, and a
+shake does not lift it.
+
+### Holding a pinned player for the arrest
+
+Once the police have the player pinned (the BUSTED bar is filling: `pinned` in `js/update.js`), they stop ramming him and
+hold him for the arrest (`holdPin` in `js/police.js`, `PIN_HOLD` in `js/config.js`). Before, a unit that hit him took
+its recoil (0.7 s in reverse), and one stopped against him with its foot down read to the stuck test as stuck and backed
+off for another go. Either way the box opened, the bar drained and he drove out through the gap. Now the hold lasts
+`PIN_HOLD.grace` (0.6 s) after the last pinned frame (`pinHold`, which reads `game.pinSeen`). While it lasts, a unit on his
+level within `PIN_HOLD.hold` (5 m, box to box) comes in with whichever end is towards him: nose first, or backing in
+tail first. It slows as it closes (`close`, plus `closeK` for each metre between them), stops right up against him
+(`snug`, 0.15 m) and stands there. `standStill` pulls it up without throwing it back off him: when a frame's brake would
+take off more than it is doing, it coasts instead. A unit with him at its side stands where it is when he is nearer than
+`side`: it cannot close in sideways, and he cannot get by. No holding unit takes the recoil or the stuck reverse, and
+none shoves him: a push keeps the box tight only while he has something solid on his far side, and otherwise walks him
+out of it. So while the hold lasts the bar counts a car within `PIN_HOLD.gap` (0.4 m, box to box: `satGap` in
+`js/collisions.js`) as touching him, and a solid within it as the wall (`solidWithin`: a wall under a deck counts only
+for what is under it, a roof only for a car too tall for it). A unit further out, within `join` (40 m), comes for him
+instead of its role's aim, no faster than it could stop on him in the gap left. A unit up on a deck over him is not part
+of the box. The bar fills and drains as it always did, `DIFF.pin` is unchanged, and before he is first pinned nothing has
+changed. A player with a way out still gets away: once he is moving again (the bar stops at 9 m/s) the hold ends
+`grace` later, and the chase goes on.
+`pin-hold.mjs` checks what a unit decides while he is held. A unit nose on comes in, braking from speed, and stands on
+arrival. One still rolling onto him pulls up without rocking, at 60 fps and at 30. One tail on backs in, and one knocked
+back off him comes straight back in. A recoil after a hit, a stuck reverse about to fire and one already under way are
+all dropped, and a unit further out brakes to the speed it could stop from. The units on a deck over him, after the
+hold and on the menu's attract mode behave as they always did. With the game's physics a unit backing in arrives and
+never drives off. The test also checks `satGap` (face to face, side by side, overlapping, turned, corner to corner) and
+`solidWithin` (a wall near him, one taken away, a roof he fits under or not, a wall under the deck he is on). For the
+bar it checks a unit 0.2 m off him with and without the hold, one 0.6 m off, the wall 0.25 m or 0.6 m off, two units
+and no wall, and a unit on a deck. The chases run on the game's own update loop, each in a process of its own: the world
+generator keeps caches from one run to the next, so in one process a run would hang on the runs before it. Boxed in by
+three units, sitting still or throwing the car about, he is busted `DIFF.pin` after the first pinned frame, the bar never
+dropping and nobody backing off him. Rammed into the wall by three patrol units, three Enforcers or two Juggernauts,
+three runs each, he is busted every time, unhurt once they have him and with no unit backing off. In at least 7 of the 9
+runs that takes exactly `DIFF.pin`. Before this change he was wrecked in seven of those nine runs. Of the four boxes, he
+was wrecked in one and never busted in another, and in the other two the bar dropped while a unit reversed out of the
+box. A player with a way out drives out, the hold ends `grace` after he gets going, the bar runs empty and the unit
+chases him again.
 
 ### Flyover approach nose protection
 

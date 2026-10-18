@@ -8,6 +8,7 @@ import { cyl } from './assets.js';
 import { segClosed } from './flyover.js';
 import { segFilled } from './flyover.js';
 import { nbhdJunction } from './flyover.js';
+import { riverSeg } from './flyover.js';
 
 // ---- Construction scaffolding — 4 distinct "installer styles" with randomized size/colors per instance ----
 export const FRAME_COLORS = [0x8a8f96, 0x6f7a8c, 0xe8b23a, 0xb5651d];
@@ -160,6 +161,7 @@ export function siteSpots(cx, cz) {
   for (let k = 0; k < 4; k++) {
     const [a, jx, jz] = segs[k];
     if (!segClosed(a, jx, jz) || segFilled(a, jx, jz)) continue;
+    if (riverSeg(a, jx, jz)) continue;                     // the river is water: no site on it (closedStreets in js/world.js)
     if (nbhdJunction(ends[k][0][0], ends[k][0][1]) || nbhdJunction(ends[k][1][0], ends[k][1][1])) continue;
     const [acr, alc, crane] = place[k];
     const ma = 22;   // the crane base stands this far past the frame's centre (see siteOn)

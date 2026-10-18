@@ -413,8 +413,11 @@ export function parapetPush(x, z, y, box, out) {
 // each of its two junctions has three arms instead of four (a T). `segClosed(axis, jx, jz)` answers for the
 // segment that leaves junction (jx, jz) along `axis` ('x': to (jx+1, jz); 'z': to (jx, jz+1)). It is pure
 // hash, so every block agrees, and it is never on a main road (junction index 0), never near spawn, a flyover
-// or a ramp. Among the candidates touching either end only the lowest hash closes, so no junction ever loses
-// two arms. About one candidate in five is closed.
+// or a ramp. Among the candidates touching either end only the lowest hash closes, so the rule never takes two
+// arms from one junction. About one candidate in five is closed. The coast and the river take arms of their own (a
+// junction on the coast line loses its arm to the sea, two at a corner, and one on the river row the two arms along
+// the water), so the rule leaves every street that reaches such a junction open (see segClosed): no junction ever
+// loses two arms to the rule and the water together, and every bridge carries a through street.
 const CLOSE_CLEAR = 3;           // junctions this close (in each axis) to the origin stay four-way
 const closedCache = new Map();
 const segHashOf = (axis, jx, jz) => hash2(jx * 2 + (axis === 'x' ? 0 : 1), jz * 3 + (axis === 'x' ? 17 : 91)) >>> 0;
@@ -494,7 +497,7 @@ export function nbhdEntryAt(jx, jz) {
 }
 // The inner streets of a neighbourhood (closed for good; they are grass under the curved roads). An x-street runs
 // from (jx, jz) to (jx + 1, jz); it is inner when its line is an inner row and it lies in the lattice.
-function nbhdInternalSeg(axis, jx, jz) {
+export function nbhdInternalSeg(axis, jx, jz) {
   const n = nbhdJunction(jx, jz) || nbhdJunction(axis === 'x' ? jx + 1 : jx, axis === 'x' ? jz : jz + 1);
   if (!n) return false;
   const ox = NB_BLOCKS * n[0], oz = NB_BLOCKS * n[1];
@@ -545,6 +548,12 @@ export function segClosed(axis, jx, jz) {
       const g = segHashOf(a, x, z);
       if (g < h || (g === h && a < axis)) { v = false; break; }
     }
+    // A street that reaches the coast or the river stays open. A junction on the coast line has already lost its arm
+    // to the sea, and one on the river row the two arms along the water: closing one of its streets as well would
+    // leave an L, a straight along the coast street, or a dead end at a bridge (with no barrier at the bridge end:
+    // nothing stands between the bank walls). The comparison above still counts the street, so no other street
+    // changes.
+    if (v && ends.some(([ex, ez]) => Math.abs(ex) === CORE || Math.abs(ez) === CORE || ez === RIVER_ROW)) v = false;
   }
   closedCache.set(key, v);
   return v;
