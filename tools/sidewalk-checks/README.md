@@ -17,7 +17,7 @@ node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, cl
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/estates.mjs  # residential estates over the whole island: curved road, houses clear of it, cul-de-sac, deterministic, only in the suburbs (about 62% of their blocks)
 node tools/sidewalk-checks/factory.mjs  # industrial plants over the whole island: only in the industrial and harbour districts (about half the industrial blocks), all four layouts, inside their blocks, deterministic
-node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers; none at the coast or the river), roundabout chains, spawn rule
+node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers; none at the coast or the river), roundabout chains, spawn rule, the coast's parks
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover, in a narrow gap or down a narrow street (behavioural)
 node tools/sidewalk-checks/scan-alleys.mjs  # prints police-chase's narrow-street scenes from a scan of the current city (run it again when the city changes)
 node tools/sidewalk-checks/scan-gaps.mjs  # prints police-chase's narrow-gap scenes from a scan of the current city (run it again when the city changes)
@@ -598,6 +598,13 @@ van stop at the first floor. The school bus is exactly as tall as the opening (3
 built it stops. The AI asks with its own height (the pursuers' probes and route search, the traffic's
 look-ahead); a sight line or a hiding place asks with none, and the roof is open to it. Whole, the roof is still what
 the map draws for the frame, and nothing is spawned or set down under it, so the map data needs no new bake.
+A barred street holds two such frames side by side, one on each block's half of it, and their tower crane stands
+between them (`CRANE` in `js/sites.js`, shared by `siteOn` and `siteSpots`): on the street's centre line, in the 2 m
+gap between the two frames' slabs, level with the middle bay of their length. Its 1.6 m base is solid and clear of both
+rows of columns and of the brick infill. The mast rises through the gap, and the jib, the cab and the hook are 34 m up,
+over the tallest frame. The crane used to stand in line with one frame's lane, 8 m past its far end, where it stopped
+a car that had driven through under the frame. Now the lane under each frame stays open from end to end, and on past
+the far end to the machines. The base is under 2 m wide, so the map does not draw it and the map data is unchanged.
 The chase camera comes down under the first floor (`roofLimit` in `js/camera.js`). The line from the car up to the camera
 has to stay `ROOF_GAP` (0.5 m) under the roof for as long as it is beneath it. The limit is also taken from where the car
 will be in `ROOF_LEAD` (0.3 s), so the camera starts down before the nose is under the slab, and it follows the limit
@@ -607,9 +614,13 @@ follows the car, not the camera, so the camera is not swung back under a roof it
 the camera it always was.
 `site-passage.mjs` checks, on thirteen frames along both axes, with a crane and without: the roof (the footprint, its
 headroom the first floor's underside), a solid on each column and on the brick infill, nothing else solid, the lane clear
-for a car the length of the frame and walled for one too tall, 3.9 m between the columns, the map's building for the
-frame and the baked map data. It casts rays against the frame as drawn: up from the lane to the first floor's underside,
-along the lane at four heights clear, across onto a column, onto the brick and through the open gaps. With the game's
+for a car the length of the frame and walled for one too tall, 3.9 m between the columns, 10 m more of clear lane past
+the far end, the map's building for the frame and the baked map data. Where the frame builds the pair's crane, it checks
+that the crane's base is solid, that the twin frame stands across the centre line, that the crane is between the two,
+and that its base is 10 cm clear of every other solid. It casts rays against the frame as drawn: up from the lane to the
+first floor's underside, along the lane at four heights clear, across onto a column, onto the brick and through the open
+gaps; along the gap between the frames onto the crane's base, across it onto the mast, and up beside the mast to the
+open sky. With the game's
 own physics it drives the player's car through every frame, either way, coming out faster than it went in, and twelve
 other vehicles that fit. It checks that the seven too tall stop at the mouth, and it covers the side exits, the alley
 crossing, a column and the brick infill stopping a car, and the Juggernaut at full tilt. It checks the AI's probes
@@ -619,6 +630,26 @@ to 40 m/s, either way, the camera checks are: the line to the car never through 
 `ROOF_CLEAR`, settled at the slab less `ROOF_GAP`, no jump, the boom pulled in, back up a second after it is out, and
 under the roof once. Two more cases are checked: a camera swung in over a frame is under the first floor at once, and a
 shake does not lift it.
+`junctions.mjs` checks the cranes too. In its 17 by 17 blocks, every crane base is solid, on the street's centre line,
+between the street's two frames and clear of both.
+
+No building site stands on the coast. Every street that reaches it is closed and filled (`segFilled` in
+`js/flyover.js`): the street on the coast line, which has the sea on its far side (`coastLineSeg`), and the short
+streets that run inland from it at right angles (the sea arms). Their strips are small parks: grass, a path, four trees
+and two benches. On the coast line the park is set 1.5 m further in than elsewhere, so nothing stands in the 3 m
+seawall. The junctions on the coast line are grass too (`coastGreen`), so the coast's green runs on across them; only
+the river's two mouths keep their decks. No open street reaches any of these junctions, the mouths included
+(`coastQuiet`), so none of them has traffic lights (`buildIntersection` in `js/trafficLights.js`). No roadworks are
+laid on these streets. A coast street that the hash alone
+would have left barred takes its park's trees from a random stream of its own. The block then draws the same numbers
+as before, so no block changes its type. `junctions.mjs` checks the 200 strips along the island's four coasts and the
+388 halves of the sea arms:
+- each street is filled;
+- it has no frame, column, brick, crane base or machine, no barricade across it and no roadworks;
+- its park's trees and benches are in their places;
+- on the coast line, every solid and prop is clear of the seawall;
+- every junction on the coast line is green, except the river's two mouths;
+- no junction on the coast line has signal poles (the blocks on the west and north coasts build 99 of them).
 
 ### Holding a pinned player for the arrest
 

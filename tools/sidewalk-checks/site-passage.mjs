@@ -4,10 +4,13 @@
      infill along its ground floor, and its footprint as a roof (kind 'building', `headroom` the underside of the first
      floor, 3.2 m); nothing else in it is solid. The lane between the two rows of columns is clear for a car (half width
      0.95) the length of the frame, and 3.9 m wide. The map still draws the frame as one building (the roof), and the
-     baked map data (map-data/) is what the generator gives;
+     baked map data (map-data/) is what the generator gives. Past the far end the lane stays clear for 10 m more,
+     toward the machines. The pair's tower crane (CRANE in js/sites.js) stands between the two frames of the street, on
+     its centre line, level with the middle bay: its base is solid and touches no column, brick or roof of either frame;
    * the frame that is drawn agrees: along the lane at a car's height a ray meets nothing, up from the lane it meets the
      first floor at 3.2 m, across the frame it meets a column, or the brick infill, or (between two columns on the open
-     side) nothing;
+     side) nothing; along the gap between the frames it meets the crane's base, across the gap its mast, and beside the
+     mast the gap is open to the sky;
    * driving, with the game's own physics: a car drives in under the first floor and through, end to end, either way,
      without touching anything and without losing speed; so do the patrol cars, the van, the buses, the fire engine and
      the ambulance. A car can leave at the side between two columns, cross the alley between two frames and go on
@@ -38,6 +41,7 @@ const V = await import('../../js/vehicle.js');
 const C = await import('../../js/carModels.js');
 const Col = await import('../../js/collisions.js');
 const SI = await import('../../js/solidIndex.js');
+const { CRANE } = await import('../../js/sites.js');
 const Cam = await import('../../js/camera.js');
 const cfg = await import('../../js/config.js');
 const { camera } = await import('../../js/renderer.js');
@@ -104,7 +108,6 @@ for (const [px, pz] of spots) {
       if (seen.has(key)) continue;
       seen.set(key, f);
       framesChecked++; if (f.ax === 'x') alongX++;
-      if (W.siteSpots(cx, cz).some(s => s.hx === 1.3)) withCrane++;
       const tag = `frame ${key} (${f.ax})`;
       const inside = solids.filter(s => Math.abs(s.x - f.x) < f.hx + 1e-6 && Math.abs(s.z - f.z) < f.hz + 1e-6);
       const roofs = inside.filter(s => s.headroom !== undefined);
@@ -135,6 +138,26 @@ for (const [px, pz] of spots) {
       ok(nTall > 100 && blockedTall === nTall, `${tag}: and walled for one too tall for the first floor (${blockedTall} of ${nTall})`);
       const inner = Math.min(...cols.map(s => Math.abs(f.loc(s.x, s.z)[0]) - 0.45));
       near(2 * inner, 3.9, 1e-9, `${tag}: the lane between the column faces is 3.9 m wide`);
+      // and on past its far end, toward the machines 31 m out: 10 m more of clear lane. The pair's tower crane used to
+      // stand there, in line with the lane 22 m past the frame's centre, and stopped a car that had come through
+      let blockedPast = 0, nPast = 0;
+      for (let al = LH + 2; al <= LH + 10; al += 0.25, nPast++) { const [x, z] = f.w(0, al); if (SI.solidAt(x, z, 0.95, 0, false, 1.66)) blockedPast++; }
+      ok(blockedPast === 0, `${tag}: past its far end the lane is clear for 10 m more (${blockedPast} of ${nPast} points blocked)`);
+      // The pair's tower crane, if this is the frame that builds it (siteSpots marks it): on the street's centre line,
+      // between this frame and its twin across the line (built by the next block), level with the middle bay of their
+      // length. Its base is solid and touches nothing else: no column, no brick infill, neither frame's roof.
+      const [cwx, cwz] = f.w(CRANE.ac, CRANE.al);
+      if (W.siteSpots(cx, cz).some(s => s.crane && Math.abs(s.x - cwx) < 1e-9 && Math.abs(s.z - cwz) < 1e-9)) {
+        withCrane++;
+        const base = solids.filter(s => s.kind === 'building' && s.hx === CRANE.half && s.hz === CRANE.half && Math.abs(s.x - cwx) < 1e-9 && Math.abs(s.z - cwz) < 1e-9);
+        ok(base.length === 1, `${tag}: the crane's base between the frames is solid (${base.length})`);
+        const twin = framesOf(f.ax === 'z' ? cx - 1 : cx, f.ax === 'z' ? cz : cz - 1).find(g => { const [ac, al] = f.loc(g.x, g.z); return Math.abs(ac - 2 * CRANE.ac) < 1e-9 && Math.abs(al) < 1e-9; });
+        ok(twin, `${tag}: its twin stands across the street's centre line, ${-2 * CRANE.ac} m off`);
+        const [bac] = f.loc(cwx, cwz);
+        ok(bac < -DH && (!twin || bac > f.loc(twin.x, twin.z)[0] + DH), `${tag}: the crane stands between the two frames (${bac} across)`);
+        const touch = solids.filter(s => s !== base[0] && Math.abs(s.x - cwx) < s.hx + CRANE.half + 0.1 && Math.abs(s.z - cwz) < s.hz + CRANE.half + 0.1);
+        ok(touch.length === 0, `${tag}: the crane's base is clear of every other solid by 10 cm (${touch.map(s => s.kind + ' ' + s.x.toFixed(1) + ',' + s.z.toFixed(1)).join('; ')})`);
+      }
     }
   }
 }
@@ -173,6 +196,29 @@ for (const [px, pz, cx, cz] of [[-320, -290, -4, -4], [-290, 480, -4, 6]]) {
     for (const al of [0.6, 4.6, 8.6]) {
       const ho = castIn(ch, at(-DH, al, 1.0), dAc, 2 * DH);
       ok(!ho, `${tag}: across between two columns in the open half (${al}), nothing`);
+    }
+    // The crane as drawn, where this frame builds it, against both blocks' meshes (the twin frame is the next
+    // block's): along the gap between the frames at the base's height the first thing is the base; across the gap
+    // between two floors, the mast; and beside the mast the gap is open to the sky, so the mast touches neither
+    // frame's slabs.
+    const [cwx, cwz] = f.w(CRANE.ac, CRANE.al);
+    if (W.siteSpots(cx, cz).some(s => s.crane && Math.abs(s.x - cwx) < 1e-9 && Math.abs(s.z - cwz) < 1e-9)) {
+      const twinCh = [...W.chunks.values()].find(c => c.cx === (f.ax === 'z' ? cx - 1 : cx) && c.cz === (f.ax === 'z' ? cz : cz - 1));
+      twinCh.group.updateMatrixWorld(true);
+      const castBoth = (o, d, far) => {
+        ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d).normalize()); ray.near = 0; ray.far = far;
+        const hits = ray.intersectObjects([ch.group, twinCh.group], true).filter(h => h.object.visible !== false);
+        return hits.length ? hits[0] : null;
+      };
+      const loc = h => h ? f.loc(h.point.x, h.point.z).map(v => v.toFixed(2)).join(',') + ' at ' + h.point.y.toFixed(2) : 'nothing';
+      const hb2 = castBoth(at(CRANE.ac, -LH - 2, 0.7), dAl, 2 * LH);
+      ok(hb2 && Math.abs(f.loc(hb2.point.x, hb2.point.z)[1] - (CRANE.al - CRANE.half)) < 1e-3, `${tag}: along the gap between the frames, the crane's base (${loc(hb2)})`);
+      const hm = castBoth(at(-1.0, CRANE.al, 11.3), dAc.map(v => -v), 6);
+      ok(hm && Math.abs(f.loc(hm.point.x, hm.point.z)[0] - (CRANE.ac + 0.5)) < 1e-3, `${tag}: across the gap, between two floors, the crane's mast (${loc(hm)})`);
+      for (const side of [-1, 1]) {
+        const hs = castBoth(at(CRANE.ac + side * 0.75, CRANE.al, 1.2), [0, 1, 0], 60);
+        ok(!hs, `${tag}: beside the mast (${side > 0 ? 'this' : 'the twin'} frame's side) the gap is open to the sky (${loc(hs)})`);
+      }
     }
   }
 }

@@ -124,6 +124,8 @@ let filledSegs = 0, closedOnly = 0;
 for (let jx = -N; jx <= N; jx++) for (let jz = -N; jz <= N; jz++) {
   for (const axis of ['x', 'z']) {
     if (!F.segClosed(axis, jx, jz)) continue;
+    // a street that reaches the coast is closed and filled by the coast rule, not the hash: not counted either
+    if (!segInCore(axis, jx, jz)) continue;
     // a neighbourhood's inner street is never filled: it is not counted in the share
     const other = axis === 'x' ? [jx + 1, jz] : [jx, jz + 1];
     if (F.nbhdJunction(jx, jz) || F.nbhdJunction(other[0], other[1])) continue;
@@ -170,21 +172,115 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
       assert(!overlap, `block ${cx},${cz}: ${mc.machine === 1 ? 'mixer' : 'machine ' + mc.machine} at ${mc.x.toFixed(1)},${mc.z.toFixed(1)} overlaps a ${o.kind} at ${o.x.toFixed(1)},${o.z.toFixed(1)}`);
     }
   }
-  // a tower crane's base is solid: on each barred, unfilled, non-neighbourhood street with a crane (the west street
-  // and the south street of a pair), a 2.6 m square solid stands 22 m past the frame's centre, on the grass strip
-  const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK;
+  // a tower crane's base is solid: each barred, unfilled, non-neighbourhood street holds two frames side by side, one
+  // on each block's half of it, and the block east or north of the street (its west street, its south street) builds
+  // the crane between them (CRANE in js/sites.js): a CRANE.half square solid on the street's centre line, which is this
+  // block's edge, level with the middle of the frames. It stands between the two frames (this block's and the one
+  // across the line, built next door) and overlaps neither, so the lane under each stays open
+  const x0 = cx * W.CHUNK, z0 = cz * W.CHUNK, CR = W.CRANE;
   const siteFree = (a, b) => !F.nbhdJunction(a[0], a[1]) && !F.nbhdJunction(b[0], b[1]);
   const cranes = [
-    [barred('z', cx, cz) && !F.segFilled('z', cx, cz) && siteFree([cx, cz], [cx, cz + 1]), x0 + 4, z0 + 52],
-    [barred('x', cx, cz) && !F.segFilled('x', cx, cz) && siteFree([cx, cz], [cx + 1, cz]), x0 + 52, z0 + 4],
+    [barred('z', cx, cz) && !F.segFilled('z', cx, cz) && siteFree([cx, cz], [cx, cz + 1]), x0 + 4 + CR.ac, z0 + 30 + CR.al, 'z', [cx - 1, cz]],
+    [barred('x', cx, cz) && !F.segFilled('x', cx, cz) && siteFree([cx, cz], [cx + 1, cz]), x0 + 30 + CR.al, z0 + 4 + CR.ac, 'x', [cx, cz - 1]],
   ];
-  for (const [on, bx, bz] of cranes) {
+  for (const [on, bx, bz, axis, [ox, oz]] of cranes) {
     if (!on) continue;
-    const base = ch.solids.find(q => q.kind === 'building' && q.hx === 1.3 && q.hz === 1.3 && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
+    const base = ch.solids.find(q => q.kind === 'building' && q.hx === CR.half && q.hz === CR.half && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
     assert(base, `block ${cx},${cz}: crane base at ${bx},${bz} is not solid`);
+    assert(axis === 'z' ? bx === x0 : bz === z0, `block ${cx},${cz}: the crane at ${bx},${bz} is not on the street's centre line`);
+    const pair = [...W.siteSpots(cx, cz), ...W.siteSpots(ox, oz)].filter(s => Math.max(s.hx, s.hz) === 14 && Math.abs(s.x - bx) < 8 && Math.abs(s.z - bz) < 16);
+    assert.equal(pair.length, 2, `block ${cx},${cz}: the crane at ${bx},${bz} has ${pair.length} frames beside it (want the street's two)`);
+    const sides = pair.map(fr => Math.sign(axis === 'z' ? fr.x - bx : fr.z - bz));
+    assert(sides[0] * sides[1] === -1, `block ${cx},${cz}: the crane at ${bx},${bz} is not between the street's two frames`);
+    for (const fr of pair) {
+      const clear = Math.abs(fr.x - bx) >= fr.hx + CR.half || Math.abs(fr.z - bz) >= fr.hz + CR.half;
+      assert(clear, `block ${cx},${cz}: the crane base at ${bx},${bz} overlaps the frame at ${fr.x},${fr.z}`);
+    }
     cranesChecked++;
   }
 }
 
+// The coast (js/island.js). Every street that reaches it is closed and filled (segFilled in js/flyover.js): the one on
+// the coast line itself, which has the sea on its far side (coastLineSeg), and the short ones from it inland, at right
+// angles to it (the sea arms). So the coast is parks, never a building site. Every block on the four coasts, each of
+// its halves of such a street (but the river's, which is water): the street is filled, and nothing of a site stands on
+// the strip (siteSpots has nothing there, and the block's own solids in it include no frame, column, brick, crane base
+// or machine). No barricade stands across it, and no roadworks are laid on it. Its park is there: four trees and two benches at their places (on the
+// coast line 1.5 m further in, clear of the 3 m seawall, seaWall in js/world.js). Every solid in the strip (a tree by
+// its 0.65 m soil bed) and every prop (by its radius) stands clear of the seawall. And the junctions on the coast line
+// are green between the parks (coastGreen), all but the river's two mouths. No traffic reaches any of them, the mouths
+// included (coastQuiet), so none has signals: a block that builds one of them (the one at its lower corner,
+// buildIntersection in js/trafficLights.js) puts up no poles for it.
+let coastStrips = 0, armStrips = 0, coastTrees = 0, coastProps = 0, quietBuilt = 0;
+const IR = W.ISLAND_R, C = W.CHUNK, WALL = 3;
+for (let cx = -IR; cx < IR; cx++) for (let cz = -IR; cz < IR; cz++) {
+  if (cx !== -IR && cx !== IR - 1 && cz !== -IR && cz !== IR - 1) continue;
+  const x0 = cx * C, z0 = cz * C;
+  const sides = [['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]];
+  let ch = null;
+  for (let side = 0; side < 4; side++) {
+    const seg = sides[side];
+    if (segInCore(...seg) || F.riverSeg(...seg)) continue;
+    const line = F.coastLineSeg(...seg);
+    const at = `block ${cx},${cz}, the ${line ? 'coast' : 'sea arm'} street ${seg.join(' ')}`;
+    assert(F.segFilled(...seg), `${at}: not filled`);
+    // metres in from the block's edge on that side, and along it from the block's lower corner; the strip is the
+    // street's half and the walkway, 12.6 m, the whole block long
+    const inn = (x, z) => side === 0 ? x - x0 : side === 1 ? x0 + C - x : side === 2 ? z - z0 : z0 + C - z;
+    const along = (x, z) => side < 2 ? z - z0 : x - x0;
+    const inStrip = (x, z) => inn(x, z) < 12.6;
+    const where = q => `${q.x.toFixed(1)},${q.z.toFixed(1)}`;
+    for (const s of W.siteSpots(cx, cz)) assert(!inStrip(s.x, s.z), `${at}: a construction site at ${where(s)}`);
+    ch = ch || W.generateChunk(cx, cz, true);
+    const wall = line ? ch.solids.filter(q => q.kind === 'building' && Math.min(q.hx, q.hz) === WALL / 2 && Math.max(q.hx, q.hz) === C / 2 && Math.abs(inn(q.x, q.z) - WALL / 2) < 1e-6) : [];
+    if (line) assert.equal(wall.length, 1, `${at}: ${wall.length} seawalls on the coast side`);
+    const face = line ? WALL : 0;                                 // the strip's outer edge: the wall's face, or the centre line
+    for (const q of ch.solids) {
+      if (q === wall[0] || q.hx === undefined || !inStrip(q.x, q.z)) continue;
+      const site = q.headroom !== undefined ? 'frame' : q.machine !== undefined ? 'site machine' : q.kind === 'building' ? 'frame column, brick or crane base' : null;
+      assert(!site, `${at}: a ${site} at ${where(q)} on the strip`);
+      const depth = inn(q.x, q.z) - (side < 2 ? q.hx : q.hz);
+      assert(!line || depth >= face - 1e-6, `${at}: a ${q.kind} at ${where(q)} stands in the seawall (its edge ${depth.toFixed(2)} m in)`);
+      if (q.kind === 'tree') coastTrees++;
+    }
+    for (const rw of ch.roadworks) assert(!inStrip(rw.x, rw.z), `${at}: roadworks at ${where(rw)} on the strip`);
+    for (const p of ch.props) {
+      if (!inStrip(p.x, p.z)) continue;
+      const a = along(p.x, p.z);
+      assert(p.kind !== 'barricade' || a < 8 || a > C - 8, `${at}: a barricade across the strip at ${where(p)}`);
+      assert(!line || inn(p.x, p.z) - p.r >= face - 1e-6, `${at}: a ${p.kind} at ${where(p)} stands in the seawall`);
+      coastProps++;
+    }
+    // the park (parkPlot in js/world.js): its trees and benches at their places across the plot, 4.8 m wide 7.8 m in on
+    // the coast line, 6.3 m wide 6.3 m in on a sea arm
+    const mid = line ? 7.8 : 6.3, half = line ? 4.8 : 6.3, flip = side % 2 === 1;   // east and north: the cross axis runs outward
+    const inOf = kk => mid + (flip ? -kk : kk) * half;
+    const near = (q, i, a) => Math.abs(inn(q.x, q.z) - i) < 0.01 && Math.abs(along(q.x, q.z) - a) < 0.01;
+    for (const [kk, a] of [[-0.6, 20], [0.6, 34], [-0.6, 48], [0.6, 62]]) assert(ch.trees.some(t => near(t, inOf(kk), a)), `${at}: no park tree ${inOf(kk).toFixed(2)} m in at ${a}`);
+    for (const [kk, a] of [[0.55, 27], [-0.55, 54]]) assert(ch.props.some(p => p.kind === 'bench' && near(p, inOf(kk), a)), `${at}: no park bench ${inOf(kk).toFixed(2)} m in at ${a}`);
+    if (line) coastStrips++; else armStrips++;
+  }
+  if (ch) {
+    for (const pl of ch.signalPoles) assert(!F.coastQuiet(Math.round(pl.ix / C), Math.round(pl.iz / C)), `block ${cx},${cz}: a signal pole at ${pl.x.toFixed(1)},${pl.z.toFixed(1)} for the junction ${pl.ix / C},${pl.iz / C} on the coast line, which no open street reaches`);
+    if (F.coastQuiet(cx, cz)) quietBuilt++;
+    W.disposeChunk(ch);
+  }
+}
+assert.equal(coastStrips, 8 * IR, `${coastStrips} coast strips checked (want ${8 * IR})`);
+// a sea arm has two halves, one in each block beside it; 49 arms a coast, less the river's two (one each side)
+assert.equal(armStrips, 2 * (4 * (2 * IR - 1) - 2), `${armStrips} halves of sea arms checked`);
+let greenJ = 0, lineJ = 0;
+for (let k = -IR; k <= IR; k++) for (const [jx, jz] of Math.abs(k) === IR ? [[-IR, k], [IR, k]] : [[-IR, k], [IR, k], [k, -IR], [k, IR]]) {
+  lineJ++;
+  const mouth = Math.abs(jx) === IR && jz === F.RIVER_ROW;
+  assert.equal(F.coastGreen(jx, jz), !mouth, `junction ${jx},${jz} on the coast line ${mouth ? 'is green at the river' : 'is not green between the parks'}`);
+  assert(F.coastQuiet(jx, jz), `junction ${jx},${jz} on the coast line is reached by an open street`);
+  if (!mouth) greenJ++;
+}
+assert.equal(lineJ, 8 * IR, `${lineJ} junctions on the coast line checked (want ${8 * IR})`);
+// the blocks build the coast line's junctions on the west and north coasts (those on the east and south belong to the
+// blocks out in the sea, which are never built): 50 and 49 of them, each checked above for poles
+assert.equal(quietBuilt, 4 * IR - 1, `${quietBuilt} junctions on the coast line built by the blocks (want ${4 * IR - 1})`);
+
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${coastJ} on the coast (the sea arm closed and no other, but for ${nbCoast.length} where a neighbourhood's inner street ends: ${nbCoast.join(' ')}), ${riverJ} on the river (bridges, the street across always open), no dead end; ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);
+  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid, each between its street's two frames; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site; ${coastStrips} strips along the four coasts and ${armStrips} halves of the streets running inland from them, each a park with no site or barricade on it, their ${coastTrees} trees and ${coastProps} props clear of the seawall, and ${greenJ} of the coast line's ${lineJ} junctions green between them (all but the river's mouths), none of them with signals (${quietBuilt} built by the blocks)`);
