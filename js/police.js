@@ -443,15 +443,27 @@ export function policeAI(p, dt) {
           // lane just outside the ramp's foot - a fixed point, so the aim cannot walk out from under a car that is
           // still crossing. A car that has been carried onto the low end of a ramp is taken off it the same way.
           // Still at the foot of the ramp, the nose guard stands at the lane's edge (lateral -7.3 m) just short of the lane
-          // point, and it is a solid: a diagonal aim from here runs into it, and a car that comes in at an angle wedges
-          // its front corner against it. So first run along the foot to the far side of the guard, drawn in toward the
-          // middle of the road (2.5 m off the centre line), then cut out to the lane.
+          // point: a drum and three posts. A car coming down the ramp at speed that cuts out diagonally wedges its front
+          // corner on them, so it first runs along the foot to the far side of the guard, drawn in toward the middle of
+          // the road (2.5 m off the centre line), then cuts out to the lane.
           const beyondGuard = FLY.rampEnd + 6;
+          // How far past the span's end the car is, and whether it is driving in toward the structure. The run past the
+          // guard is for a car coming *off* a ramp. For one driving in, that point is behind it, and an aim behind a car
+          // turns it round: at the ramp's foot that is a U-turn between the retaining walls, which pinned it against a
+          // parapet, scraped it up the ramp and sent it over the bridge while the player sat in the lane beside it.
+          const out = Math.max(u - nf.hi, nf.lo - u, 0), inward = (u - (nf.lo + nf.hi) / 2) * dirU < 0;
+          const midV = Math.max(-2.5, Math.min(2.5, v));
           // In the junction it steps out to the lane the player is in (want), not the side it happens to be on: the side
           // flips as the car crosses the centre line, and a car at speed then swings from lane to lane across the avenue.
           if (inJunctionBox(nf, u)) laneAim(nf, u + dirU * 12, want * laneOffset(), _lane);
-          else if (nf.ext > 0 && u > nf.lo && u < nf.hi) laneAim(nf, cross, Math.max(-2.5, Math.min(2.5, v)), _lane);   // mid-span on a long bridge: to the next box, not the far end
-          else if (Math.max(u - nf.hi, nf.lo - u, 0) < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), Math.max(-2.5, Math.min(2.5, v)), _lane);
+          else if (nf.ext > 0 && u > nf.lo && u < nf.hi) laneAim(nf, cross, midV, _lane);   // mid-span on a long bridge: to the next box, not the far end
+          // Driving in, short of the guard's far end, it has no room left to turn out to the lane before the end of the
+          // retaining wall: a police car turns on a radius of about 3 m even at a crawl, and with its own length that is more
+          // than the few metres left. (Cars sent sideways from here swung in between the walls all the same, or stopped
+          // against the wall's end.) So it carries straight on up the ramp in its own lane, and the rule for a car up on
+          // the structure (rampExit) brings it down the far side.
+          else if (inward && out < beyondGuard - 0.5) laneAim(nf, u + dirU * 12, midV, _lane);
+          else if (out < beyondGuard - 0.5) laneAim(nf, spanEnd(nf, u, beyondGuard), midV, _lane);
           else laneAim(nf, spanEnd(nf, u, beyondGuard), my * laneOffset(), _lane);
           tx = _lane.x; tz = _lane.z; bridgeTurn = true;
         } else if (my !== want) {                             // in a lane, but on the wrong half of the avenue
@@ -478,7 +490,9 @@ export function policeAI(p, dt) {
   if (d > 14) {
     const L = 7 + Math.max(0, vf) * 0.4, probe = a => { const g = p.h + a; return solidAt(p.x + Math.sin(g) * L, p.z + Math.cos(g) * L, p.box.e2, p.y, false, p.height); };
     const c = probe(0), l = probe(0.55), r = probe(-0.55);
-    if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
+    // Blocked ahead: swerve to the side the aim is on (a random side only when it is dead ahead). A random side whatever
+    // the aim sent a pursuer that had just come off a ramp into the block beside the lane, away from the player in it.
+    if (c || (l && r)) { if (!p.avoidDir) p.avoidDir = Math.abs(diff) > 0.15 ? Math.sign(diff) : Math.random() < .5 ? 1 : -1; steer = p.avoidDir; throttle = vf > 16 ? -0.3 : 0.5; }
     else if (l) { steer = -1; p.avoidDir = 0; } else if (r) { steer = 1; p.avoidDir = 0; } else p.avoidDir = 0;
   }
   // Trams: a police car on a live track gets off it; one about to cross a track with a tram coming brakes for it (the same

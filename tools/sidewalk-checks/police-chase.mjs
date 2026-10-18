@@ -45,6 +45,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const wrapAngle = a => { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; };
 const rnd = (a, b) => a + Math.random() * (b - a);
 const weatherSystem = { slickness: 0 };
+const tramTrackAhead = () => Infinity;   // js/tram.js: no tram lines in this harness (a police car checks the road ahead for one)
 const HULK_PARAMS = { maxSpeed: 46, maxReverse: 8, accel: 0, brake: 34, turn: 1.5, turnFalloff: 40, grip: 9.4 };
 const isPoliceKind = kind => typeof kind === 'string' && kind.startsWith('police');
 const buildCar = () => { const g = new Obj(); g.userData = { inner: new Obj(), lights: {} }; return g; };

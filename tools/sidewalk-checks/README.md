@@ -201,6 +201,17 @@ at-grade lane, under the deck, and beside the abutment, with pursuers coming fro
 at-grade lane, the deck, the ramps and the cross street, and requires the car on the player, at his own height,
 every time.
 
+The hardest of those starts puts the pursuer at rest on the avenue 3 m past the end of the retaining wall, facing in,
+with the player in the at-grade lane on the far side of the junction. A pursuer driving in that is already short of the
+far end of the ramp's nose guard has no room left to turn out into the at-grade lane before the wall (a police car
+turns on about a 3 m radius even at a crawl). It now carries on up the ramp in its own lane, and the rampExit rule
+brings it down the far side. Before, it was aimed at the guard's far end, which was behind it: a U-turn between the
+walls that pinned it against a parapet. When a pursuer's probe finds something solid dead ahead, it now swerves to the
+side its aim is on. A random side sent the car that had just come off the ramp into the block beside the lane and on
+into the back gardens. Over 30 random streams (the default and `CHASE_SEED=1` to `29`) it now reaches the player in
+all 30 runs (10 to 18 s), against 27 before. The harness stubs `tramTrackAhead()` (there are no tram lines in it).
+Without that stub the stitched module had not run at all since the trams arrived.
+
 The bridge trap is the second half of that test. A player who sits on the deck, slow, for five seconds has one end of
 the structure closed by a checkpoint (up to three cruisers parked across the deck, eight metres beyond the span's end,
 on the side he faces) while the cruisers at the other end drive up their ramp and ram him. The harness requires the
