@@ -377,11 +377,16 @@ function interchanges({ ch, p, add, ramp, group, r, cx, cz }) {
     const W = FLY.halfW, alongX = F.axis === 'x', WEAR = 0.08, PH = 1.0;
     const conc = mat(0xb4b8bc), coping = mat(0xd3d0c8), asphalt = mat(0x3b3f4a), paint = mat(0xffcf2e);
     const at = (u, y, v) => alongX ? [F.node + u, y, F.road + v] : [F.road + v, y, F.node + u];
+    // The bridge casts shadows like any other solid thing in the city. It has to: a surface that only receives
+    // shadows lets every shadow from above pass straight through it, so a car driving on the deck used to drop a
+    // second shadow onto the street 7.2 m below, and the street under the bridge sat in full sun. Casting, the
+    // deck catches the car's shadow itself and lays its own shadow over the street, the way a real bridge does.
+    // Only the painted dashes stay out of the shadow map: they are paint, 5 cm thick.
     const P = (w, h, d, m, u, y, v, role) => {
-      const p = at(u, y, v);
-      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      const p = at(u, y, v), cast = role !== 'dash';
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], cast) : box(w, h, d, m, p[0], y, p[2], cast);
       add(b);
-      fly.pieces.push({ role, axis: F.axis, road: F.road, node: F.node, su: u < 0 ? -1 : 1, sv: F.sv, u, y, v, w, h, d, rot: 0 });
+      fly.pieces.push({ role, axis: F.axis, road: F.road, node: F.node, su: u < 0 ? -1 : 1, sv: F.sv, u, y, v, w, h, d, rot: 0, cast: b.castShadow });
     };
     const a0 = F.a0 - F.node, a1 = F.a1 - F.node, uc = (a0 + a1) / 2, Lu = a1 - a0;
     P(W, FLY.slab, Lu, conc, uc, FLY.deckH - WEAR - FLY.slab / 2, F.sv * W / 2, 'deck');
@@ -407,12 +412,15 @@ function interchanges({ ch, p, add, ramp, group, r, cx, cz }) {
     // One piece of the structure: `w` across, `h` tall, `d` along, laid on the ramp when `tilt` is set. Every
     // piece is recorded as it is built, so the shape can be checked in the Node suite without a graphics device
     // (see run.mjs section 2c-3): the concrete and the contract in js/flyover.js have to stay in step.
+    // The ramp casts shadows for the same reason the deck does (above): otherwise a car on the ramp drops its
+    // shadow through the embankment onto the street beside it. The paint (the dashes and the hazard boards on the
+    // abutment face) stays out of the shadow map.
     const P = (w, h, d, m, u, y, v, tilt, role) => {
-      const p = at(u, y, v);
-      const b = alongX ? box(d, h, w, m, p[0], y, p[2], false) : box(w, h, d, m, p[0], y, p[2], false);
+      const p = at(u, y, v), cast = role !== 'dash' && role !== 'hazard';
+      const b = alongX ? box(d, h, w, m, p[0], y, p[2], cast) : box(w, h, d, m, p[0], y, p[2], cast);
       let rot = 0;
       if (tilt) { rot = alongX ? -Q.su * th : Q.su * th; if (alongX) b.rotation.z = rot; else b.rotation.x = rot; }
-      add(b); fly.pieces.push({ role, axis: Q.axis, road: Q.road, node: Q.node, su: Q.su, sv: Q.sv, u, y, v, w, h, d, rot });
+      add(b); fly.pieces.push({ role, axis: Q.axis, road: Q.road, node: Q.node, su: Q.su, sv: Q.sv, u, y, v, w, h, d, rot, cast: b.castShadow });
       return b;
     };
     // Points on the ramp, offset along the ramp's own normal (negative = sunk below the surface). Using the

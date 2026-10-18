@@ -69,7 +69,9 @@ node tools/sidewalk-checks/boot-check.mjs  # imports every game module in order 
   are settled on, the
   approach slabs lie on their ramps, the parapets leave the drivable width the physics holds cars inside, the
   crossing street's underpass stays clear, and nothing (props, trees, pickups, parked cars, roadworks) is
-  planted in the concrete
+  planted in the concrete. The concrete casts shadows and only its paint (dashes, hazard boards) does not, so the
+  street under the deck lies in the bridge's shadow and a car up on the deck cannot drop its shadow through the
+  deck onto the street below
 * the at-grade street beside the structure is a real street: four lanes wide (14.0 m — twice the 7.0 m street it
   was, which was itself twice the 3.5 m lane before it) and its extra width comes out of the *frontage* — the
   building line on those sides steps back by `FLY.frontage` (11.4 m, `FLY.atGrade` − 2.6: the strip the old kerb
