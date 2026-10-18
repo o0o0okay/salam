@@ -604,7 +604,10 @@ gap between the two frames' slabs, level with the middle bay of their length. It
 rows of columns and of the brick infill. The mast rises through the gap, and the jib, the cab and the hook are 34 m up,
 over the tallest frame. The crane used to stand in line with one frame's lane, 8 m past its far end, where it stopped
 a car that had driven through under the frame. Now the lane under each frame stays open from end to end, and on past
-the far end to the machines. The base is under 2 m wide, so the map does not draw it and the map data is unchanged.
+the far end to the machines. On the west and south coasts the street's other half is the sea, so a frame there has
+no twin; its crane stands on the seawall instead (`CRANE_COAST`, picked by `cranePlace`): wholly on the 3 m wall,
+8 m past the frame's far end, beside the lane rather than in it. The base is under 2 m wide, so the map does not draw
+it and the map data is unchanged.
 The chase camera comes down under the first floor (`roofLimit` in `js/camera.js`). The line from the car up to the camera
 has to stay `ROOF_GAP` (0.5 m) under the roof for as long as it is beneath it. The limit is also taken from where the car
 will be in `ROOF_LEAD` (0.3 s), so the camera starts down before the nose is under the slab, and it follows the limit
@@ -630,6 +633,9 @@ to 40 m/s, either way, the camera checks are: the line to the car never through 
 `ROOF_CLEAR`, settled at the slab less `ROOF_GAP`, no jump, the boom pulled in, back up a second after it is out, and
 under the roof once. Two more cases are checked: a camera swung in over a frame is under the first floor at once, and a
 shake does not lift it.
+`junctions.mjs` checks the cranes too. In its 17 by 17 blocks, every crane base is solid, on the street's centre line,
+between the street's two frames and clear of both. Along the west and south coasts, every crane (48 of them) stands
+wholly on the seawall, 10 cm clear of everything else, with its frame's lane clear for a car past the far end.
 
 ### Holding a pinned player for the arrest
 

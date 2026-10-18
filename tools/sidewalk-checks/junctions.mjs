@@ -183,6 +183,7 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   ];
   for (const [on, bx, bz, axis, [ox, oz]] of cranes) {
     if (!on) continue;
+    assert(W.cranePlace(axis, cx, cz) === CR, `block ${cx},${cz}: the crane of the ${axis} street is not placed between its frames`);
     const base = ch.solids.find(q => q.kind === 'building' && q.hx === CR.half && q.hz === CR.half && Math.abs(q.x - bx) < 1e-6 && Math.abs(q.z - bz) < 1e-6);
     assert(base, `block ${cx},${cz}: crane base at ${bx},${bz} is not solid`);
     assert(axis === 'z' ? bx === x0 : bz === z0, `block ${cx},${cz}: the crane at ${bx},${bz} is not on the street's centre line`);
@@ -198,5 +199,37 @@ for (let cx = -8; cx <= 8; cx++) for (let cz = -8; cz <= 8; cz++) {
   }
 }
 
+// On the west and south coasts the street's other half is the sea (js/island.js): a frame there has no twin, and the
+// crane it builds stands on the seawall instead (CRANE_COAST in js/sites.js). Its base is solid and wholly on the wall,
+// 10 cm clear of everything else (the frame's columns, its brick, its roof, the machines), and the frame's lane runs on
+// past the far end clear for a car (half width 0.95), as it does inland.
+let coastCranes = 0;
+const IR = W.ISLAND_R;
+for (let k = -IR; k < IR; k++) for (const [cx, cz, axis] of [[-IR, k, 'z'], [k, -IR, 'x']]) {
+  const spots = W.siteSpots(cx, cz);
+  const i = spots.findIndex((s, j) => s.crane && j > 0 && (axis === 'z' ? spots[j - 1].hz === 14 : spots[j - 1].hx === 14));
+  if (i < 0) continue;
+  const f = spots[i - 1], c = spots[i], P = W.cranePlace(axis, cx, cz);
+  assert(P === W.CRANE_COAST, `block ${cx},${cz}: the crane on the coast is not placed on the seawall`);
+  const w = (ac, al) => (axis === 'z' ? [f.x + ac, f.z + al] : [f.x + al, f.z + ac]);
+  const [ex, ez] = w(P.ac, P.al);
+  assert(Math.abs(c.x - ex) < 1e-9 && Math.abs(c.z - ez) < 1e-9, `block ${cx},${cz}: siteSpots puts the coast crane at ${c.x},${c.z}, not ${ex},${ez}`);
+  const ch = W.generateChunk(cx, cz, true);
+  const base = ch.solids.find(q => q.kind === 'building' && q.hx === P.half && q.hz === P.half && Math.abs(q.x - c.x) < 1e-6 && Math.abs(q.z - c.z) < 1e-6);
+  assert(base, `block ${cx},${cz}: the coast crane's base at ${c.x},${c.z} is not solid`);
+  const wall = ch.solids.find(q => q !== base && q.kind === 'building' && Math.min(q.hx, q.hz) === 1.5 && Math.max(q.hx, q.hz) === 40 &&
+    Math.abs(q.x - c.x) + P.half <= q.hx + 1e-6 && Math.abs(q.z - c.z) + P.half <= q.hz + 1e-6);
+  assert(wall, `block ${cx},${cz}: the coast crane's base at ${c.x},${c.z} is not wholly on the seawall`);
+  const touch = ch.solids.filter(q => q !== base && q !== wall && q.hx > 0 && Math.abs(q.x - c.x) < q.hx + P.half + 0.1 && Math.abs(q.z - c.z) < q.hz + P.half + 0.1);
+  assert(!touch.length, `block ${cx},${cz}: the coast crane's base at ${c.x},${c.z} touches ${touch.map(q => q.kind + ' ' + q.x.toFixed(1) + ',' + q.z.toFixed(1)).join('; ')}`);
+  for (let al = 16; al <= 24; al += 0.25) {
+    const [x, z] = w(0, al);
+    const hit = ch.solids.find(q => q.hx > 0 && q.headroom === undefined && Math.abs(q.x - x) < q.hx + 0.95 && Math.abs(q.z - z) < q.hz + 0.95);
+    assert(!hit, `block ${cx},${cz}: past the coast frame's far end its lane is blocked at ${al} by a ${hit && hit.kind} at ${hit && hit.x.toFixed(1)},${hit && hit.z.toFixed(1)}`);
+  }
+  coastCranes++;
+}
+assert(coastCranes >= 10, `only ${coastCranes} cranes on the coast to check`);
+
 console.log(`PASS: ${junctions} junctions, ${tees} three-way (${(share * 100).toFixed(1)}%), ${coastJ} on the coast (the sea arm closed and no other, but for ${nbCoast.length} where a neighbourhood's inner street ends: ${nbCoast.join(' ')}), ${riverJ} on the river (bridges, the street across always open), no dead end; ${filledSegs} filled streets (${(filledShare * 100).toFixed(0)}% of the hash-closed ones), ${plazas} roundabouts in ${chainLen.length} chains (sizes ${[...new Set(chainLen)].sort().join('/')}); ` +
-  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid, each between its street's two frames; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);
+  `${blocksChecked} blocks built, ${barriers} barricade props at the closed streets' mouths; closed arms are never roundabouts and never open to a car; ${closedSamples} closed-street midpoints refused for spawns; ${cranesChecked} crane bases solid, each between its street's two frames, and ${coastCranes} on the coast's seawall; ${pickupsChecked} pickups, none inside a site; ${machinesChecked} parked machines, one or two per site`);
