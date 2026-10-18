@@ -17,7 +17,8 @@ node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, cl
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/estates.mjs  # residential estates: curved road, houses clear of it, cul-de-sac, deterministic
 node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
-node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover (behavioural)
+node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover or hidden down a narrow street (behavioural)
+node tools/sidewalk-checks/scan-alleys.mjs  # prints police-chase's narrow-street scenes from a scan of the current city (run it again when the city changes)
 node tools/sidewalk-checks/route-levels.mjs  # the map's road route keeps a flyover's deck road and its ground lanes apart
 node tools/sidewalk-checks/mark-ring.mjs  # the mark's light: its breathing circle, and the car arriving on it (on the mark's level)
 node tools/sidewalk-checks/radar.mjs  # the radar: the map's picture in tiles (where the world is), the chase on its rim, the search zone
@@ -225,6 +226,22 @@ when the car was destroyed. `structureLevel()` in `js/flyover.js` is the test th
 from the car's own height. The height probe checks six points against it. A trapped player can still be arrested: the
 existing BUSTED rule in `js/update.js` applies on the deck as anywhere else, and the test does not model it. A few seeds
 still leave one cruiser at the checkpoint, or let the rams push the car off the far ramp.
+
+The last part of that test hides the player down a narrow street. Each of thirty scenes parks him, hand brake on, in a
+street 5 to 14 m wide between walls, and starts two pursuers side by side on open ground 26 m away, round the corner:
+the straight line to him runs through a wall. The scenes come from `scan-alleys.mjs`, which scans the current city for
+such streets and prints them in the test's format. Run it again whenever the city changes and paste its list over the
+old one. The list it replaced no longer matched the city: not one of its thirty spots was a narrow street any more.
+Eight put a car inside a building or a tree, and the other twenty-two were in the open, 20 m or more from wall to wall.
+A pursuer counts once it has touched the player's car (`lastTouchPlayer`, the contact `js/update.js` counts
+for BUSTED). It used to count when it came within 4 m of the spot where he had parked, but the first car to arrive rams
+him, and the harness models neither BUSTED, WASTED nor the pin hold, so that car shoved him tens of metres off the spot
+and the second car, which followed him, was scored as a miss. Counted that way, the pursuit reaches him in 40 to 47 of
+the 60 runs on the new scenes, under 45 in nine streams of ten. At least 45 of the 60 pursuers must touch him within
+30 s. Over ten random streams the pursuit touches him in 52 to 57 of the 60 runs, the first touch after about 6 s
+(median); before the ramp-foot change above it was 46 to 55, after about 11 s. A pursuer stripped of both its route
+search and its look-ahead swerve drives straight at him and touches him in only 21 to 24. In one or two scenes per
+stream neither car finds the way in, most often at (-278, 110) and (190, -120).
 
 The shopping streets come from `buildShopParadeMesh()` / `buildShopFrontMesh()` in `js/world.js`: fourteen
 invented businesses (cafe, bakery, pizza, market, pharmacy, books, barber, donuts, flowers, hardware, laundry,

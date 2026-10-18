@@ -153,7 +153,7 @@ function chase(player, cops, seconds = 26) {
     for (const c of M.cars) { M.collideFlyover(c); M.syncCarMesh(c, DT); }
     budgetT += DT;
     if (budgetT > 1) { budgetT = 0; W.updateChunks(player.x, player.z, 999); }
-    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role }));
+    units.forEach((p, k) => trace[k].push({ t: M.game.time, x: p.x, z: p.z, y: p.y, speed: p.speed, d: Math.hypot(p.x - player.x, p.z - player.z), dy: Math.abs(p.y - (player.y || 0)), hp: p.hp, role: p.role, touch: p.lastTouchPlayer >= 0 }));
     plTrace.push({ t: M.game.time, x: M.player.x, z: M.player.z, y: M.player.y, hp: M.game.hp });
   }
   trace.pl = plTrace;
@@ -295,49 +295,52 @@ for (const [name, player, cops, limit] of cases) {
 }
 
 // ---- alley mouths: a pursuer on the avenue finds the way into a narrow street where the player hides ----
-// Thirty fixed scenes (a scan of the city's street canyons, 5-14 m wide between solids): the player sits in the street, two
-// pursuers start 22-30 m away on open ground with the line of sight blocked. The old pursuit drove into the street mouth and
-// stalled against its corners. [player x, z, street axis (1 = along x), pursuer x, z]. Each pursuer counts; at least 45 of the
-// 60 must reach him within 30 s (the committed pursuit reached 42 of 60).
+// Thirty fixed scenes, printed by scan-alleys.mjs from a scan of the current city's street canyons (5-14 m wide between
+// walls, at least 40 m apart): the player sits in the street, two pursuers start 26 m away on open ground with the line of
+// sight blocked. The old pursuit drove into the street mouth and stalled against its corners. [player x, z, street axis
+// (1 = along x), pursuer x, z]. A pursuer has reached him when it has touched his car (lastTouchPlayer, the contact
+// js/update.js counts for BUSTED), not when it is near the spot he parked on: the first car in rams him and can shove him
+// tens of metres off it, and the second one follows the car. Each pursuer counts; at least 45 of the 60 must reach him
+// within 30 s. Re-run the scan when the city changes (see the README).
 {
   const scenes = [
-    [-150, -106, 0, -150, -84],
-    [-148, 144, 1, -142, 165],
-    [-142, -56, 1, -136, -35],
-    [-142, -10, 1, -142, -32],
-    [-138, 44, 0, -138, 22],
-    [-122, 106, 1, -106, 122],
-    [-116, -138, 0, -116, -116],
-    [-108, 12, 0, -87, 6],
-    [-102, -94, 1, -86, -78],
-    [-96, -30, 1, -85, -11],
-    [-96, 62, 0, -96, 84],
-    [-68, 124, 1, -90, 124],
-    [-60, 32, 0, -60, 54],
-    [-50, -68, 0, -50, -46],
-    [12, 14, 1, 34, 14],
-    [14, 102, 1, 14, 124],
-    [24, -120, 0, 24, -98],
-    [28, 140, 0, 28, 162],
-    [32, -40, 1, 11, -46],
-    [44, 46, 0, 21, 40],
-    [56, 110, 0, 56, 132],
-    [62, -148, 0, 81, -137],
-    [62, -96, 0, 83, -102],
-    [68, -20, 1, 89, -26],
-    [104, -40, 0, 120, -56],
-    [106, -132, 0, 122, -116],
-    [110, 12, 0, 121, -7],
-    [132, -94, 0, 132, -72],
-    [146, -36, 1, 152, -15],
-    [146, 30, 1, 152, 51]
+    [52, -120, 1, 62, -96],
+    [108, 120, 1, 108, 94],
+    [-262, -42, 1, -262, -68],
+    [262, 42, 1, 252, 66],
+    [-122, -270, 0, -146, -260],
+    [42, -218, 0, 66, -228],
+    [280, -134, 0, 306, -134],
+    [-278, 110, 0, -254, 120],
+    [292, -282, 1, 282, -306],
+    [202, -298, 0, 226, -308],
+    [198, 186, 0, 174, 176],
+    [-282, -296, 0, -306, -286],
+    [280, 294, 0, 306, 294],
+    [208, -202, 1, 232, -212],
+    [130, 282, 1, 154, 292],
+    [218, 38, 1, 208, 14],
+    [-58, 278, 1, -58, 252],
+    [190, -120, 1, 166, -130],
+    [120, -56, 0, 94, -56],
+    [-24, 38, 1, -24, 12],
+    [104, -200, 1, 114, -176],
+    [38, 290, 0, 14, 300],
+    [300, 122, 1, 290, 146],
+    [-40, -58, 0, -66, -58],
+    [-42, -136, 0, -68, -136],
+    [-192, 120, 1, -168, 130],
+    [40, -290, 0, 30, -314],
+    [138, 200, 1, 162, 210],
+    [-38, -184, 0, -14, -194],
+    [218, -40, 1, 228, -64]
   ];
   let reached = 0, runs = 0;
   for (const [px, pz, ax, qx, qz] of scenes) {
     const h = ax ? Math.PI / 2 : 0, hc = Math.atan2(px - qx, pz - qz);
     const cops = [{ x: qx, z: qz, h: hc, tier: 2, role: 'chaser' }, { x: qx + 3 * Math.cos(hc), z: qz - 3 * Math.sin(hc), h: hc, tier: 2, role: 'chaser' }];
     const tr = chase({ x: px, z: pz, h, y: 0 }, cops, 30);
-    for (const t of tr) { runs++; if (t.some(p => p.d < 4)) reached++; }
+    for (const t of tr) { runs++; if (t.some(p => p.touch)) reached++; }
   }
   if (reached >= 45) ok(`a pursuer reached the player in ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
   else bad(`a pursuer reached the player in only ${reached} of ${runs} runs in the alley mouths (want 45 or more)`);
