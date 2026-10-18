@@ -70,7 +70,7 @@ import { PROP_DEFS } from './props.js';
 import { HYDRANT_KEEP, METER_SIDE_P, BOOTH_P } from './config.js';
 import { TREE_VARIANTS, setTreeMatrix } from './trees.js';
 import { buildIntersection, removeIntersection } from './trafficLights.js';
-import { ISLAND_R, inIslandChunk, onIsland, segInCore } from './island.js';
+import { ISLAND_R, inIslandChunk, onIsland, segInCore, SEAWALL_T } from './island.js';
 import { clearAvenues, blockNearAvenue } from './avenueClear.js';
 import { buildAvenueRoad } from './avenueRoad.js';
 import { FLY, RAMP_RUN, rampHeight, insideFootprint, flyoverQuadrants, atGradeSide, onAtGradeLane, roadEdge, bridgeAt, bridgeHeight, flyoverFlats, besideFlyover, plazaAt, segClosed, segFilled, fillHash, coastLineSeg, coastGreen, nbhdOf, nbhdInterior, nbhdJunction, NB_BLOCKS, nbhdEntrance, nbhdEntryAt, riverSeg, RIVER_ROW } from './flyover.js';
@@ -169,8 +169,13 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
     const s2 = side === 2;
     const zc = s2 ? z0 + 4 : z0 + 76, bankZ = s2 ? z0 + 8.25 : z0 + 71.75;
     add(box(CHUNK, 0.04, 8, mat(WATER), x0 + 40, 0.04, zc, false));                 // the water, the full block width (under the decks too)
-    add(box(63.4, 0.9, 0.5, mat(0x8e8a80), x0 + 40, 0.45, bankZ, false));            // the bank wall, on the kerb line
-    solid(x0 + 40, bankZ, 31.7, 0.25, 'building');
+    // The bank wall, on the kerb line, from one bridge's parapet to the next. On the east coast the river runs out under
+    // the seawall with no bridge at that end (that junction is the coast's, and its block is never built), so there the
+    // wall runs on to the seawall: the coast's park is walled off from the water too. (js/water.js keeps every car to
+    // these same edges, whatever shoves it.)
+    const eastMouth = cx === ISLAND_R - 1, wallLen = eastMouth ? CHUNK - SEAWALL_T - 8.3 : 63.4, wallX = eastMouth ? x0 + 8.3 + wallLen / 2 : x0 + 40;
+    add(box(wallLen, 0.9, 0.5, mat(0x8e8a80), wallX, 0.45, bankZ, false));
+    solid(wallX, bankZ, wallLen / 2, 0.25, 'building');
     // on the coast (the west block of the island) the river runs out to the sea: no parapet or deck out in the water
     for (const px of [x0 - 8.25, x0 + 8.25]) {                                       // the bridge parapets at this block's west junction
       if (!onIsland(px, zc)) continue;
@@ -2537,7 +2542,7 @@ export function disposeChunk(ch) {
 // when the view queue is empty, so a fast drive never pays for it, and it has its own small budget.
 const STREAM_MS = 6, PREFETCH_MS = 4, MERGE_MS = 3;
 // ---- the island's coast (js/island.js): a concrete seawall along each side of the island, on the block's own edge ----
-const SEAWALL_T = 3, SEAWALL_TOP = 1.2, SEAWALL_BOTTOM = -0.3;   // 3 m thick; it stands on the ground and reaches down into the sea
+const SEAWALL_TOP = 1.2, SEAWALL_BOTTOM = -0.3;   // SEAWALL_T (js/island.js) thick; it stands on the ground and reaches down into the sea
 function seaWall({ add, solid, x0, z0, cx, cz }) {
   const edge = [];
   if (cx === -ISLAND_R) edge.push([x0 + SEAWALL_T / 2, z0 + 40, SEAWALL_T, CHUNK]);

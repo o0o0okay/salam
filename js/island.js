@@ -14,6 +14,7 @@ import { CHUNK } from './utils.js';
 export const ISLAND_R = 25;                                  // chunks from the centre to each coast
 export const ISLAND_MIN = -ISLAND_R * CHUNK, ISLAND_MAX = ISLAND_R * CHUNK;   // -2000 and 2000 (metres)
 export const CORE = ISLAND_R - 1;                            // the streets' limit: junction indices -CORE..CORE
+export const SEAWALL_T = 3;                                  // the seawall's thickness, on the coast block's own edge (seaWall in js/world.js)
 
 // Is the block (cx, cz) on the island?
 export function inIslandChunk(cx, cz) {

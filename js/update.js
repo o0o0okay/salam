@@ -31,6 +31,7 @@ import { updateHUD, drawRadar, toast } from './ui.js';
 import { updateRouteArrows } from './routeArrows.js';
 import { updateMarkBeam } from './markBeam.js';
 import { endGame, showOver } from './flow.js';
+import { waterGuard, updateSinking } from './water.js';
 function spinPickups(t) {
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
     if (pk.taken) continue; pk.mesh.rotation.y = t * 2.6 + pk.ph; pk.mesh.position.y = 1.4 + Math.sin(t * 3 + pk.ph) * 0.2;
@@ -123,6 +124,7 @@ export function update(dt) {
   // back to visit the car that moved into its place.
   for (let i = 0; i < police.length; i++) {
     const p = police[i];
+    if (p.sink) continue;                            // going under (js/water.js takes it away)
     const dp = Math.hypot(p.x - player.x, p.z - player.z);
     if (p.wrecked) { wreckTick(p, sdt); if ((p.wreckT > 6 && dp > 45) || p.wreckT > 20 || dp > 210) { smoke(p.x, p.y + 1, p.z, 6, true, 1.6); removeCar(p); i--; continue; } }
     else {
@@ -152,6 +154,7 @@ export function update(dt) {
   }
   for (let i = 0; i < civs.length; i++) {          // same index walk as the police loop above
     const c = civs[i];
+    if (c.sink) continue;                            // going under (js/water.js takes it away)
     const dp = Math.hypot(c.x - player.x, c.z - player.z);
     if (c.wrecked) { wreckTick(c, sdt); if ((c.wreckT > 8 && dp > 45) || c.wreckT > 25 || dp > 190) { smoke(c.x, c.y + 1, c.z, 6, true, 1.6); removeCar(c); i--; continue; } }
     else {
@@ -198,8 +201,11 @@ export function update(dt) {
   updateLogs(sdt);                                             // loose logs off a log truck: they roll, and hit
   // Pair separation (and a log's shove) can push a car back into the parapet: resolve it before drawing this frame.
   for (const c of cars) if (!c.dead) collideFlyover(c);
+  // ... and through the river's walls or into the seawall: the water's edges hold whatever moved the car (js/water.js).
+  for (const c of cars) waterGuard(c);
   for (const c of cars) if (!c.dead && !c.wrecked) triggerRamps(c);
   for (const c of cars) if (!c.dead) syncCarMesh(c, sdt);
+  updateSinking(dt);                                           // the cars going under, in real time (js/water.js)
   updateFlying(sdt);
   /* --- falling trees --- */
   for (let i = fallingTrees.length - 1; i >= 0; i--) {
