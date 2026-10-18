@@ -45,7 +45,7 @@ export function roofLimit(px, pz, eyeY, cx, cz, out = { y: Infinity, car: false,
   }
   return out;
 }
-const _now = { y: Infinity, car: false, cam: Infinity }, _ahead = { y: Infinity, car: false, cam: Infinity };
+const _now = { y: Infinity, car: false, cam: Infinity }, _ahead = { y: Infinity, car: false, cam: Infinity }, _shook = { y: Infinity, car: false, cam: Infinity };
 
 export function updateCamera(dt) {
   if (game.state === 'menu') {
@@ -71,7 +71,13 @@ export function updateCamera(dt) {
   camState.duck = lerp(camState.duck, _now.car || _ahead.car ? 1 : 0, 1 - Math.exp(-dt * 4));
   camState.look.x = lerp(camState.look.x, player.x + sh * 7, 1 - Math.exp(-dt * 10)); camState.look.z = lerp(camState.look.z, player.z + ch * 7, 1 - Math.exp(-dt * 10)); camState.look.y = lerp(camState.look.y, player.y + 1.5, 1 - Math.exp(-dt * 10));
   camera.position.copy(camState.pos);
-  if (game.shake > 0.01) { camera.position.x += rnd(-1, 1) * game.shake; camera.position.y += rnd(-1, 1) * game.shake * 0.6; camera.position.z += rnd(-1, 1) * game.shake; game.shake *= Math.exp(-dt * 6); }
+  if (game.shake > 0.01) {
+    camera.position.x += rnd(-1, 1) * game.shake; camera.position.y += rnd(-1, 1) * game.shake * 0.6; camera.position.z += rnd(-1, 1) * game.shake; game.shake *= Math.exp(-dt * 6);
+    // the shake moves the camera sideways too, and can carry it in under a roof's edge that roofY (taken where it was)
+    // knows nothing of: it is kept ROOF_CLEAR under the slab where it has ended up as well
+    roofLimit(player.x, player.z, eye, camera.position.x, camera.position.z, _shook);
+    if (camera.position.y > _shook.cam) camera.position.y = _shook.cam;
+  }
   if (camera.position.y > camState.roofY) camera.position.y = camState.roofY;   // a shake does not lift it into the slab
   camera.lookAt(camState.look);
   const fov = 58 + sp * 0.28 + player.boost * 9; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = lerp(camera.fov, fov, 0.1); camera.updateProjectionMatrix(); }
