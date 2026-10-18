@@ -17,7 +17,7 @@ node tools/sidewalk-checks/flyover-guards.mjs  # splitter-nose guards, posts, cl
 node tools/sidewalk-checks/flyover-signs.mjs  # the bridge's own signage: nameplates, billboards, sign gantries
 node tools/sidewalk-checks/estates.mjs  # residential estates over the whole island: curved road, houses clear of it, cul-de-sac, deterministic, only in the suburbs (about 62% of their blocks)
 node tools/sidewalk-checks/factory.mjs  # industrial plants over the whole island: only in the industrial and harbour districts (about half the industrial blocks), all four layouts, inside their blocks, deterministic
-node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers), roundabout chains, spawn rule
+node tools/sidewalk-checks/junctions.mjs  # three-way junctions (closed streets, barriers; none at the coast or the river), roundabout chains, spawn rule
 node tools/sidewalk-checks/police-chase.mjs  # a pursuer has to reach a player parked beside / under a flyover, in a narrow gap or down a narrow street (behavioural)
 node tools/sidewalk-checks/scan-alleys.mjs  # prints police-chase's narrow-street scenes from a scan of the current city (run it again when the city changes)
 node tools/sidewalk-checks/scan-gaps.mjs  # prints police-chase's narrow-gap scenes from a scan of the current city (run it again when the city changes)

@@ -70,7 +70,9 @@ for (let a = -LH + 0.6; a < LH; a += 4) for (const ac of [-DH + 0.6, DH - 0.6]) 
 // The solids, frame by frame, over a spread of sites (both axes, with a crane and without)
 // ---------------------------------------------------------------------------------------------------------------
 const seen = new Map();
-const spots = [[-320, -290], [-290, 480], [-160, 610], [110, -720], [-80, -690]];
+// (-200, 840) stands in for (-160, 610): that frame stood on the street z -2,7 across the river's bridge, which stays
+// open now (segClosed in js/flyover.js), so no site is built there
+const spots = [[-320, -290], [-290, 480], [-200, 840], [110, -720], [-80, -690]];
 const mapTiles = new Map();
 const tileOf = (cx, cz) => {
   const k = `${Math.floor((cx + 25) / 10)}_${Math.floor((cz + 25) / 10)}`;
