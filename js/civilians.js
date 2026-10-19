@@ -7,7 +7,7 @@ import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
 import { onIsland, CORE } from './island.js';
 import { overlapsAnything } from './collisions.js';
-import { lightGo } from './trafficLights.js';
+import { lightGo, lightPhase, isYellow } from './trafficLights.js';
 import { tramTrackAhead } from './tram.js';
 import { logAhead } from './logSpill.js';
 import { isFlyoverNode, plazaAt, surfaceAt, armOpen, nearClosedStreet, FLY, nodeAt, bridgeHeight, alongOf } from './flyover.js';
@@ -96,13 +96,45 @@ function civCruise(kind) {
 
 const _lp = { x: 0, z: 0 };
 
+// Is the junction at (ix,iz) already occupied by another car (player/police/civ)?
+// Used to enforce “don’t enter a blocked intersection even on green”.
+function junctionOccupied(ix, iz, self) {
+  for (const o of cars) {
+    if (o === self || o.wrecked || o.sink) continue;
+    // inside the 18×18 m junction box
+    if (Math.abs(o.x - ix) < 8.5 && Math.abs(o.z - iz) < 8.5) return true;
+    // also consider a car that is just entering (nose within 3 m of centre at speed)
+    if (o.speed > 3 && Math.hypot(o.x - ix, o.z - iz) < 6) return true;
+  }
+  return false;
+}
+// Does perpendicular traffic have earlier arrival and thus right-of-way?
+// Yield only if cross car is clearly closer (0.9 m margin) — avoids deadlock when both arrive simultaneously.
+function crossHasPriority(c, ix, iz, distAhead) {
+  for (const o of cars) {
+    if (o === c || o.wrecked || o.sink) continue;
+    if (o.axis === c.axis) continue; // only cross traffic
+    const od = Math.hypot(o.x - ix, o.z - iz);
+    if (od > 18) continue;
+    // ignore cars moving away from the junction (their heading points away)
+    const headingToJuncX = ix - o.x, headingToJuncZ = iz - o.z;
+    const headingDot = Math.sin(o.h) * headingToJuncX + Math.cos(o.h) * headingToJuncZ;
+    if (headingDot < -1) continue; // moving away
+    if (od + 0.9 < distAhead && od < 12 && o.speed > 0.8) return true;
+    if (od < 6.5 && Math.hypot(o.x - ix, o.z - iz) < 7) return true; // already at mouth
+  }
+  return false;
+}
+
 export function civPanic(c, hard) {
   if (c.wrecked) return;
   if (!hard && (c.panicT > 0 || c.panicCool > 0)) return;
-  if (hard && c.panicT > 1.5) return;
-  c.panicT = hard ? 3.2 : 2.6;
-  c.panicCool = 3.5;
-  c.panicMode = hard ? (Math.random() < 0.5 ? 1 : 2) : Math.floor(Math.random() * 3);
+  if (hard && c.panicT > 1.2) return;
+  // soft panic is now just a gentle brake — no swerve off-lane.
+  // hard (real collision) still makes them brake longer.
+  c.panicT = hard ? 2.0 : 1.1;
+  c.panicCool = hard ? 4.0 : 6.0;
+  c.panicMode = 0;
   c.swerve = Math.random() < 0.5 ? 1 : -1;
 }
 
@@ -117,10 +149,27 @@ export function civAI(c, dt) {
 
   if (c.panicT <= 0 && c.panicCool <= 0) {
     const dp = Math.hypot(player.x - c.x, player.z - c.z);
-    let threat = dp < 24 && player.speed > 11 && !player.dead;
+    let threat = false;
+    // Player: only if close, fast, and roughly heading toward the civ — not just cruising parallel 5m away
+    if (!player.dead && player.speed > 14 && dp < 13) {
+      const toX = c.x - player.x, toZ = c.z - player.z;
+      const pv = Math.hypot(player.vx, player.vz);
+      const fwdDot = pv > 0.5 ? (player.vx * toX + player.vz * toZ) / (pv * dp) : 0;
+      const lat = Math.abs(toX * Math.cos(player.h) - toZ * Math.sin(player.h));
+      // very close always counts (<4.5m)
+      if (dp < 4.5) threat = true;
+      // otherwise need to be ahead of player and in forward cone
+      else if (fwdDot > 0.25 && lat < 3.2 && dp < 7 + player.speed * 0.18) threat = true;
+    }
     if (!threat) {
       for (const p of police) {
-        if (!p.wrecked && Math.hypot(p.x - c.x, p.z - c.z) < 20) { threat = true; break; }
+        if (p.wrecked || p.speed < 5) continue;
+        const d2 = Math.hypot(p.x - c.x, p.z - c.z);
+        if (d2 < 11) {
+          // police must be close and not just parked — siren radius was 20m, now 11m
+          const pfwd = Math.hypot(p.vx, p.vz) > 3;
+          if (d2 < 7 || (pfwd && d2 < 11)) { threat = true; break; }
+        }
       }
     }
     if (threat) civPanic(c, false);
@@ -191,15 +240,24 @@ export function civAI(c, dt) {
   }
 
   const desired = Math.atan2(_lp.x - c.x, _lp.z - c.z), diff = wrapAngle(desired - c.h);
-  let steer = clamp(diff * 2.4, -1, 1), target = c.cruise;
+  let steer = clamp(diff * 3.0, -1, 1), target = c.cruise;
 
+  // city following: keep safe headway, ignore oncoming / perpendicular (handled by junction logic)
   for (const o of cars) {
-    if (o === c) continue;
+    if (o === c || o.wrecked || o.sink) continue;
     const dx = o.x - c.x, dz = o.z - c.z;
-    if (dx * dx + dz * dz > 400) continue;
+    if (dx * dx + dz * dz > 900) continue; // 30 m
     const f = dx * s + dz * co, l = dx * co - dz * s;
-    if (f > 0 && f < 5 + Math.max(0, sp) * 0.9 + o.box.e1 && Math.abs(l) < 2.3) {
-      target = Math.min(target, f < 7 + o.box.e1 ? 0 : o.speed * 0.8);
+    if (f <= 0 || Math.abs(l) > 2.6) continue;
+    // only follow cars roughly heading same way (dot > 0.35) — avoids braking for oncoming in adjacent lane or cross traffic
+    const headingDot = Math.sin(o.h) * s + Math.cos(o.h) * co;
+    if (headingDot < 0.35) continue;
+    const safeGap = 6 + Math.max(0, sp) * 1.15;
+    const need = f - o.box.e1 - c.box.e1 - 0.5;
+    if (f < safeGap + o.box.e1) {
+      if (need < 3.5) target = Math.min(target, 0);
+      else if (need < safeGap) target = Math.min(target, Math.max(0, (need - 2.2) * 1.0, o.speed * 0.85));
+      else target = Math.min(target, o.speed * 0.97);
     }
   }
   // A loose log in its path (js/logSpill.js): the car slows down for it and stops short of it, the last few metres on
@@ -218,8 +276,14 @@ export function civAI(c, dt) {
   // The flank walls and the abutment are not ramp slices and still count.
   const skipRamp = surfaceAt(c.x, c.z, c.y) > 0;
   if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp, c.height)) {
-    target = Math.min(target, 3);
-    steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp, c.height) ? -1 : 1;
+    target = Math.min(target, 4.2);
+    const leftClear = !solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.1, c.y, skipRamp, c.height);
+    const rightClear = !solidAt(c.x + Math.sin(c.h - 0.5) * L, c.z + Math.cos(c.h - 0.5) * L, 1.1, c.y, skipRamp, c.height);
+    if (leftClear && !rightClear) steer = -0.7;
+    else if (rightClear && !leftClear) steer = 0.7;
+    else steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp, c.height) ? -0.65 : 0.65;
+    // stay closer to lane centre — don’t add full swerve on top of lane error
+    steer = clamp(steer * 0.85 + diff * 0.35, -1, 1);
   }
 
   // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.
@@ -228,16 +292,41 @@ export function civAI(c, dt) {
     if (pzNear) target = Math.min(target, c.cruise * 0.7);
   }
 
+  // --- Intersection discipline: lights + occupancy + right-of-way ---
   {
     let nextNode = Math.round(along / CHUNK) * CHUNK;
     if (c.dir > 0 && nextNode <= along + 0.01) nextNode += CHUNK;
     if (c.dir < 0 && nextNode >= along - 0.01) nextNode -= CHUNK;
     const distAhead = (nextNode - along) * c.dir;
-    if (distAhead > 0 && distAhead < 17) {
+    if (distAhead > 0 && distAhead < 26) {
       const ix = c.axis === 'z' ? c.road : nextNode, iz = c.axis === 'z' ? nextNode : c.road;
-      if (!lightGo(ix, iz, c.axis)) {
-        const stopDist = distAhead - 13;
-        if (stopDist >= 0 && stopDist < 11) target = Math.min(target, stopDist * 1.6);
+      const go = lightGo(ix, iz, c.axis);
+      const yellow = isYellow(ix, iz, c.axis);
+      const blocked = junctionOccupied(ix, iz, c);
+      const crossPri = crossHasPriority(c, ix, iz, distAhead);
+      if (!go) {
+        const stopDist = distAhead - 12.5;
+        if (stopDist >= 0 && stopDist < 14) target = Math.min(target, Math.max(0, stopDist * 1.8));
+        // don’t slam brake if already inside the box on red (you ran it) — just crawl through if blocked
+        if (distAhead < 8.5 && blocked) target = Math.min(target, 2);
+      } else if (yellow) {
+        if (distAhead > 6.5) {
+          const stopDist = distAhead - 12.5;
+          if (stopDist >= 0 && stopDist < 14) target = Math.min(target, Math.max(0, stopDist * 1.7));
+        } else if (blocked) {
+          target = Math.min(target, 2.5);
+        }
+      } else { // green
+        if (blocked && distAhead < 15) {
+          const stopDist = distAhead - 12.5;
+          if (stopDist >= 0) target = Math.min(target, Math.max(0, stopDist * 1.6));
+          else target = Math.min(target, 1.0);
+        }
+        if (crossPri && distAhead < 15) {
+          const stopDist = distAhead - 12.5;
+          if (stopDist >= 0) target = Math.min(target, Math.max(0, stopDist * 1.5));
+          else target = Math.min(target, 0.6);
+        }
       }
     }
   }
@@ -263,18 +352,26 @@ export function civAI(c, dt) {
   if (offRails) target = Math.max(target, c.cruise + 6);
   else if (rails < Infinity) target = Math.min(target, Math.max(0, rails - 4) * 1.2);
 
-  let throttle = sp < target - 0.5 ? 0.75 : sp > target + 1.5 ? -0.6 : 0;
+  // City throttle: proportional, not bang-bang — coasts often, brakes early, doesn’t floor it constantly
+  let throttle;
+  if (offRails) throttle = 1;
+  else {
+    const err = target - sp;
+    if (err > 3.5) throttle = 0.65;
+    else if (err > 1.0) throttle = 0.32;
+    else if (err < -2.0) throttle = -0.75;
+    else if (err < -0.7) throttle = -0.35;
+    else throttle = 0; // coast — not always on gas
+    // occasional city hesitation: lift off gas briefly (look, check, pedestrian)
+    if (!c.panicT && c.kind !== 'bus' && Math.random() < 0.0022) throttle = Math.min(throttle, 0.0);
+  }
   if (offRails) throttle = 1;
 
   if (c.panicT > 0) {
     c.panicT -= dt;
-    if (c.panicMode === 0) { throttle = -1; steer *= 0.3; }
-    else if (c.panicMode === 1) {
-      if (c.panicT > 1.9) { steer = c.swerve; throttle = 1; }
-      else throttle = sp < 20 ? 1 : 0;
-    } else {
-      throttle = sp < 24 ? 1 : 0;
-    }
+    // panic now = just gentle brake, stay in lane (no swerve into walls)
+    throttle = -0.95; steer *= 0.35;
+    // hard collision panic still just brakes a bit longer — no runaway acceleration
   }
 
   if (c.reverseT > 0) {
@@ -287,7 +384,7 @@ export function civAI(c, dt) {
     if (c.stuckT > 1.3) { c.reverseT = 1.0; c.stuckT = 0; }
   }
 
-  c.steer += (steer - c.steer) * Math.min(1, dt * 7);
+  c.steer += (steer - c.steer) * Math.min(1, dt * 9);
   return { throttle, hand: logGap < 5 };
 }
 
