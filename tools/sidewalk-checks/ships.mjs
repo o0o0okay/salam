@@ -5,15 +5,17 @@
      island and LANE_CLEAR from every other lane's, the corners and the swings out before them included;
    * the vessels: every type's sizes (length overall, beam), the height of its model over the waterline and its speed
      are within those of the real vessels of its kind (REAL, below), and its model is as long and as wide as it says;
-   * the fleet: random in size and mix with each seed (small craft the most common, the navy about one in thirty),
-     the same for the same seed, and drawn without Math.random (three.js's own uuids included), so nothing else
-     random in the game moves;
-   * the traffic, driven for many minutes with the camera going round the coast at 30, 60 and 15 frames a second:
-     no two hulls ever touch (their true boxes, on their headings), none comes within ISLAND_CLEAR of the island or
-     leaves its lane's band, none is out of its place where its lane bends, nothing appears or vanishes within sight
-     (SIGHT_R), no vessel ever closes to the hard gap, speeds stay in range, and small craft overtake;
-   * from the coast (a camera 12 m inside the seawall) two or three vessels are in sight on average, sometimes none,
-     sometimes five or more; ships (not only small craft) are among them;
+   * the fleet: random in size and mix with each seed (about a dozen vessels, at least one in every lane, small craft
+     about half, the navy about one in thirty), the same for the same seed, and drawn without Math.random (three.js's
+     own uuids included), so nothing else random in the game moves;
+   * the traffic, driven for many minutes with the camera going round the coast at 30, 60 and 15 frames a second, on a
+     crowded sea (the lanes filled as densely as they first were, so that vessels meet, follow and overtake all the
+     time) and on the game's own quiet one: no two hulls ever touch (their true boxes, on their headings), none comes
+     within ISLAND_CLEAR of the island or leaves its lane's band, none is out of its place where its lane bends,
+     nothing appears or vanishes within sight (SIGHT_R), no vessel ever closes to the hard gap, speeds stay in range,
+     and small craft overtake;
+   * the sea is quiet: from the coast (a camera 12 m inside the seawall) nothing is in sight most of the time, a vessel
+     about one look in four, and two at once now and then; ships and small craft are both among them;
    * the models are built near the camera only, at most one a frame, dropped further out, the same when built again,
      cast no shadows, show their navigation lights only at night, and their window bands light up with the city's;
    * the radar draws a ship within its reach at its true length and beam where it is, and none beyond;
@@ -233,11 +235,13 @@ Math.random = () => { throw new Error('drew Math.random'); };
   ok(sig() === one, 'the same seed gave another fleet');
   S.resetShips(4243);
   ok(sig() !== one, 'another seed gave the same fleet');
+  // The sea is quiet, about a dozen vessels in a fleet, so many fleets are drawn for the shares (as many vessels in all
+  // as forty of the first, crowded fleets had).
   const sizes = [], mix = {}; let small = 0, all = 0, navy = 0, carriers = 0, carrierLane = true;
-  for (let sd = 1; sd <= 40; sd++) {
+  for (let sd = 1; sd <= 400; sd++) {
     S.resetShips(sd * 104729);
     sizes.push(ships.length);
-    for (const L of LANES) ok(L.list.length >= 3, `seed ${sd}: lane ${L.id} has ${L.list.length} vessels`);
+    for (const L of LANES) ok(L.list.length >= 1, `seed ${sd}: lane ${L.id} is empty`);
     for (const a of ships) {
       all++; mix[a.type] = (mix[a.type] || 0) + 1;
       if (a.T.band === 'small') small++;
@@ -247,22 +251,24 @@ Math.random = () => { throw new Error('drew Math.random'); };
     }
   }
   ok(Math.min(...sizes) < Math.max(...sizes), 'the fleet is the same size every time');
+  const meanSize = sizes.reduce((p, q) => p + q) / sizes.length;
+  ok(meanSize >= 9 && meanSize <= 16, `${meanSize.toFixed(1)} vessels in a fleet on average, not about a dozen`);
   ok(small / all > 0.45, `small craft are ${(small / all * 100).toFixed(0)}% of the fleet`);
   ok(navy / all > 0.015 && navy / all < 0.06, `the navy is ${(navy / all * 100).toFixed(1)}% of the fleet (about one in thirty)`);
   ok(carriers / all < 0.01 && carrierLane, `the carrier: ${carriers} of ${all}, ${carrierLane ? 'in the outer ship lane' : 'out of its lane'}`);
-  console.log(`  fleet of ${Math.min(...sizes)} to ${Math.max(...sizes)} vessels; small craft ${(small / all * 100).toFixed(0)}%, navy ${(navy / all * 100).toFixed(1)}% (1 in ${(all / navy).toFixed(0)}), carriers ${carriers} in ${all}`);
+  console.log(`  fleet of ${Math.min(...sizes)} to ${Math.max(...sizes)} vessels (${meanSize.toFixed(1)} on average); small craft ${(small / all * 100).toFixed(0)}%, navy ${(navy / all * 100).toFixed(1)}% (1 in ${(all / navy).toFixed(0)}), carriers ${carriers} in ${all}`);
   console.log('  mix: ' + Object.entries(mix).sort((p, q) => q[1] - p[1]).map(([k, n]) => `${k} ${(n / all * 100).toFixed(1)}%`).join(', '));
 }
 
 /* ---------------------------------------------------------------- 4. the traffic ---------------------------------------------------------------- */
 section('4. the traffic, round the coast');
 const camAt = s => { const t = ((s % 16000) + 16000) % 16000, side = Math.floor(t / 4000), u = t % 4000 - 2000, m = A - 12; return [[u, m], [m, -u], [-u, -m], [-m, u]][side]; };
-function drive(seed, minutes, dt) {
+function drive(seed, minutes, dt, sea) {
   S.resetShips(seed);
   const st0 = { ...S.shipStats }, counts = LANES.map(L => L.list.length);
   let cs = seed * 977, fails = 0, minIsland = Infinity, maxMeshes = 0, threw = null;
   const seen = new Map(), steps = Math.round(minutes * 60 / dt);
-  const bad = msg => { fails++; if (fails <= 5) ok(false, `seed ${seed} dt ${dt.toFixed(3)}: ${msg}`); };
+  const bad = msg => { fails++; if (fails <= 5) ok(false, `seed ${seed} (${sea} sea) dt ${dt.toFixed(3)}: ${msg}`); };
   for (let i = 0; i < steps; i++) {
     cs += 35 * dt; if (i % Math.round(300 / dt) === 0) cs += 2500;      // now and then a jump along the coast
     const [cx, cz] = camAt(cs); player.x = cx; player.z = cz;
@@ -298,21 +304,34 @@ function drive(seed, minutes, dt) {
   ok(LANES.every((L, k) => L.list.length + L.pending === counts[k]), `seed ${seed}: a lane lost or gained vessels`);
   ok(maxMeshes <= 24, `seed ${seed}: ${maxMeshes} models at once`);
   ok(st.built - st.dropped === ships.filter(a => a.mesh).length, `seed ${seed}: models built and dropped do not add up`);
-  console.log(`  seed ${seed}, ${minutes} min at ${Math.round(1 / dt)} fps: ${fails ? fails + ' FAILURES' : 'clean'}; nearest the island ${minIsland.toFixed(1)} m; ${st.passes} overtakes (${st.aborts} given up before a bend); ${st.retired} trips over and as many new; ${st.built} models built, at most ${maxMeshes} at once`);
+  console.log(`  seed ${seed}, ${sea} sea, ${minutes} min at ${Math.round(1 / dt)} fps: ${fails ? fails + ' FAILURES' : 'clean'}; nearest the island ${minIsland.toFixed(1)} m; ${st.passes} overtakes (${st.aborts} given up before a bend); ${st.retired} trips over and as many new; ${st.built} models built, at most ${maxMeshes} at once`);
   return st;
+}
+// The traffic rules are put to the test on a crowded sea: the lanes filled as densely as they first were (a small
+// craft every half kilometre or so, the ships nearly nose to tail), so that vessels meet, follow and overtake all the
+// time. The game's own sea is far quieter (LANES[].gap); two runs drive that as well.
+const CROWDED = { small: 420, big: 60 };
+function withGaps(gaps, fn) {
+  const keep = LANES.map(L => L.gap);
+  for (const L of LANES) L.gap = gaps[L.band];
+  try { return fn(); } finally { LANES.forEach((L, k) => { L.gap = keep[k]; }); }
 }
 {
   let passes = 0;
-  for (const [seed, min, dt] of [[1, 10, 1 / 30], [2, 10, 1 / 30], [3, 10, 1 / 30], [4, 4, 1 / 60], [5, 12, 1 / 15]]) passes += drive(seed, min, dt).passes;
-  ok(passes > 50, `only ${passes} overtakes in all`);
+  withGaps(CROWDED, () => {
+    for (const [seed, min, dt] of [[1, 10, 1 / 30], [2, 10, 1 / 30], [3, 10, 1 / 30], [4, 4, 1 / 60], [5, 12, 1 / 15]]) passes += drive(seed, min, dt, 'crowded').passes;
+  });
+  ok(passes > 50, `only ${passes} overtakes in all on the crowded sea`);
+  for (const [seed, min, dt] of [[6, 20, 1 / 30], [7, 10, 1 / 60]]) drive(seed, min, dt, 'quiet');
 }
 
 /* ---------------------------------------------------------------- 5. in sight ---------------------------------------------------------------- */
 section('5. how many are in sight from the coast');
 {
+  // the sea is quiet, about a dozen vessels in a fleet, so 48 fleets are looked at
   const pr = mulberry32(99), hist = new Array(15).fill(0);
   let sum = 0, n = 0, ships180 = 0, smallSeen = 0, bigSeen = 0;
-  for (let sd = 1; sd <= 16; sd++) {
+  for (let sd = 1; sd <= 48; sd++) {
     S.resetShips(sd * 7919);
     for (let snap = 0; snap < 10; snap++) {
       for (let k = 0; k < 240; k++) S.updateShips(0.5, 0, 0);   // two minutes on between looks
@@ -329,25 +348,29 @@ section('5. how many are in sight from the coast');
       }
     }
   }
-  const mean = sum / n, p0 = hist[0] / n, p5 = hist.slice(5).reduce((x, y) => x + y) / n, max = hist.findLastIndex(x => x > 0);
-  ok(mean >= 2 && mean <= 3.2, `on average ${mean.toFixed(2)} in sight (two or three)`);
-  ok(p0 > 0 && p0 < 0.1, `none in sight ${(p0 * 100).toFixed(1)}% of the time`);
-  ok(p5 > 0.03, `five or more in sight only ${(p5 * 100).toFixed(1)}% of the time`);
-  ok(max <= 12, `${max} in sight at once`);
-  ok(ships180 / n >= 0.5, `ships (not small craft) within 180 m: ${(ships180 / n).toFixed(2)} on average`);
-  console.log(`  in sight (a hull within 200 m of a camera 12 m inside the seawall): ${mean.toFixed(2)} on average; none ${(p0 * 100).toFixed(1)}%, five or more ${(p5 * 100).toFixed(1)}%, at most ${max}`);
-  console.log(`  ${(bigSeen / (smallSeen + bigSeen) * 100).toFixed(0)}% of them ships; ships within 180 m: ${(ships180 / n).toFixed(2)} on average`);
+  const mean = sum / n, p0 = hist[0] / n, p2 = hist.slice(2).reduce((x, y) => x + y) / n, max = hist.findLastIndex(x => x > 0);
+  const shipShare = bigSeen / Math.max(1, smallSeen + bigSeen);
+  ok(mean >= 0.15 && mean <= 0.45, `on average ${mean.toFixed(2)} in sight (about one look in four finds a vessel)`);
+  ok(p0 >= 0.6 && p0 <= 0.88, `none in sight ${(p0 * 100).toFixed(1)}% of the time (most of the time, but not always)`);
+  ok(p2 > 0.005 && p2 < 0.08, `two or more in sight ${(p2 * 100).toFixed(1)}% of the time (now and then)`);
+  ok(max <= 6, `${max} in sight at once`);
+  ok(shipShare >= 0.25 && shipShare <= 0.75, `${(shipShare * 100).toFixed(0)}% of those in sight are ships (ships and small craft are both seen)`);
+  console.log(`  in sight (a hull within 200 m of a camera 12 m inside the seawall): ${mean.toFixed(2)} on average; none ${(p0 * 100).toFixed(1)}%, two or more ${(p2 * 100).toFixed(1)}%, at most ${max}`);
+  console.log(`  ${(shipShare * 100).toFixed(0)}% of them ships; ships within 180 m: ${(ships180 / n).toFixed(2)} on average`);
   console.log('  ' + hist.slice(0, 10).map((h, i) => `${i}: ${(h / n * 100).toFixed(1)}%`).join(', '));
 }
 
 /* ---------------------------------------------------------------- 6. the models ---------------------------------------------------------------- */
 section('6. the models');
 {
-  S.resetShips(77);
+  // a big ship off the middle of the north coast and the camera on the coast opposite it: the sea is quiet, so it is
+  // the first fleet from seed 77 on that has one there
+  const offNorth = () => ships.find(x => x.T.band === 'big' && Math.abs(x.z - (A + LANES[x.lane].d)) < 1 && Math.abs(x.x) < 600);
+  let sd = 77; S.resetShips(sd);
+  while (!offNorth() && sd < 400) S.resetShips(++sd);
   for (const a of ships) S.dropMesh(a);
   const base = scene.children.length;
-  // a big ship and the camera on the coast opposite it
-  const a = ships.find(x => x.T.band === 'big' && Math.abs(x.z - (A + LANES[x.lane].d)) < 1 && Math.abs(x.x) < 600) || ships.find(x => x.T.band === 'big');
+  const a = offNorth() || ships.find(x => x.T.band === 'big');
   const cx = a.x, cz = Math.sign(a.z) * (A - 12);
   S.updateShips(0, cx, cz);
   ok(ships.filter(x => x.mesh).length === 1, 'more than one model built in a frame');
@@ -391,8 +414,11 @@ Math.random = realRandom;
   const RD = await import('../../js/radar.js');
   const MD = await import('../../js/mapData.js');
   ok(await MD.mapDataReady(), 'the baked map data did not load');
-  S.resetShips(91);
-  const a = ships.find(x => x.T.band === 'big' && Math.abs(x.x) < 1500 && Math.abs(x.z) > A) || ships.find(x => x.T.band === 'big' && Math.abs(x.z) > A);
+  // a ship off the north or south coast: the first fleet from seed 91 on that has one there (the sea is quiet)
+  const offCoast = () => ships.find(x => x.T.band === 'big' && Math.abs(x.x) < 1500 && Math.abs(x.z) > A);
+  let sd = 91; S.resetShips(sd);
+  while (!offCoast() && sd < 400) S.resetShips(++sd);
+  const a = offCoast() || ships.find(x => x.T.band === 'big' && Math.abs(x.z) > A);
   Object.assign(player, { x: a.x, z: Math.sign(a.z) * (A - 30), h: 0.4, y: 0, speed: 0, vx: 0, vz: 0 });
   game.state = 'playing';
   const far = ships.find(x => Math.hypot(x.x - player.x, x.z - player.z) - x.L / 2 > 200);

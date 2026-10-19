@@ -8,10 +8,12 @@
  *   * Sizes (L, the length overall, and B, the beam) and speeds are drawn from each type's real range (SHIP_TYPES):
  *     a sailing yacht of 9 to 18 m at 5 to 8 knots, a container ship of 200 to 300 m at 16 to 21 knots, and so on.
  *     For scale, a car is about 4.5 m long and a block is 80 m, so a 300 m ship is nearly four blocks long.
- *   * How many there are is random: each lane is filled at the start of a run with random gaps. From a point on the
- *     coast about two or three vessels are in sight on average; sometimes none are, and sometimes five or six.
- *     Small craft are the most common, then merchant ships. The navy is rare: about one vessel in thirty is a grey
- *     frigate, and very rarely the 333 m carrier comes by.
+ *   * How many there are is random: each lane is filled at the start of a run with random gaps of open sea (gap,
+ *     kilometres of it). The sea is kept quiet: about a dozen vessels round the whole island (a tenth of the first,
+ *     busier fill), about half of them small craft and most of the rest merchant ships; a lane may have only one.
+ *     From a point on the coast nothing is in sight most of the time: about one look in four finds a vessel, and
+ *     two at once are rare. The navy is rare: about one vessel in thirty is a grey frigate, and very rarely the
+ *     333 m carrier comes by.
  *   * The lanes never come near each other, at the corners either. A lane is a fixed line round the island at its
  *     offset, with a quarter circle at each corner. The ship lanes swing out before the corners (bulge, over the last T
  *     metres of each side), so a 300 m hull turning there stays clear of the next lane out. Every hull stays inside its
@@ -60,12 +62,13 @@ export const HORN_R = 280, HORN_GAP = 40; // a ship this near the player may sou
 // before each corner, and over how many metres. dir +1: the island on its starboard side (the inner lane of a
 // pair); -1: the island to port. pass: the side it overtakes on (-1 towards the coast, +1 out to sea, 0 never).
 // jitter: each vessel keeps its own place within ±jitter m of the lane's line. gap: the mean clear water between
-// vessels when the lane is filled. trip: how far a vessel sails (m) before it leaves.
+// vessels when the lane is filled, over the distance they keep (m). It is kilometres, so a lane of 16 to 18 km
+// holds about three, sometimes only one. trip: how far a vessel sails (m) before it leaves.
 export const LANES = [
-  { id: 'small-in', band: 'small', d: 40, bulge: 0, T: 0, dir: 1, pass: -1, jitter: 0, gap: 420, trip: [2500, 6000] },
-  { id: 'small-out', band: 'small', d: 66, bulge: 0, T: 0, dir: -1, pass: 1, jitter: 0, gap: 420, trip: [2500, 6000] },
-  { id: 'ship-in', band: 'big', d: 126, bulge: 40, T: 800, dir: 1, pass: 0, jitter: 0, gap: 60, trip: [3000, 9000] },
-  { id: 'ship-out', band: 'big', d: 188, bulge: 100, T: 1200, dir: -1, pass: 0, jitter: 0, gap: 60, trip: [3000, 9000] },
+  { id: 'small-in', band: 'small', d: 40, bulge: 0, T: 0, dir: 1, pass: -1, jitter: 0, gap: 8000, trip: [2500, 6000] },
+  { id: 'small-out', band: 'small', d: 66, bulge: 0, T: 0, dir: -1, pass: 1, jitter: 0, gap: 8000, trip: [2500, 6000] },
+  { id: 'ship-in', band: 'big', d: 126, bulge: 40, T: 800, dir: 1, pass: 0, jitter: 0, gap: 7500, trip: [3000, 9000] },
+  { id: 'ship-out', band: 'big', d: 188, bulge: 100, T: 1200, dir: -1, pass: 0, jitter: 0, gap: 7500, trip: [3000, 9000] },
 ];
 // How each band's vessels keep their distance: the gap they keep behind another (gapMin + gapL·L + headway·v, m),
 // the gap they never close below (hardMin), how far ahead they look, the clear water kept at the side (latClear),
