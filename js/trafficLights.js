@@ -126,3 +126,13 @@ export function lightGo(ix, iz, axis) {
   if (L.free) return true;     // the interchange: both roads have right of way, at different levels
   return axis === 'z' ? (L.phase === 'z-green' || L.phase === 'z-yellow') : (L.phase === 'x-green' || L.phase === 'x-yellow');
 }
+export function lightPhase(ix, iz) {
+  const L = lights.get(key(ix, iz));
+  if (!L) return 'free';
+  return L.phase;
+}
+export function isYellow(ix, iz, axis) {
+  const ph = lightPhase(ix, iz);
+  if (ph === 'free') return false;
+  return axis === 'z' ? ph === 'z-yellow' : ph === 'x-yellow';
+}
