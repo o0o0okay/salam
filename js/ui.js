@@ -56,88 +56,58 @@ const arcD = (r, a0, a1) => {
 }
 // the gear is derived from the speed (the car has no gearbox): 1 to 5, stepping up at 40, 80, 160 and 210 km/h (3 at 153)
 const GEAR_STEPS = [40, 80, 160, 210];
-let _prevHp = 100, _ghostHp = 100, _ghostTimer = null, _sparkTimer = null, _flashTimer = null;
+let _displayHp = 100, _ghostHp = 100, _targetHp = 100, _sparkTimer = null;
 function hpGradient(hp){
   if (hp > 55) return 'linear-gradient(90deg,#27c93f,#7dff7a)';
   if (hp > 28) return 'linear-gradient(90deg,#ff9a1a,#ffe14a)';
   return 'linear-gradient(90deg,#e02020,#ff7a7a)';
 }
+function dmgGhostGradient(){ return 'linear-gradient(90deg,#ff3b3b,#ff8a6a)'; }
 function triggerDelta(delta){
   const layer = $('hpDeltaLayer'); if (!layer) return;
   const d = document.createElement('div'); d.className = 'hpDelta ' + (delta > 0 ? 'heal' : 'dmg');
   d.textContent = (delta > 0 ? '+' : '') + Math.round(delta);
-  layer.appendChild(d); setTimeout(()=> d.remove(), 800);
+  layer.appendChild(d); setTimeout(()=> d.remove(), 900);
 }
 function pulseHealth(newHp, oldHp){
-  const wrap = $('hpWrap'), heart = $('hpHeart'), track = $('hpTrack'), fill = $('hpFill'), ghost = $('hpGhost'), spark = $('hpSpark'), flash = $('hpFlash');
+  const wrap = $('hpWrap'), heart = $('hpHeart'), track = $('hpTrack'), fill = $('hpFill'), spark = $('hpSpark'), flash = $('hpFlash');
   if (!wrap || !fill) return;
   const delta = newHp - oldHp;
   if (Math.abs(delta) < 0.01) return;
   const isDmg = delta < 0;
-  // clear pending
-  if (_ghostTimer) { clearTimeout(_ghostTimer); _ghostTimer = null; }
-  if (_sparkTimer) { clearTimeout(_sparkTimer); _sparkTimer = null; }
-  if (_flashTimer) { clearTimeout(_flashTimer); _flashTimer = null; }
-  // heart + wrap classes
   if (heart){
     heart.classList.remove('hit','heal'); void heart.offsetWidth;
     heart.classList.add(isDmg ? 'hit' : 'heal');
-    setTimeout(()=> heart.classList.remove('hit','heal'), 620);
+    setTimeout(()=> heart.classList.remove('hit','heal'), 650);
   }
-  if (track){
-    if (isDmg){ track.classList.remove('shake'); void track.offsetWidth; track.classList.add('shake'); setTimeout(()=> track.classList.remove('shake'), 420); }
+  if (track && isDmg){
+    track.classList.remove('shake'); void track.offsetWidth;
+    track.classList.add('shake'); setTimeout(()=> track.classList.remove('shake'), 500);
   }
   if (fill){
     fill.classList.remove('dmgFlash','healFlash'); void fill.offsetWidth;
     fill.classList.add(isDmg ? 'dmgFlash' : 'healFlash');
-    setTimeout(()=> fill.classList.remove('dmgFlash','healFlash'), 420);
+    setTimeout(()=> fill.classList.remove('dmgFlash','healFlash'), 450);
   }
-  // spark at tip
   if (spark){
-    spark.style.left = newHp + '%';
     spark.classList.remove('on'); void spark.offsetWidth;
     spark.classList.add('on');
-    _sparkTimer = setTimeout(()=> spark.classList.remove('on'), 420);
+    if (_sparkTimer) clearTimeout(_sparkTimer);
+    _sparkTimer = setTimeout(()=> spark.classList.remove('on'), 700);
   }
-  // white flash
   if (flash){
-    flash.style.transition = 'none'; flash.style.opacity = '0.95';
+    flash.style.transition = 'none'; flash.style.opacity = isDmg ? '0.95' : '0.65';
+    flash.style.background = isDmg ? '#fff' : '#aaffc2';
     void flash.offsetWidth;
-    flash.style.transition = 'opacity .38s ease-out';
+    flash.style.transition = 'opacity .45s ease-out';
     flash.style.opacity = '0';
   }
-  // delta number
   triggerDelta(delta);
-  // wrap low handled elsewhere, but add temporary pulse
   wrap.classList.remove('damaged','healed'); void wrap.offsetWidth;
   wrap.classList.add(isDmg ? 'damaged' : 'healed');
-  setTimeout(()=> wrap.classList.remove('damaged','healed'), 600);
-
-  // ghost logic
-  if (ghost){
-    if (isDmg){
-      // ghost stays at old, fill goes to new, then ghost catches up
-      ghost.style.transition = 'none';
-      ghost.style.background = hpGradient(oldHp);
-      ghost.style.width = oldHp + '%';
-      void ghost.offsetWidth;
-      ghost.style.transition = 'width .85s cubic-bezier(.22,.8,.32,1)';
-      // fill already set to new via caller, ghost delayed
-      _ghostTimer = setTimeout(()=>{
-        ghost.style.background = hpGradient(newHp);
-        ghost.style.width = newHp + '%';
-      }, 220);
-    } else {
-      // heal: ghost jumps instantly to new, fill animates
-      ghost.style.transition = 'none';
-      ghost.style.background = hpGradient(newHp);
-      ghost.style.width = newHp + '%';
-      void ghost.offsetWidth;
-      ghost.style.transition = 'width .85s cubic-bezier(.22,.8,.32,1)';
-    }
-  }
+  setTimeout(()=> wrap.classList.remove('damaged','healed'), 650);
 }
-export function resetHudCache() { hudCache = {}; _prevHp = clamp(game.hp,0,100); _ghostHp = _prevHp; }
+export function resetHudCache() { hudCache = {}; _targetHp = _displayHp = _ghostHp = clamp(game.hp,0,100); }
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; const el=$(id); if(el) el.textContent = v; } }
 export function updateHUD() {
   game.score = calcScore();
@@ -149,38 +119,73 @@ export function updateHUD() {
   setText('gear', 1 + GEAR_STEPS.filter(v => kmh >= v).length);
   const hrs = (env.phase * 24 + 6) % 24, hh = Math.floor(hrs), mm = Math.floor((hrs - hh) * 60);
   setText('clock', (env.day > 0.5 ? '☀ ' : '🌙 ') + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'));
-  // --- animated health ---
-  const hp = clamp(game.hp, 0, 100);
+  // --- animated health (JS lerped so drain is always visible) ---
+  const hpTarget = clamp(game.hp, 0, 100);
   const fill = $('hpFill'), ghost = $('hpGhost'), spark = $('hpSpark'), wrap = $('hpWrap'), val = $('hpValue');
   if (fill && ghost){
-    // first frame init
-    if (hudCache.hp === undefined){
-      fill.style.width = hp + '%'; ghost.style.width = hp + '%';
-      fill.style.background = hpGradient(hp); ghost.style.background = hpGradient(hp);
-      if (spark) spark.style.left = hp + '%'; _prevHp = hp; _ghostHp = hp;
-    } else if (hp !== _prevHp){
-      // animate change
-      fill.style.background = hpGradient(hp);
-      // spark follows immediately to new position even before ghost
-      if (spark && hp > 1) spark.style.left = hp + '%';
-      fill.style.width = hp + '%';
-      pulseHealth(hp, _prevHp);
-      _prevHp = hp;
-    } else {
-      // keep gradient in sync without pulse (e.g. crossing threshold)
-      if (hudCache.hp !== hp) fill.style.background = hpGradient(hp);
-      if (spark) spark.style.left = hp + '%';
+    // detect target change -> trigger effects
+    if (hpTarget !== _targetHp){
+      const old = _targetHp;
+      pulseHealth(hpTarget, old);
+      // ghost handling: on heal jump ghost instantly to target, on damage ghost stays then drifts
+      if (hpTarget > old){
+        _ghostHp = hpTarget;
+        ghost.style.background = hpGradient(hpTarget);
+        ghost.style.width = _ghostHp + '%';
+      } else {
+        ghost.style.background = dmgGhostGradient();
+        // ghost stays at current ghost value, fill will chase
+      }
+      _targetHp = hpTarget;
     }
-    // low health state
-    if (wrap) wrap.classList.toggle('low', hp <= 28 && hp > 0);
-    if (val) val.textContent = Math.round(hp) + '%';
-    // hide spark at 0 or 100 edge slightly
-    if (spark) spark.style.opacity = (hp <= 0 || hp >= 100) ? '0' : '';
+    // init first frame
+    if (hudCache.hp === undefined){
+      _displayHp = _ghostHp = _targetHp = hpTarget;
+      fill.style.width = _displayHp + '%'; ghost.style.width = _ghostHp + '%';
+      fill.style.background = hpGradient(_displayHp); ghost.style.background = hpGradient(_ghostHp);
+      if (spark) spark.style.left = _displayHp + '%';
+    } else {
+      // lerp display towards target
+      if (Math.abs(_displayHp - _targetHp) > 0.05){
+        const diff = _targetHp - _displayHp;
+        const speed = diff < 0 ? 0.16 : 0.13; // damage a bit faster
+        _displayHp += diff * speed;
+        if (Math.abs(diff) < 0.3) _displayHp = _targetHp;
+      } else {
+        _displayHp = _targetHp;
+      }
+      // lerp ghost towards target (slower, creates trailing red)
+      if (Math.abs(_ghostHp - _targetHp) > 0.05){
+        // if healing ghost already jumped, this will be no-op
+        const gdiff = _targetHp - _ghostHp;
+        const gspeed = gdiff < 0 ? 0.055 : 0.22; // damage trail slow, heal catch fast
+        _ghostHp += gdiff * gspeed;
+        if (Math.abs(gdiff) < 0.15) _ghostHp = _targetHp;
+      } else {
+        _ghostHp = _targetHp;
+      }
+      fill.style.width = _displayHp.toFixed(2) + '%';
+      ghost.style.width = _ghostHp.toFixed(2) + '%';
+      // color follows display for fill, ghost keeps damage color until caught
+      fill.style.background = hpGradient(_displayHp);
+      if (_ghostHp > _displayHp + 0.5){
+        ghost.style.background = dmgGhostGradient();
+        ghost.style.opacity = '0.95';
+      } else {
+        ghost.style.background = hpGradient(_ghostHp);
+        ghost.style.opacity = '0.7';
+      }
+      if (spark){
+        spark.style.left = _displayHp.toFixed(2) + '%';
+        spark.style.opacity = (_displayHp <= 1 || _displayHp >= 99.5) ? '0' : '1';
+      }
+    }
+    if (wrap) wrap.classList.toggle('low', _targetHp <= 28 && _targetHp > 0);
+    if (val) val.textContent = Math.round(_targetHp) + '%';
   } else {
-    // fallback for old markup
-    const oldFill = $('hpFill'); if(oldFill){ oldFill.style.width = hp + '%'; oldFill.style.background = hpGradient(hp); }
+    const oldFill = $('hpFill'); if(oldFill){ oldFill.style.width = hpTarget + '%'; oldFill.style.background = hpGradient(hpTarget); }
   }
-  if (hudCache.hp !== hp) hudCache.hp = hp;
+  if (hudCache.hp !== hpTarget) hudCache.hp = hpTarget;
   const nf = $('nitroFill'), nit = clamp(game.nitro, 0, 100);
   if (hudCache.nitro !== nit) { hudCache.nitro = nit; nf.style.strokeDasharray = nit.toFixed(1) + ' 100'; }
   nf.classList.toggle('on', game.nitroOn); nf.classList.toggle('lock', game.nitroLock);
