@@ -15,6 +15,7 @@
  *     (js/police.js), joined by a red-and-white bar; the spike strips, blinking;
  *   - the rim tells the chase: red and blue while they see you, amber while they search, white when there is no chase;
  *   - the pickups (nitro, repair, cash), the traffic, the air unit, the route and the pin of the marked place;
+ *   - the ships on the sea (js/ships.js), each at its true length and beam and on its heading, the navy's darker;
  *   - the radar looks further as the car goes faster (95 m to the rim standing, 140 m flat out), and dims at night;
  *     a faint ping rings out from the car, as on a radar.
  * N on the rim is the map's up (+z). */
@@ -26,6 +27,7 @@ import { helicopter } from './helicopter.js';
 import { currentMark, currentRoute, paintGround } from './map.js';
 import { known, mapVersion } from './mapData.js';
 import { FRESH, SEARCH_R, searchCentre } from './police.js';
+import { ships, shipOutline } from './ships.js';
 
 const S = 260, R = 130;                  // the radar's drawing size, in its own units (the canvas has more pixels on a sharp screen)
 const RANGE_MIN = 95, RANGE_MAX = 140;   // metres from the car to the rim: standing, and flat out
@@ -168,6 +170,18 @@ function drawPickups(s) {
     rctx.beginPath(); rctx.arc(pk.x, pk.z, 3.6 / s, 0, PI * 2);
     rctx.fillStyle = pk.kind === 'nitro' ? '#2e9bff' : pk.kind === 'repair' ? '#26d65a' : '#ffc61a'; rctx.fill();
     rctx.strokeStyle = '#ffffff'; rctx.lineWidth = 1.4 / s; rctx.stroke();
+  }
+}
+// the ships within its reach: each hull's outline at its true size (a pointed bow, a square stern), slate grey with a
+// white edge; the navy's darker
+const _hull = [];
+function drawShips(s) {
+  for (const a of ships) {
+    if (Math.hypot(a.x - player.x, a.z - player.z) - a.L / 2 > range + 4) continue;
+    shipOutline(a, _hull);
+    rctx.beginPath(); _hull.forEach(([x, z], i) => (i ? rctx.lineTo(x, z) : rctx.moveTo(x, z))); rctx.closePath();
+    rctx.fillStyle = a.T.navy ? '#454e57' : '#6d7d8e'; rctx.fill();
+    rctx.lineJoin = 'round'; rctx.strokeStyle = 'rgba(255,255,255,0.9)'; rctx.lineWidth = 1.2 / s; rctx.stroke();
   }
 }
 function drawTraffic(s) {
@@ -365,7 +379,7 @@ export function drawRadar() {
   if (env.night > 0.02) { toScreen(); rctx.fillStyle = `rgba(10,18,40,${(0.45 * env.night).toFixed(3)})`; rctx.fillRect(0, 0, S, S); }
   rctx.save(); toWorld(s);
   if (state === 'search') drawSearch(s, t);
-  drawRoute(s); drawPickups(s); drawTraffic(s); drawSpikes(s, ph);
+  drawShips(s); drawRoute(s); drawPickups(s); drawTraffic(s); drawSpikes(s, ph);
   if (state === 'seen') drawSightLines(s, t);
   drawPolice(s, ph); drawBlockades(s, ph); drawHeli(s, ph);         // the barrier over its cruisers, so it reads as one
   rctx.restore();

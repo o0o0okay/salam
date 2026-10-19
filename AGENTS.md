@@ -60,6 +60,11 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 - `js/logSpill.js` — a log truck's load spilled by a hard hit: the loose logs (their rolling, their hits on cars
   and on the street, the wear that breaks them up into pieces, their crumbling away after `LOG_LIFE`), the traffic's
   look-out for them (`logAhead`) and their instanced meshes.
+- `js/ships.js` — the ships on the sea round the island: the lanes (`LANES`, their bands and the corners they swing
+  out for), the types at their real sizes and speeds (`SHIP_TYPES`), the traffic (keeping distance, small craft
+  overtaking on the straight), the models built near the camera only, the night lights, the horn. Its own random
+  stream: it never draws `Math.random`. The lane numbers are tied to the clearance checks in
+  tools/sidewalk-checks/ships.mjs; change them together.
 - `js/config.js` — difficulty table and tunables. Prefer changing a constant here to editing logic.
 - `js/perf.js` — the `?debug` overlay (frame, update and render time, draw calls, counts). Off by default.
 
