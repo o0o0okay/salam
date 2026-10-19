@@ -26,8 +26,136 @@ canvas { display:block; }
 /* the alert line sits under the map, in the same panel, so it moves with the map on touch screens */
 #alertLine { margin-top:8px; font-size:11px; letter-spacing:.08em; white-space:nowrap; }
 /* the vehicle health bar sits under the WANTED stars, right-aligned like the rest of that panel */
-.hpLbl { margin-top:8px; }
-.hpBar { width:min(240px, 26vw); margin:4px 0 0 auto; }
+.hpLbl { margin-top:8px; letter-spacing:.14em; }
+.hpWrap { width:min(260px, 28vw); margin:6px 0 0 auto; display:flex; align-items:center; gap:10px; }
+.hpHeart {
+  width:42px; height:42px; flex:0 0 42px; border-radius:50%;
+  background:radial-gradient(ellipse at 32% 28%, #fff 0%, #fff8e7 18%, #ffeec2 100%);
+  border:3px solid #fff; box-shadow:0 3px 0 rgba(0,0,0,.28), 0 4px 14px rgba(0,0,0,.25);
+  display:flex; align-items:center; justify-content:center; position:relative;
+  transition:transform .2s, box-shadow .2s, background .2s;
+}
+.hpHeart::after{
+  content:''; position:absolute; inset:-3px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.0); pointer-events:none;
+}
+.hpHeartIcon{
+  font-size:22px; line-height:1; color:#ff2b2b; text-shadow:0 1px 0 #7a0000, 0 0 6px rgba(255,60,60,.5);
+  transform:translateY(1px); display:block; animation:heartIdle 1.4s ease-in-out infinite;
+}
+@keyframes heartIdle{ 0%,100%{ transform:translateY(1px) scale(1)} 50%{ transform:translateY(1px) scale(1.06)} }
+.hpWrap.low .hpHeart{ animation:none; }
+.hpWrap.low .hpHeartIcon{ animation:heartLow .45s ease-in-out infinite; color:#ff1a1a; }
+@keyframes heartLow{ 0%,100%{ transform:translateY(1px) scale(1)} 50%{ transform:translateY(1px) scale(1.18)} }
+
+.hpHeart.hit{ animation:heartHit .42s cubic-bezier(.34,1.56,.64,1) !important; }
+.hpHeart.hit .hpHeartIcon{ animation:none !important; }
+@keyframes heartHit{ 0%{ transform:scale(1)} 18%{ transform:scale(1.32)} 34%{ transform:scale(0.88)} 55%{ transform:scale(1.15)} 100%{ transform:scale(1)} }
+.hpHeart.heal{ animation:heartHeal .55s cubic-bezier(.34,1.56,.64,1) !important; }
+@keyframes heartHeal{ 0%{ transform:scale(1)} 25%{ transform:scale(1.35)} 45%{ transform:scale(0.93)} 70%{ transform:scale(1.12)} 100%{ transform:scale(1)} }
+.hpHeart.heal::after{ border-color:#2eff7a; animation:heartRing .55s ease-out forwards; }
+@keyframes heartRing{ 0%{ transform:scale(.85); opacity:.85} 100%{ transform:scale(1.45); opacity:0} }
+
+.hpBarNew{ flex:1; position:relative; min-width:0; }
+.hpTrack{
+  position:relative; height:20px; border-radius:999px;
+  background:linear-gradient(#2a0d15, #4a1e2a);
+  border:3px solid #fff; box-shadow:0 3px 0 rgba(0,0,0,.25), inset 0 2px 4px rgba(0,0,0,.45), inset 0 -2px 3px rgba(255,255,255,.18);
+  overflow:hidden; isolation:isolate;
+}
+.hpWrap.low .hpTrack{ box-shadow:0 3px 0 rgba(0,0,0,.25), 0 0 10px rgba(255,30,30,.55), 0 0 18px rgba(255,30,30,.35); animation:lowPulse 0.9s ease-in-out infinite alternate; }
+@keyframes lowPulse{ from{ box-shadow:0 3px 0 rgba(0,0,0,.25), 0 0 8px rgba(255,30,30,.45)} to{ box-shadow:0 3px 0 rgba(0,0,0,.25), 0 0 16px rgba(255,30,30,.9), 0 0 26px rgba(255,30,30,.5)} }
+.hpTrack.shake{ animation:barShake .38s cubic-bezier(.36,.07,.19,.97) both; }
+@keyframes barShake{ 10%,90%{ transform:translateX(-1px)} 20%,80%{ transform:translateX(2px)} 30%,50%,70%{ transform:translateX(-4px)} 40%,60%{ transform:translateX(4px)} }
+
+.hpGhost, .hpFill{
+  position:absolute; left:0; top:0; bottom:0; border-radius:999px; width:100%;
+}
+.hpGhost{
+  background:linear-gradient(90deg, #ff7a7a, #ffb3b3);
+  opacity:.95; width:100%;
+  transition:width .85s cubic-bezier(.22,.8,.32,1);
+  filter:saturate(1.15);
+}
+.hpFill{
+  background:linear-gradient(90deg, #27c93f, #7dff7a);
+  width:100%; z-index:1; overflow:hidden;
+  transition:width .55s cubic-bezier(.22,1,.36,1), background .35s ease, filter .2s, transform .2s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45);
+}
+.hpFill::before{
+  content:''; position:absolute; inset:0; border-radius:999px;
+  background:linear-gradient(to bottom, rgba(255,255,255,.38), rgba(255,255,255,0) 55%);
+  pointer-events:none;
+}
+.hpFillShine{
+  position:absolute; inset:0; border-radius:999px; overflow:hidden; pointer-events:none;
+}
+.hpFillShine::after{
+  content:''; position:absolute; top:-50%; left:-18%; width:38%; height:200%;
+  background:linear-gradient(100deg, transparent 0%, rgba(255,255,255,.0) 20%, rgba(255,255,255,.55) 48%, rgba(255,255,255,.0) 72%, transparent 100%);
+  transform:skewX(-12deg) translateX(-60px); opacity:.85;
+  animation:fillSweep 2.8s ease-in-out infinite;
+}
+@keyframes fillSweep{ 0%,68%{ transform:skewX(-12deg) translateX(-80px)} 78%{ transform:skewX(-12deg) translateX(260px)} 100%{ transform:skewX(-12deg) translateX(260px)} }
+.hpStripes{
+  position:absolute; inset:0; border-radius:999px; opacity:.22;
+  background:repeating-linear-gradient(135deg, rgba(255,255,255,.95) 0 7px, transparent 7px 15px);
+  background-size:28px 28px; animation:stripeMove .7s linear infinite; mix-blend-mode:overlay;
+}
+@keyframes stripeMove{ from{ background-position:0 0} to{ background-position:28px 0} }
+.hpFill.dmgFlash{ filter:brightness(1.35) saturate(1.2); }
+.hpFill.healFlash{ filter:brightness(1.25) saturate(1.1); box-shadow:inset 0 0 8px rgba(80,255,120,.7); }
+
+.hpSpark{
+  position:absolute; top:50%; width:4px; height:28px; margin-top:-14px; z-index:3; pointer-events:none;
+  background:linear-gradient(to bottom, #fffcc7 0%, #ffe45e 45%, #ff9a1a 100%);
+  box-shadow:0 0 8px rgba(255,220,90,1), 0 0 14px rgba(255,160,30,.85), 0 0 2px #fff;
+  border-radius:2px; opacity:0; transform:translate(-50%, -50%);
+  transition:left .55s cubic-bezier(.22,1,.36,1), opacity .12s;
+}
+.hpSpark.on{ opacity:1; animation:sparkGlow .38s ease-out; }
+@keyframes sparkGlow{ 0%{ box-shadow:0 0 4px rgba(255,220,90,.8)} 50%{ box-shadow:0 0 12px rgba(255,220,90,1), 0 0 22px rgba(255,180,40,1)} 100%{ box-shadow:0 0 8px rgba(255,220,90,1), 0 0 14px rgba(255,160,30,.85)} }
+.hpSpark i, .hpSpark b, .hpSpark em{
+  position:absolute; width:7px; height:7px; background:#fff; border-radius:50%;
+  box-shadow:0 0 6px #ffe45e, 0 0 10px #ffb11a; opacity:0;
+}
+.hpSpark.on i{ left:-8px; top:2px; animation:starTwinkle .42s .04s ease-out forwards; }
+.hpSpark.on b{ left:6px; top:-6px; width:5px; height:5px; animation:starTwinkle .42s .08s ease-out forwards; }
+.hpSpark.on em{ left:4px; bottom:-5px; width:6px; height:6px; animation:starTwinkle .42s .12s ease-out forwards; }
+@keyframes starTwinkle{ 0%{ transform:scale(0) rotate(0deg); opacity:0} 30%{ transform:scale(1.3) rotate(70deg); opacity:1} 100%{ transform:scale(0.7) rotate(180deg); opacity:0} }
+
+.hpFlash{
+  position:absolute; inset:0; border-radius:999px; background:#fff; opacity:0; pointer-events:none; z-index:2; transition:opacity .18s;
+}
+
+.hpValue{
+  position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  font-size:12px; font-weight:800; color:#fff; text-shadow:0 1px 0 rgba(0,0,0,.85), 0 0 4px rgba(0,0,0,.5);
+  pointer-events:none; z-index:4; letter-spacing:.04em;
+  transition:transform .2s, color .2s;
+}
+.hpWrap.low .hpValue{ color:#fff; text-shadow:0 1px 0 #7a0000, 0 0 6px rgba(255,30,30,.9); animation:valueThrob .7s ease-in-out infinite alternate; }
+@keyframes valueThrob{ from{ transform:translateY(-50%) scale(1)} to{ transform:translateY(-50%) scale(1.08)} }
+
+.hpDeltaLayer{ position:absolute; inset:0; pointer-events:none; overflow:visible; }
+.hpDelta{
+  position:absolute; right:10px; top:50%; transform:translate(-50%, -50%);
+  font-family:'Bungee', Impact, sans-serif; font-size:15px; line-height:1;
+  color:#fff; text-shadow:0 2px 0 #b30000, 0 0 8px rgba(0,0,0,.5);
+  animation:hpDeltaOut .75s cubic-bezier(.22,1,.36,1) forwards; white-space:nowrap;
+}
+.hpDelta.heal{ color:#7dff7a; text-shadow:0 2px 0 #0a5c1a, 0 0 8px rgba(60,255,100,.6); }
+.hpDelta.dmg{ color:#ff3b3b; }
+@keyframes hpDeltaOut{ 0%{ transform:translate(-50%,-50%) scale(.6); opacity:0} 18%{ transform:translate(-50%,-50%) scale(1.18); opacity:1} 100%{ transform:translate(-50%,-86px) scale(.9); opacity:0} }
+
+@media (max-width:640px){
+  .hpWrap{ width:min(200px, 42vw); gap:8px; }
+  .hpHeart{ width:36px; height:36px; flex:0 0 36px; }
+  .hpHeartIcon{ font-size:18px; }
+  .hpTrack{ height:17px; }
+  .hpValue{ font-size:10px; }
+}
 #gauge { bottom:12px; right:14px; }
 .dial { position:relative; width:200px; height:200px; }
 .dialSvg { width:100%; height:100%; display:block; overflow:visible; }
