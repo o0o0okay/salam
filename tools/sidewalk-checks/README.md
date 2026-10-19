@@ -40,7 +40,7 @@ node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the log
 node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
 node tools/sidewalk-checks/pin-hold.mjs  # the police hold a pinned player for the arrest: right up against him, no backing off for another run, the bar filling
 node tools/sidewalk-checks/water.mjs  # no car gets into the river or the sea, whatever shoves it; one that is in it all the same goes under (SUNK)
-node tools/sidewalk-checks/ships.mjs  # the ships on the sea: lanes clear of the island and of each other, real sizes and speeds, no two hulls touching, two or three in sight from the coast, the radar, the horn
+node tools/sidewalk-checks/ships.mjs  # the ships on the sea: lanes clear of the island and of each other, real sizes and speeds, no two hulls touching, a quiet sea (from the coast mostly none in sight), the radar, the horn
 node tools/sidewalk-checks/plan-ships.mjs  # the ships side by side to one scale, with a car and a block -> plan-ships.png
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
@@ -743,8 +743,10 @@ and the outer one has it to port: each vessel keeps to its own starboard side. T
 - the navy: the frigate, about one vessel in thirty, and very rarely the 333 m carrier.
 
 Each type has its real range of length, beam and speed (`SHIP_TYPES`): a container ship is 200 to 300 m long, sixty
-cars or more. How many there are is random: each lane is filled at the start of a run with random gaps. From the coast
-two or three are in sight on average, sometimes none, sometimes five or more.
+cars or more. How many there are is random: each lane is filled at the start of a run with random gaps of open sea
+(`gap`, kilometres of it). The sea is kept quiet: about a dozen vessels round the whole island, a tenth of the first,
+busier fill, half of them small craft, and a lane may have only one. From the coast nothing is in sight most of the
+time: about one look in four finds a vessel, and two at once are rare.
 
 A lane never comes near another, at the corners either. Each lane has a band (`lo` to `hi` across its line), and every
 hull in it stays inside its band, turns included. Before each corner the ship lanes swing out (`bulge`, over the last
@@ -769,22 +771,24 @@ without the ships.
   - its model is as long and as wide as it says, its height over the water is a real one's, and its hull reaches
     under the water;
   - it has no more than 6000 triangles and casts no shadows.
-- **the fleet.** A seed always gives the same fleet and another seed another one. The size and the mix vary: small
-  craft are about half, the navy about one in thirty, and the carrier is rare and only in the outer ship lane. None of
-  it draws `Math.random`, model building included.
-- **the traffic.** Five runs, the camera driving round the coast: 10 minutes each at 30 fps, then runs at 60 and 15 fps.
-  After every frame:
+- **the fleet.** A seed always gives the same fleet and another seed another one. The size and the mix vary: about a
+  dozen vessels on average and at least one in every lane, small craft about half, the navy about one in thirty, and
+  the carrier rare and only in the outer ship lane (400 fleets, as many vessels as forty crowded ones had). None of it
+  draws `Math.random`, model building included.
+- **the traffic.** Five runs on a crowded sea, the lanes filled as densely as they first were so that vessels meet,
+  follow and overtake all the time, with the camera driving round the coast: 10 minutes each at 30 fps, then runs at
+  60 and 15 fps. Then two runs on the game's own quiet sea. After every frame:
   - no two hulls touch (their true boxes, on their headings), none is within 12 m of the island, and none is out of
     its lane's band;
   - none is out of its place where its lane bends;
   - nothing appears or vanishes within `SIGHT_R` of the camera, no model is built more than one a frame, and no
     vessel closes to the hard gap.
 
-  The overtakes happen.
-- **in sight.** Sixteen fleets, each looked at ten times from 60 random points 12 m inside the seawall:
-  - on average two to three vessels are in sight (their hulls within 200 m);
-  - none are in sight now and then (under 10 %), and five or more at times;
-  - ships, not only small craft, are among them.
+  On the crowded sea the overtakes happen.
+- **in sight.** 48 fleets, each looked at ten times from 60 random points 12 m inside the seawall:
+  - on average 0.15 to 0.45 vessels are in sight (their hulls within 200 m): about one look in four finds one;
+  - none are in sight most of the time (60 to 88 %), and two or more now and then (under 8 %);
+  - ships and small craft are both among them.
 - **the models, the radar and the horn.**
   - Models: built near the camera and the same when built again; the night lights shown at night only and unlit; the
     window bands among the lit materials; no wake when stopped; nothing left in the scene once they are dropped or the
