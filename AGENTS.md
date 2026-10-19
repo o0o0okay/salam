@@ -97,6 +97,15 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 
 ## Git
 
-- Work on the branch the session names (currently `arena/4047c709-salam`); push only to it.
-- Run `npm run check` before committing. Keep commits focused, and say in the message what changed and
-  which checks were run.
+- Work on the branch the session names; push only to it.
+- Run `npm run check` before committing (with no `package.json` in the checkout, run the scripts listed in
+  `tools/sidewalk-checks/README.md`). Keep commits focused, and say in the message what changed and which
+  checks were run.
+- The owner's standing rule: update GitHub after every change, without asking. The owner reviews and tests
+  by pulling from GitHub, so no change stays only in the sandbox. After each change, once the checks pass:
+  1. commit and push the session branch;
+  2. open its pull request into `main`, or let the push update the open one;
+  3. merge it into `main` (`gh pr merge <number> --merge`);
+  4. check that GitHub Pages built the new `main` (`gh api repos/o0o0okay/salam/pages/builds/latest`).
+
+  The owner then updates with `git checkout main && git pull origin main` and reloads with Ctrl+Shift+R.
