@@ -32,6 +32,7 @@ import { updateRouteArrows } from './routeArrows.js';
 import { updateMarkBeam } from './markBeam.js';
 import { endGame, showOver } from './flow.js';
 import { waterGuard, updateSinking } from './water.js';
+import { updateShips } from './ships.js';
 function spinPickups(t) {
   for (const ch of nearChunks(player.x, player.z)) for (const pk of ch.pickups) {
     if (pk.taken) continue; pk.mesh.rotation.y = t * 2.6 + pk.ph; pk.mesh.position.y = 1.4 + Math.sin(t * 3 + pk.ph) * 0.2;
@@ -270,6 +271,7 @@ export function update(dt) {
   updateCamera(dt);
   /* --- day / night + lights --- */
   updateEnvironment(dt, player.x, player.z, playing);
+  updateShips(sdt);          // the ships on the sea, seen from the camera (js/ships.js); after the light, for their night lights
   if (playing) {
     const isN = env.day < 0.3;
     if (isN !== game.isNight) { game.isNight = isN; toast(isN ? 'NIGHT FALLS 🌙' : 'SUNRISE ☀'); }

@@ -15,6 +15,7 @@ import { camState } from './camera.js';
 import { ensureHelicopter, setHelicopterVisible } from './helicopter.js';
 import { spawnCiv } from './civilians.js';
 import { clearLogs } from './logSpill.js';
+import { resetShips } from './ships.js';
 export function resetWorld() {
   for (const c of cars.slice()) if (c !== player) removeCar(c);   // cops, traffic, and any burnt hull left over
   for (const f of flying) scene.remove(f.mesh); flying.length = 0; geysers.length = 0; fires.length = 0;
@@ -40,6 +41,7 @@ export function resetWorld() {
   ensureHelicopter();
   setHelicopterVisible(false);
   for (let i = 0; i < 30; i++) spawnCiv();   // the streets start full: about a hundred cars, jam platoons included
+  resetShips();                               // a new fleet on the sea, its own random draw (js/ships.js)
   resetHudCache();
 }
 export function startGame() {

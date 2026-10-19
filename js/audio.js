@@ -167,5 +167,24 @@ export const sfx = {
     source.connect(lowpass); lowpass.connect(gain); gain.connect(this.master);
     source.start(now); source.stop(now + 4.2);
   },
+  // A ship's horn (js/ships.js): a low, reedy tone at hz (a big ship's is under 100 Hz), `len` s long, once or twice,
+  // starting `delay` s from now (the sound's way over the water). It comes up a little flat, as an air horn does.
+  shipHorn(vol, hz = 85, delay = 0, len = 2.4, blasts = 1) {
+    if (!this.ctx || !(vol > 0.03)) return; const c = this.ctx;
+    let t = c.currentTime + Math.max(0, delay);
+    for (let b = 0; b < blasts; b++) {
+      const lp = c.createBiquadFilter(), g = c.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = hz * 7; lp.Q.value = 0.9;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3 * vol, t + 0.18);
+      g.gain.setValueAtTime(0.3 * vol, t + len - 0.35); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      lp.connect(g); g.connect(this.master);
+      for (const [m, a, type] of [[1, 0.5, 'sawtooth'], [1.006, 0.35, 'sawtooth'], [2, 0.18, 'square']]) {
+        const o = c.createOscillator(), og = c.createGain(); o.type = type; og.gain.value = a;
+        o.frequency.setValueAtTime(hz * m * 0.94, t); o.frequency.linearRampToValueAtTime(hz * m, t + 0.16);
+        o.connect(og); og.connect(lp); o.start(t); o.stop(t + len + 0.05);
+      }
+      t += len + 0.7;
+    }
+  },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.6; }
 };

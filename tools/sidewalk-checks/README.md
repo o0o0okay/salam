@@ -40,6 +40,8 @@ node tools/sidewalk-checks/log-spill.mjs  # log trucks spill their load: the log
 node tools/sidewalk-checks/site-passage.mjs  # a construction frame's open ground floor: cars drive in under the first floor, tall ones stop at it, the camera comes down under it
 node tools/sidewalk-checks/pin-hold.mjs  # the police hold a pinned player for the arrest: right up against him, no backing off for another run, the bar filling
 node tools/sidewalk-checks/water.mjs  # no car gets into the river or the sea, whatever shoves it; one that is in it all the same goes under (SUNK)
+node tools/sidewalk-checks/ships.mjs  # the ships on the sea: lanes clear of the island and of each other, real sizes and speeds, no two hulls touching, two or three in sight from the coast, the radar, the horn
+node tools/sidewalk-checks/plan-ships.mjs  # the ships side by side to one scale, with a car and a block -> plan-ships.png
 node tools/sidewalk-checks/shot.mjs  # flat-shaded snapshot of any view (NO_MERGE=1): node shot.mjs out.png eyeX eyeY eyeZ lookX lookY lookZ
 ```
 
@@ -728,6 +730,71 @@ player's car, the run is over: SUNK, on the same end screen as WASTED, with its 
 - **going under.** The player put down over the river or the sea, or dropped in from 6 m, ends the run SUNK once he is
   down. His car sinks out of sight and stays down there until the next run, which starts dry. A sedan in the river and a
   cop in the sea go under and are taken away, and the cop he had just hit counts as his takedown.
+
+### The ships on the sea
+
+Ships come and go round the island (`js/ships.js`). They sail in four lanes round it: two for small craft, 40 and 66 m
+off the seawall, and two for ships, 126 and 188 m off it. Real shipping lanes would be further out, but the haze ends at
+215 m by day and the ships are only ever seen from the coast. In each pair the inner lane has the island to starboard
+and the outer one has it to port: each vessel keeps to its own starboard side. There are sixteen types:
+- small craft: the sailing yacht, the speedboat, the motor yacht, the trawler and the tug;
+- ships: the container ship, the bulk carrier, the oil tanker, the LNG carrier, the car carrier, the cruise ship, the
+  ferry, the general cargo ship and the offshore supply vessel;
+- the navy: the frigate, about one vessel in thirty, and very rarely the 333 m carrier.
+
+Each type has its real range of length, beam and speed (`SHIP_TYPES`): a container ship is 200 to 300 m long, sixty
+cars or more. How many there are is random: each lane is filled at the start of a run with random gaps. From the coast
+two or three are in sight on average, sometimes none, sometimes five or more.
+
+A lane never comes near another, at the corners either. Each lane has a band (`lo` to `hi` across its line), and every
+hull in it stays inside its band, turns included. Before each corner the ship lanes swing out (`bulge`, over the last
+`T` m of the side), so that a 330 m hull turning there stays clear of the lane outside it. In a lane a vessel keeps its
+distance behind a slower one. Small craft overtake, but only on the straight with room to spare: on a bend a long hull
+swings out of its place, so a pass that would reach a bend is not begun. One that has to be given up drops back, and
+stops short of the bend if it must. Ships only follow. A vessel sails a trip of a few kilometres and is then taken away
+out of sight; a new one comes in out of sight too, so nothing appears or vanishes in view. Models are built near the
+camera only, at most one a frame, and dropped further out; they cast no shadows. At night they show their navigation
+lights, which are seen beyond the fog. A ship passing near the player now and then sounds its horn (`sfx.shipHorn`),
+and the radar draws each vessel in its reach at its true size. The fleet has its own random stream, and three.js's
+uuids for the models are drawn from it too, so the city and everything else random in the game are the same as
+without the ships.
+
+`ships.mjs` checks:
+- **the lanes.** Each lane is closed, its points evenly spaced, no tighter than its corners, at its offset on the
+  sides and going its way. Each lane's band, swept along it by its biggest hull as the game places it (rigid, on the
+  lane's heading, as long as it gets when it turns), keeps 12 m from the island and 6 m from every other lane's band.
+  This is checked at every 5 m, corners and swings included.
+- **the vessels.** Every type at its smallest, middle and biggest size, from three seeds:
+  - its length, beam and speed are within the real vessels' (a table in the check);
+  - its model is as long and as wide as it says, its height over the water is a real one's, and its hull reaches
+    under the water;
+  - it has no more than 6000 triangles and casts no shadows.
+- **the fleet.** A seed always gives the same fleet and another seed another one. The size and the mix vary: small
+  craft are about half, the navy about one in thirty, and the carrier is rare and only in the outer ship lane. None of
+  it draws `Math.random`, model building included.
+- **the traffic.** Five runs, the camera driving round the coast: 10 minutes each at 30 fps, then runs at 60 and 15 fps.
+  After every frame:
+  - no two hulls touch (their true boxes, on their headings), none is within 12 m of the island, and none is out of
+    its lane's band;
+  - none is out of its place where its lane bends;
+  - nothing appears or vanishes within `SIGHT_R` of the camera, no model is built more than one a frame, and no
+    vessel closes to the hard gap.
+
+  The overtakes happen.
+- **in sight.** Sixteen fleets, each looked at ten times from 60 random points 12 m inside the seawall:
+  - on average two to three vessels are in sight (their hulls within 200 m);
+  - none are in sight now and then (under 10 %), and five or more at times;
+  - ships, not only small craft, are among them.
+- **the models, the radar and the horn.**
+  - Models: built near the camera and the same when built again; the night lights shown at night only and unlit; the
+    window bands among the lit materials; no wake when stopped; nothing left in the scene once they are dropped or the
+    fleet is new; `resetWorld` makes a new fleet.
+  - The radar: it draws a ship where it is, at its true length, and none beyond its reach.
+  - The horn: never in the menu. On the coast it comes now and then, always from a ship (never small craft) within
+    `HORN_R`, at the volume for its distance, late by d / 343 s, never two within `HORN_GAP`.
+
+`plan-ships.mjs` draws every type at its biggest, side on, to one scale, from the game's own models, with a car and a
+block beside them.
 
 ### Flyover approach nose protection
 

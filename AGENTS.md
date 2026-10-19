@@ -60,6 +60,11 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 - `js/logSpill.js` — a log truck's load spilled by a hard hit: the loose logs (their rolling, their hits on cars
   and on the street, the wear that breaks them up into pieces, their crumbling away after `LOG_LIFE`), the traffic's
   look-out for them (`logAhead`) and their instanced meshes.
+- `js/ships.js` — the ships on the sea round the island: the lanes (`LANES`, their bands and the corners they swing
+  out for), the types at their real sizes and speeds (`SHIP_TYPES`), the traffic (keeping distance, small craft
+  overtaking on the straight), the models built near the camera only, the night lights, the horn. Its own random
+  stream: it never draws `Math.random`. The lane numbers are tied to the clearance checks in
+  tools/sidewalk-checks/ships.mjs; change them together.
 - `js/config.js` — difficulty table and tunables. Prefer changing a constant here to editing logic.
 - `js/perf.js` — the `?debug` overlay (frame, update and render time, draw calls, counts). Off by default.
 
@@ -92,6 +97,15 @@ afterwards unless the user asked to update those images. `shot.mjs` takes an out
 
 ## Git
 
-- Work on the branch the session names (currently `arena/4047c709-salam`); push only to it.
-- Run `npm run check` before committing. Keep commits focused, and say in the message what changed and
-  which checks were run.
+- Work on the branch the session names; push only to it.
+- Run `npm run check` before committing (with no `package.json` in the checkout, run the scripts listed in
+  `tools/sidewalk-checks/README.md`). Keep commits focused, and say in the message what changed and which
+  checks were run.
+- The owner's standing rule: update GitHub after every change, without asking. The owner reviews and tests
+  by pulling from GitHub, so no change stays only in the sandbox. After each change, once the checks pass:
+  1. commit and push the session branch;
+  2. open its pull request into `main`, or let the push update the open one;
+  3. merge it into `main` (`gh pr merge <number> --merge`);
+  4. check that GitHub Pages built the new `main` (`gh api repos/o0o0okay/salam/pages/builds/latest`).
+
+  The owner then updates with `git checkout main && git pull origin main` and reloads with Ctrl+Shift+R.
