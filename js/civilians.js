@@ -242,6 +242,20 @@ export function civAI(c, dt) {
   const desired = Math.atan2(_lp.x - c.x, _lp.z - c.z), diff = wrapAngle(desired - c.h);
   let steer = clamp(diff * 3.0, -1, 1), target = c.cruise;
 
+  // --- Lane discipline: if pushed out of lane (wall hit, collision), steer hard back to centre and slow down
+  {
+    const ideal = c.axis === 'z' ? c.road - c.dir * c.off : c.road + c.dir * c.off;
+    const cur = c.axis === 'z' ? c.x : c.z;
+    const latErr = cur - ideal;
+    if (Math.abs(latErr) > 1.25) {
+      const corr = clamp(-latErr * 0.85, -1, 1);
+      steer = clamp(steer * 0.45 + corr * 0.75, -1, 1);
+      target = Math.min(target, 5.5);
+      // if very far off (opposite lane), force slower return
+      if (Math.abs(latErr) > 3.0) target = Math.min(target, 3.2);
+    }
+  }
+
   // city following: keep safe headway, ignore oncoming / perpendicular (handled by junction logic)
   for (const o of cars) {
     if (o === c || o.wrecked || o.sink) continue;
@@ -266,24 +280,19 @@ export function civAI(c, dt) {
   const logGap = logAhead(c, s, co, 6 + Math.max(0, sp) * 1.2 + c.box.e1) - c.box.e1 - 0.3;    // its nose to the log
   if (logGap < Infinity) target = Math.min(target, Math.max(0, logGap - 3.5) * 1.2);
 
-  const L = 6 + Math.max(0, sp) * 0.4;
-  // The look-ahead is asked from the car's own height: on a flyover the embankment below the ramp is not a wall,
-  // and a car at grade beside the structure is still told it is there. Asking from the ground was what used to
-  // send climbing cars swerving off to the edges of the bridge.
-  // A car riding a flyover's surface skips the ramp slices. They sit under the surface it is on, and ten metres out
-  // on a climb the slice tops are above its height, so every climbing car was told a wall was ahead: it slowed to
-  // 3 m/s and steered for the centre of the ramp. At grade, and under the structure, the slices still stop it.
-  // The flank walls and the abutment are not ramp slices and still count.
+  const L = 5 + Math.max(0, sp) * 0.32;
   const skipRamp = surfaceAt(c.x, c.z, c.y) > 0;
-  if (solidAt(c.x + s * L, c.z + co * L, 1.2, c.y, skipRamp, c.height)) {
-    target = Math.min(target, 4.2);
-    const leftClear = !solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.1, c.y, skipRamp, c.height);
-    const rightClear = !solidAt(c.x + Math.sin(c.h - 0.5) * L, c.z + Math.cos(c.h - 0.5) * L, 1.1, c.y, skipRamp, c.height);
-    if (leftClear && !rightClear) steer = -0.7;
-    else if (rightClear && !leftClear) steer = 0.7;
-    else steer = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.2, c.y, skipRamp, c.height) ? -0.65 : 0.65;
-    // stay closer to lane centre — don’t add full swerve on top of lane error
-    steer = clamp(steer * 0.85 + diff * 0.35, -1, 1);
+  if (solidAt(c.x + s * L, c.z + co * L, 1.0, c.y, skipRamp, c.height)) {
+    target = Math.min(target, 4.8);
+    // gentle avoidance — prefer to stay in lane, not swerve to opposite lane
+    const leftClear = !solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.0, c.y, skipRamp, c.height);
+    const rightClear = !solidAt(c.x + Math.sin(c.h - 0.5) * L, c.z + Math.cos(c.h - 0.5) * L, 1.0, c.y, skipRamp, c.height);
+    let avoid = 0;
+    if (leftClear && !rightClear) avoid = -0.45;
+    else if (rightClear && !leftClear) avoid = 0.45;
+    else avoid = solidAt(c.x + Math.sin(c.h + 0.5) * L, c.z + Math.cos(c.h + 0.5) * L, 1.0, c.y, skipRamp, c.height) ? -0.4 : 0.4;
+    // blend avoidance with lane-keeping (lane wins 60%)
+    steer = clamp(avoid * 0.38 + diff * 1.15, -1, 1);
   }
 
   // Plaza proximity slow-down: a car approaching or passing a plaza eases off for the curve.
