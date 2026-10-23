@@ -339,28 +339,42 @@ function harborContainerShip(g, x, z, len, beam, heading, rng) {
   const hw = isNS ? beam : len;
   const hd = isNS ? len : beam;
   // hull sits low with draft — waterline cuts mid-hull, deck ~0.7m above quay wall (1.7) — no floating gap
-  const hullDraft = 0.85, hullFreeboard = 1.35; // draft below water, freeboard above
-  const base = -hullDraft, hullH = hullDraft + hullFreeboard, deckY = hullFreeboard - 0.15; // deck on top of hull
-  // main hull — two-tone, submerged part red, boot stripe at waterline, upper grey
-  g.add(box(hw*0.97, hullDraft, hd*0.96, mat(0x8b1e22), x, base + hullDraft/2, z)); // submerged red
-  g.add(box(hw*0.985, 0.22, hd*0.985, mat(0x111315), x, -0.02, z)); // boot stripe at waterline (-0.3..0.0)
-  g.add(box(hw*0.92, hullFreeboard, hd*0.92, mat(0x5a6775), x, hullFreeboard/2 + 0.05, z)); // freeboard grey
-  // bow taper — elongated nose, part submerged
-  if (isNS) {
-    const bowZ = z + hd*0.5 - 2;
-    g.add(box(beam*0.55, hullFreeboard, 5, mat(0x5a6775), x, hullFreeboard/2+0.05, bowZ+2.5));
-    g.add(box(beam*0.38, hullDraft, 3, mat(0x8b1e22), x, base+hullDraft/2, bowZ+3.2));
-    // bulbous bow at waterline
-    g.add(cyl(0.65,0.65,1.4,8, mat(0x111315), x, -0.15, bowZ+5));
-  } else {
-    const bowX = x + hd*0.5 - 2;
-    g.add(box(5, hullFreeboard, beam*0.55, mat(0x5a6775), bowX+2.5, hullFreeboard/2+0.05, z));
-    g.add(box(3, hullDraft, beam*0.38, mat(0x8b1e22), bowX+3.2, base+hullDraft/2, z));
-    g.add(cyl(0.65,0.65,1.4,8, mat(0x111315), bowX+5, -0.15, z));
+  const hullDraft = 0.95, hullFreeboard = 1.45; // draft below water, freeboard above
+  const base = -hullDraft, hullH = hullDraft + hullFreeboard, deckY = hullFreeboard - 0.05; // deck on top of hull
+  // curved hull — stepped layers to mimic bilge curve, elongated and low in water
+  const layers = [
+    [0.52, 0.30, 0x8b1e22, base+0.15], // keel — narrow
+    [0.70, 0.32, 0x8b1e22, base+0.46],
+    [0.86, 0.32, 0x8b1e22, base+0.78],
+    [0.95, 0.28, 0x111315, -0.05], // boot stripe at waterline
+    [0.96, 0.45, 0x5a6775, 0.35],
+    [0.93, 0.45, 0x5a6775, 0.80],
+    [0.90, 0.40, 0x5a6775, 1.22],
+  ];
+  for (const [wFrac, h, col, y] of layers) {
+    g.add(box(hw*wFrac, h, hd*0.96, mat(col), x, y, z));
   }
-  // stern
-  if (isNS) g.add(box(beam*0.96, hullH, 1.0, mat(0x3a4552), x, base+hullH/2, z - hd*0.5 + 0.5));
-  else g.add(box(1.0, hullH, beam*0.96, mat(0x3a4552), x - hd*0.5 + 0.5, base+hullH/2, z));
+  // bow — 5-step taper to sharp point, curved into water
+  const bowSteps = 5, bowLen = 9;
+  for (let i=0;i<bowSteps;i++) {
+    const t=(i+1)/bowSteps, frac=1 - t*0.82; // 1.0 -> 0.18
+    const bz = hd*0.5 - 1 + t*bowLen*0.55;
+    const bw = beam*frac;
+    const bySub = base + hullDraft*0.5, byFree = hullFreeboard*0.5 + 0.05;
+    if (isNS) {
+      g.add(box(bw, hullDraft*0.85, 1.8, mat(0x8b1e22), x, bySub, z + bz));
+      g.add(box(bw*0.98, hullFreeboard*0.9, 1.8, mat(0x5a6775), x, byFree, z + bz));
+    } else {
+      g.add(box(1.8, hullDraft*0.85, bw, mat(0x8b1e22), x + bz, bySub, z));
+      g.add(box(1.8, hullFreeboard*0.9, bw*0.98, mat(0x5a6775), x + bz, byFree, z));
+    }
+  }
+  // bulbous bow at waterline — pronounced
+  if (isNS) g.add(cyl(0.75,0.95,1.6,10, mat(0x111315), x, -0.18, z+hd*0.5+2.2));
+  else g.add(cyl(0.75,0.95,1.6,10, mat(0x111315), x+hd*0.5+2.2, -0.18, z));
+  // stern — flat transom, slightly submerged
+  if (isNS) g.add(box(beam*0.98, hullH, 1.0, mat(0x2a3038), x, base+hullH/2, z - hd*0.5 + 0.5));
+  else g.add(box(1.0, hullH, beam*0.98, mat(0x2a3038), x - hd*0.5 + 0.5, base+hullH/2, z));
   // deck
   g.add(box(hw*0.90, 0.22, hd*0.88, mat(0xd2d6db), x, deckY, z));
   // side coamings
