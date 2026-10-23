@@ -178,10 +178,10 @@ function drawPickups(s) {
 function harborShipAt(hb, out){
   if(!hb || hb.inland!==0 || hb.along!==0) return null;
   let x,z,h;
-  if(hb.side==='west'){ x=hb.anchor.cx*CHUNK -22; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
-  else if(hb.side==='east'){ x=(hb.anchor.cx+1)*CHUNK +22; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
-  else if(hb.side==='south'){ x=hb.anchor.cx*CHUNK+40; z=hb.anchor.cz*CHUNK -22; h=0; }
-  else { x=hb.anchor.cx*CHUNK+40; z=(hb.anchor.cz+1)*CHUNK +22; h=0; }
+  if(hb.side==='west'){ x=hb.anchor.cx*CHUNK -14; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
+  else if(hb.side==='east'){ x=(hb.anchor.cx+1)*CHUNK +14; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
+  else if(hb.side==='south'){ x=hb.anchor.cx*CHUNK+40; z=hb.anchor.cz*CHUNK -14; h=0; }
+  else { x=hb.anchor.cx*CHUNK+40; z=(hb.anchor.cz+1)*CHUNK +14; h=0; }
   return { x, z, h, L:110, B:14, type:'cargo', T:{navy:false} };
 }
 function drawHarborShips(s){
