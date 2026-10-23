@@ -87,6 +87,536 @@ const ROAD_COAT = (() => {
   return m;
 })();
 import { env } from './environment.js';
+
+/* ===== Professional harbor — single port for the city ===== */
+const HARBOR_SPACING = 12;
+const HARBOR_CHANCE = 0.52;
+let HARBOR_ANCHORS = null;
+function buildHarborAnchors() {
+  if (HARBOR_ANCHORS) return HARBOR_ANCHORS;
+  HARBOR_ANCHORS = [];
+  // Only one harbor — east coast (right side of map, as in reference image), north of main road
+  HARBOR_ANCHORS.push({ cx: -ISLAND_R, cz: 4, side: 'west', dirX: 1, dirZ: 0, ax: 'west' });
+  return HARBOR_ANCHORS;
+  const sides = [
+    { side: 'west', cx: -ISLAND_R, czVar: true, dirX: 1, dirZ: 0, ax: 'west' },
+    { side: 'east', cx: ISLAND_R - 1, czVar: true, dirX: -1, dirZ: 0, ax: 'east' },
+    { side: 'south', cz: -ISLAND_R, cxVar: true, dirX: 0, dirZ: 1, ax: 'south' },
+    { side: 'north', cz: ISLAND_R - 1, cxVar: true, dirX: 0, dirZ: -1, ax: 'north' },
+  ];
+  for (const s of sides) {
+    for (let a = -20; a <= 20; a += HARBOR_SPACING) {
+      let acx, acz;
+      if (s.czVar) { acx = s.cx; acz = a; }
+      else { acx = a; acz = s.cz; }
+      const h = hash2(acx * 11 + 7, acz * 17 + 13) / 4294967296;
+      if (h > HARBOR_CHANCE) continue;
+      if (Math.abs(acx) < 4 && Math.abs(acz) < 4) continue;
+      HARBOR_ANCHORS.push({ cx: acx, cz: acz, side: s.side, dirX: s.dirX, dirZ: s.dirZ, ax: s.ax });
+    }
+  }
+  return HARBOR_ANCHORS;
+}
+function harborInfo(cx, cz) {
+  const anchors = buildHarborAnchors();
+  for (const an of anchors) {
+    let inland, along;
+    if (an.side === 'west') { inland = cx - an.cx; along = cz - an.cz; }
+    else if (an.side === 'east') { inland = an.cx - cx; along = an.cz - cz; }
+    else if (an.side === 'south') { inland = cz - an.cz; along = cx - an.cx; }
+    else { inland = an.cz - cz; along = an.cx - cx; }
+    if (inland < 0 || inland > 2) continue;
+    if (Math.abs(along) > 1) continue;
+    return { side: an.side, inland, along, anchor: an, dirX: an.dirX, dirZ: an.dirZ, ax: an.ax };
+  }
+  return null;
+}
+function isHarborBlock(cx, cz) { return !!harborInfo(cx, cz); }
+const HARBOR_CONTAINER_COLORS = [0xd64545, 0x3a7bd5, 0xf2c230, 0x2e7d6b, 0xe8e8e8, 0x8e44ad, 0xe67e22, 0x2ecc71];
+const HARBOR_QUAY_MAT = mat(0x8e8a80), HARBOR_QUAY_DARK = mat(0x6b6860), HARBOR_BOLLARD_MAT = mat(0x3c434b), HARBOR_FENDER_MAT = mat(0x1a1a1a);
+const HARBOR_CRANE_YELLOW = mat(0xf2a90e), HARBOR_CRANE_ORANGE = mat(0xe67e22), HARBOR_CRANE_GREY = mat(0x8a8d93), HARBOR_CRANE_BLUE = mat(0x2d5a7a);
+function harborContainerBox(g, x, y, z, w, h, d, color) { const m = box(w, h, d, mat(color), x, y + h / 2, z); g.add(m); return m; }
+function harborContainerStack(g, cx, cz, rng, rows = 2, cols = 3, maxH = 3) {
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const h = 1 + Math.floor(rng() * maxH);
+    const x = cx + (c - (cols - 1) / 2) * 6.4 + (rng() - 0.5) * 0.4;
+    const z = cz + (r - (rows - 1) / 2) * 2.8 + (rng() - 0.5) * 0.3;
+    for (let k = 0; k < h; k++) {
+      const col = HARBOR_CONTAINER_COLORS[Math.floor(rng() * HARBOR_CONTAINER_COLORS.length)];
+      harborContainerBox(g, x, 0.25 + k * 2.55, z, 6.0, 2.5, 2.4, col);
+      if (rng() < 0.15) { const door = box(0.12, 1.8, 1.4, mat(0x222222), x + 2.95, 0.25 + k * 2.55 + 1.0, z, false); g.add(door); }
+    }
+  }
+}
+function harborGantryCrane(g, x, z, alongLen, rng, solid) {
+  const W = 18, H = 16, D = alongLen;
+  const legH = H, legW = 0.7;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const lx = x + sx * W / 2, lz = z + sz * D / 2;
+    g.add(box(legW, legH, legW, HARBOR_CRANE_YELLOW, lx, legH / 2 + 0.25, lz));
+    if (solid) solid(lx, lz, 0.55, 0.55, 'building');
+    const brace = box(0.45, Math.hypot(W, H * 0.6), 0.45, HARBOR_CRANE_YELLOW, lx - sx * W * 0.12, legH * 0.55, lz);
+    brace.rotation.z = sx * 0.38; g.add(brace);
+  }
+  for (const sx of [-1, 1]) g.add(box(0.6, 0.7, D + 1.2, HARBOR_CRANE_YELLOW, x + sx * W * 0.18, H + 0.25, z));
+  for (const sz of [-1, 1]) g.add(box(W + 0.6, 0.55, 0.55, HARBOR_CRANE_YELLOW, x, H + 0.25, z + sz * D / 2));
+  const trolleyX = x + ((rng ? rng() : Math.random()) - 0.5) * W * 0.4;
+  g.add(box(2.2, 0.9, 1.8, HARBOR_CRANE_BLUE, trolleyX, H - 0.1, z, false));
+  // ground rail: visual only, no collision — so cars don't get stuck; kept flush inside quay, not seaward
+  for (const sx of [-1, 1]) g.add(box(D, 0.06, 0.35, mat(0x4a4a4a), x + sx * W / 2, 0.05, z, false));
+}
+function harborYardCrane(g, x, z, solid) {
+  const W = 14, H = 9, D = 10;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { g.add(box(0.5, H, 0.5, HARBOR_CRANE_YELLOW, x + sx * W / 2, H / 2 + 0.25, z + sz * D / 2)); if (solid) solid(x + sx * W / 2, z + sz * D / 2, 0.45, 0.45, 'building'); }
+  g.add(box(W + 0.5, 0.45, 0.5, HARBOR_CRANE_YELLOW, x, H + 0.25, z + D / 2));
+  g.add(box(W + 0.5, 0.45, 0.5, HARBOR_CRANE_YELLOW, x, H + 0.25, z - D / 2));
+  g.add(box(0.5, 0.45, D, HARBOR_CRANE_YELLOW, x - W / 2, H + 0.25, z));
+  g.add(box(0.5, 0.45, D, HARBOR_CRANE_YELLOW, x + W / 2, H + 0.25, z));
+  g.add(box(1.8, 0.7, 1.2, HARBOR_CRANE_BLUE, x, H - 0.4, z, false));
+  if (solid) { solid(x, z, W/2+1, D/2+1, 'building'); }
+}
+function harborWallX(add,solid,x,z,len){
+  add(box(len,2.6,0.6, mat(0xc8c8c8), x,1.3,z));
+  add(box(len,0.28,0.28, mat(0x444444), x,2.75,z));
+  solid(x,z,len/2,0.45,'building');
+}
+function harborWallZ(add,solid,x,z,len){
+  add(box(0.6,2.6,len, mat(0xc8c8c8), x,1.3,z));
+  add(box(0.28,0.28,len, mat(0x444444), x,2.75,z));
+  solid(x,z,0.45,len/2,'building');
+}
+function harborFenceRun(ch, group, add, solid, x0,z0,x1,z1){
+  const len=Math.hypot(x1-x0,z1-z0), alongX=Math.abs(x1-x0)>Math.abs(z1-z0);
+  const cx=(x0+x1)/2, cz=(z0+z1)/2;
+  const Y=0.25;
+  const FENCE_MESH=mat(0x8ea0b0,{transparent:true,opacity:0.28}), FENCE_STEEL=mat(0x6a7580), PLINTH=mat(0x9a9d9f);
+  if(alongX) add(box(len,0.22,0.16, PLINTH, cx, Y+0.11, cz,false));
+  else add(box(0.16,0.22,len, PLINTH, cx, Y+0.11, cz,false));
+  const segs=Math.max(1,Math.round(len/7)), segLen=len/segs;
+  const dir=alongX? Math.sign(x1-x0): Math.sign(z1-z0);
+  const pieces=[];
+  for(let i=0;i<segs;i++){
+    const grp=new THREE.Group();
+    const F=(w,h,d,m,x,y,z)=>grp.add(box(w,h,d,m,x,y,z,false));
+    if(alongX){F(segLen,1.8,0.04,FENCE_MESH,0,Y+1.12,0); F(segLen,0.08,0.08,FENCE_STEEL,0,Y+2.02,0); F(segLen,0.06,0.06,FENCE_STEEL,0,Y+0.72,0);}
+    else {F(0.04,1.8,segLen,FENCE_MESH,0,Y+1.12,0); F(0.08,0.08,segLen,FENCE_STEEL,0,Y+2.02,0); F(0.06,0.06,segLen,FENCE_STEEL,0,Y+0.72,0);}
+    const mid=(-len/2 + (i+0.5)*segLen)* (dir||1);
+    const px=alongX? (cx + mid): cx;
+    const pz=alongX? cz : (cz + mid);
+    pieces.push({group:grp, x:px, z:pz, hx:alongX?segLen/2:0.12, hz:alongX?0.12:segLen/2, alongX, segLen});
+  }
+  const posts=[];
+  for(let d=0; d<len-1e-6; d+=3) posts.push(d);
+  posts.push(len);
+  for(const d of posts){
+    const i=Math.min(segs-1, Math.floor(d/segLen+1e-9));
+    const off=(d - (i+0.5)*segLen)*(dir||1);
+    const grp=pieces[i].group;
+    grp.add(alongX? box(0.1,2.05,0.1,FENCE_STEEL, off, Y+1.02,0,false) : box(0.1,2.05,0.1,FENCE_STEEL,0,Y+1.02,off,false));
+  }
+  for(const pc of pieces){
+    const pm=own(ch, mergeStandalone(pc.group));
+    pm.position.set(pc.x,0,pc.z);
+    group.add(pm);
+    pc.mesh=pm; pc.broken=false;
+    solid(pc.x,pc.z,pc.hx,pc.hz,'fence');
+    const sEntry=ch.solids[ch.solids.length-1];
+    sEntry.fence=true; sEntry.fencePiece=pc; pc.solid=sEntry;
+    ch.fencePanels.push(pc);
+  }
+}
+const harborGateSet = new Set();
+const HARBOR_GATE_INSET = 7; // gate island 7m inside fence so main street stays clear
+function harborGate(add,solid,ch,prop,x,z,side){
+  const gateKey = `${Math.round(x)}|${Math.round(z)}|${side}`; if (harborGateSet.has(gateKey)) return; harborGateSet.add(gateKey);
+  // Modern port gate like reference image: single booth on island with hazard stripes, two barrier arms (entry/exit opposite), cameras, non-destructible booth but breakable open barriers
+  const isNSFence = side==='west' || side==='east'; // fence north-south, road east-west
+  const roadW = 16, roadLen = 28;
+  // Entrance road — asphalt with yellow double center and white edges
+  if(isNSFence){
+    add(box(roadLen,0.08,roadW, mat(0x3a3f4b), x,0.32,z,false));
+    add(box(roadLen,0.04,0.25, mat(0xffffff), x,0.35,z+3.9,false));
+    add(box(roadLen,0.04,0.25, mat(0xffffff), x,0.35,z-3.9,false));
+    add(box(0.18,0.04,roadW, mat(0xffffff), x-roadLen/2+2,0.36,z,false)); // stop line
+    add(box(0.35,0.04,roadW*0.55, mat(0xe8c62a), x,0.36,z+0.15,false));
+    add(box(0.35,0.04,roadW*0.55, mat(0xe8c62a), x,0.36,z-0.15,false));
+    // yellow arrows
+    add(box(3.5,0.04,0.22, mat(0xe8c62a), x-6,0.36,z+3.2,false)); add(box(1.2,0.04,0.9, mat(0xe8c62a), x-4.2,0.36,z+3.2,false));
+    add(box(3.5,0.04,0.22, mat(0xe8c62a), x+6,0.36,z-3.2,false)); add(box(1.2,0.04,0.9, mat(0xe8c62a), x+7.8,0.36,z-3.2,false));
+  } else {
+    add(box(roadW,0.08,roadLen, mat(0x3a3f4b), x,0.32,z,false));
+    add(box(0.25,0.04,roadLen, mat(0xffffff), x+3.9,0.35,z,false));
+    add(box(0.25,0.04,roadLen, mat(0xffffff), x-3.9,0.35,z,false));
+    add(box(0.25,0.04,0.35, mat(0xffffff), x,0.36,z+roadLen/2-2,false));
+    add(box(0.25,0.04,roadW*0.55, mat(0xe8c62a), x+0.15,0.36,z,false));
+    add(box(0.25,0.04,roadW*0.55, mat(0xe8c62a), x-0.15,0.36,z,false));
+  }
+  // Fence pillars at gap edges (visual only, not solid)
+  if(isNSFence){
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z-7.5)); add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z+7.5));
+  } else {
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x-7.5,1.7,z)); add(box(0.7,3.4,0.7, mat(0xd8d8d8), x+7.5,1.7,z));
+  }
+  // Island platform with yellow-black hazard border (as in reference)
+  const platW = isNSFence ? 7.2 : 3.0, platD = isNSFence ? 3.0 : 7.2;
+  add(box(platW,0.22,platD, mat(0xf1f1f1), x,0.26,z,false));
+  // hazard stripes around platform edge
+  const stripeMat = mat(0x1e1e1e), yMat = mat(0xf0c020);
+  const perim = isNSFence ? platW : platD, cross = isNSFence ? platD : platW;
+  // yellow base border
+  add(box(platW+0.4,0.06,platD+0.4, yMat, x,0.32,z,false));
+  add(box(platW,0.07,platD, mat(0xf1f1f1), x,0.33,z,false));
+  // black diagonal stripes on border
+  for(let i=-3;i<=3;i++){
+    if(isNSFence) add(box(0.32,0.07,0.45, stripeMat, x+i*1.0,0.38,z+platD/2+0.15,false));
+    else add(box(0.45,0.07,0.32, stripeMat, x+platW/2+0.15,0.38,z+i*1.0,false));
+    if(isNSFence) add(box(0.32,0.07,0.45, stripeMat, x+i*1.0,0.38,z-platD/2-0.15,false));
+    else add(box(0.45,0.07,0.32, stripeMat, x-platW/2-0.15,0.38,z+i*1.0,false));
+  }
+  // Single modern booth centered on island (glass-metal, as reference)
+  const boothW = 2.0, boothD = 2.0, boothH = 2.8;
+  add(box(boothW,boothH,boothD, mat(0xe8eef2), x,0.25+boothH/2,z,false));
+  // glass walls
+  add(box(boothW-0.15,1.8,0.05, mat(0x9fc8e8, {transparent:true, opacity:0.35}), x,0.25+1.4,z+boothD/2-0.03,false));
+  add(box(boothW-0.15,1.8,0.05, mat(0x9fc8e8, {transparent:true, opacity:0.35}), x,0.25+1.4,z-boothD/2+0.03,false));
+  add(box(0.05,1.8,boothD-0.15, mat(0x9fc8e8, {transparent:true, opacity:0.35}), x+boothW/2-0.03,0.25+1.4,z,false));
+  add(box(0.05,1.8,boothD-0.15, mat(0x9fc8e8, {transparent:true, opacity:0.35}), x-boothW/2+0.03,0.25+1.4,z,false));
+  add(box(boothW+0.3,0.18,boothD+0.3, mat(0x2a3a4a), x,0.25+boothH+0.09,z,false)); // roof
+  // door
+  add(box(0.7,1.9,0.04, mat(0x3a4a5a), x+boothW/2-0.02,0.25+1.0,z,false));
+  // booth solid — non-destructible building (user: ساختمانش تخریب نشه)
+  solid(x,z, boothW/2+0.3, boothD/2+0.3, 'building');
+  // Cameras & card readers on island (as reference)
+  if(isNSFence){
+    add(box(0.12,1.1,0.12, mat(0xd0d5d8), x+1.8,0.9,z+1.0,false)); add(box(0.35,0.22,0.18, mat(0x1a1a1a), x+1.8,1.45,z+1.0,false)); add(cyl(0.14,0.1,0.18,8, mat(0xb03030), x+1.95,1.45,z+1.0,false));
+    add(box(0.12,1.1,0.12, mat(0xd0d5d8), x-1.8,0.9,z-1.0,false)); add(box(0.35,0.22,0.18, mat(0x1a1a1a), x-1.8,1.45,z-1.0,false)); add(cyl(0.14,0.1,0.18,8, mat(0xb03030), x-1.95,1.45,z-1.0,false));
+    add(box(0.28,0.9,0.18, mat(0x0f0f0f), x+0.6,0.85,z+0.9,false)); add(box(0.2,0.35,0.12, mat(0x00d0ff, {emissive:0x0088aa, emissiveIntensity:0.6}), x+0.6,1.0,z+0.99,false));
+    add(box(0.28,0.9,0.18, mat(0x0f0f0f), x-0.6,0.85,z-0.9,false)); add(box(0.2,0.35,0.12, mat(0x00d0ff, {emissive:0x0088aa, emissiveIntensity:0.6}), x-0.6,1.0,z-0.99,false));
+  } else {
+    add(box(0.12,1.1,0.12, mat(0xd0d5d8), x+1.0,0.9,z+1.8,false)); add(box(0.18,0.22,0.35, mat(0x1a1a1a), x+1.0,1.45,z+1.8,false)); add(cyl(0.1,0.14,0.18,8, mat(0xb03030), x+1.0,1.45,z+1.95,false));
+    add(box(0.12,1.1,0.12, mat(0xd0d5d8), x-1.0,0.9,z-1.8,false)); add(box(0.18,0.22,0.35, mat(0x1a1a1a), x-1.0,1.45,z-1.8,false)); add(cyl(0.1,0.14,0.18,8, mat(0xb03030), x-1.0,1.45,z-1.95,false));
+    add(box(0.18,0.9,0.28, mat(0x0f0f0f), x+0.9,0.85,z+0.6,false)); add(box(0.12,0.35,0.2, mat(0x00d0ff, {emissive:0x0088aa, emissiveIntensity:0.6}), x+0.99,1.0,z+0.6,false));
+    add(box(0.18,0.9,0.28, mat(0x0f0f0f), x-0.9,0.85,z-0.6,false)); add(box(0.12,0.35,0.2, mat(0x00d0ff, {emissive:0x0088aa, emissiveIntensity:0.6}), x-0.99,1.0,z-0.6,false));
+  }
+  // Barriers — two opposite lanes, initially OPEN (vertical) and breakable
+  // For road east-west (isNSFence), north lane barrier west of island, south lane east of island, arms north-south then pitched vertical
+  if(isNSFence){
+    const b1 = prop('barrier', x-1.6, z+4.2, Math.PI/2, 0.3); if(b1) b1.mesh.rotation.z = Math.PI/2;
+    const b2 = prop('barrier', x+1.6, z-4.2, Math.PI/2, 0.3); if(b2) b2.mesh.rotation.z = Math.PI/2;
+  } else {
+    const b1 = prop('barrier', x+4.2, z-1.6, 0, 0.3); if(b1) b1.mesh.rotation.z = Math.PI/2;
+    const b2 = prop('barrier', x-4.2, z+1.6, 0, 0.3); if(b2) b2.mesh.rotation.z = Math.PI/2;
+  }
+  // Speed bumps at entry/exit (as reference, before/after island)
+  if(isNSFence){
+    add(box(1.0,0.1,roadW-2, mat(0x1a1a1a), x-9,0.32,z,false)); add(box(1.0,0.06,roadW-2, mat(0xf0c020), x-9,0.36,z,false));
+    add(box(1.0,0.1,roadW-2, mat(0x1a1a1a), x+9,0.32,z,false)); add(box(1.0,0.06,roadW-2, mat(0xf0c020), x+9,0.36,z,false));
+  } else {
+    add(box(roadW-2,0.1,1.0, mat(0x1a1a1a), x,0.32,z-9,false)); add(box(roadW-2,0.06,1.0, mat(0xf0c020), x,0.36,z-9,false));
+    add(box(roadW-2,0.1,1.0, mat(0x1a1a1a), x,0.32,z+9,false)); add(box(roadW-2,0.06,1.0, mat(0xf0c020), x,0.36,z+9,false));
+  }
+}
+function harborContainerStackSolid(g,cx,cz,rng,rows,cols,maxH,solid){
+  const sx0=cx, sz0=cz;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const h=1+Math.floor(rng()*maxH);
+    const x=cx+(c-(cols-1)/2)*6.4+(rng()-0.5)*0.4;
+    const z=cz+(r-(rows-1)/2)*2.8+(rng()-0.5)*0.3;
+    for(let k=0;k<h;k++){
+      const col=HARBOR_CONTAINER_COLORS[Math.floor(rng()*HARBOR_CONTAINER_COLORS.length)];
+      harborContainerBox(g,x,0.25+k*2.55,z,6.0,2.5,2.4,col);
+      if(rng()<0.15){ const door=box(0.12,1.8,1.4, mat(0x222222), x+2.95,0.25+k*2.55+1.0,z,false); g.add(door); }
+    }
+  }
+  const w=(cols-1)*6.4+6.4, d=(rows-1)*2.8+2.8;
+  solid(sx0,sz0,w/2+0.4,d/2+0.4,'building');
+}
+function harborContainerShip(g, x, z, len, beam, heading, rng) {
+  const R = rng || Math.random;
+  // Simplified axis-aligned ship (no rotation math) — visible and fast. len along heading, beam across.
+  // For west/east (heading PI/2) len along Z, beam along X. For south/north (heading 0) len along X, beam along Z.
+  const isNS = Math.abs(Math.sin(heading)) > 0.5; // north-south
+  const hw = isNS ? beam : len;
+  const hd = isNS ? len : beam;
+  // hull sits with waterline at 0, deck ~2.5m above water, clearly above quay wall (1.7)
+  const base = 0.0, hullH = 2.2, deckY = 2.4;
+  // main hull — two-tone
+  g.add(box(hw*0.97, 1.2, hd*0.96, mat(0x8b1e22), x, 0.6, z));
+  g.add(box(hw*0.985, 0.28, hd*0.985, mat(0x111315), x, 1.35, z));
+  g.add(box(hw*0.92, 0.9, hd*0.92, mat(0x5a6775), x, 1.85, z));
+  // bow taper (north or east depending)
+  if (isNS) {
+    const bowZ = z + hd*0.5 - 2;
+    g.add(box(beam*0.55, 0.9, 5, mat(0x5a6775), x, 1.85, bowZ+2.5));
+    g.add(box(beam*0.38, 1.2, 3, mat(0x8b1e22), x, 0.6, bowZ+3.2));
+  } else {
+    const bowX = x + hd*0.5 - 2;
+    g.add(box(5, 0.9, beam*0.55, mat(0x5a6775), bowX+2.5, 1.85, z));
+    g.add(box(3, 1.2, beam*0.38, mat(0x8b1e22), bowX+3.2, 0.6, z));
+  }
+  // stern
+  if (isNS) g.add(box(beam*0.96, 1.2, 1.0, mat(0x3a4552), x, 1.2, z - hd*0.5 + 0.5));
+  else g.add(box(1.0, 1.2, beam*0.96, mat(0x3a4552), x - hd*0.5 + 0.5, 1.2, z));
+  // deck
+  g.add(box(hw*0.90, 0.22, hd*0.88, mat(0xd2d6db), x, deckY, z));
+  // side coamings
+  if (isNS) {
+    g.add(box(0.2, 0.28, hd*0.88, mat(0x6e7680), x + beam*0.44, deckY+0.22, z));
+    g.add(box(0.2, 0.28, hd*0.88, mat(0x6e7680), x - beam*0.44, deckY+0.22, z));
+  } else {
+    g.add(box(hw*0.88, 0.28, 0.2, mat(0x6e7680), x, deckY+0.22, z + beam*0.44));
+    g.add(box(hw*0.88, 0.28, 0.2, mat(0x6e7680), x, deckY+0.22, z - beam*0.44));
+  }
+  // accommodation aft (south for NS, west for EW)
+  let accX=x, accZ=z;
+  if (isNS) accZ = z - hd*0.5 + 7;
+  else accX = x - hd*0.5 + 7;
+  g.add(box(isNS?beam*0.78:9, 2.9, isNS?9:beam*0.78, mat(0xe9eef2), accX, deckY+1.6, accZ));
+  g.add(box(isNS?beam*0.72:8.5, 2.5, isNS?8.5:beam*0.72, mat(0xe9eef2), accX, deckY+4.1, accZ));
+  g.add(box(isNS?beam*0.80:8.3, 2.3, isNS?8.3:beam*0.80, mat(0xf2f4f7), accX, deckY+6.5, accZ));
+  g.add(box(0.28, 1.0, isNS?beam*0.78:0.28, mat(0x243140), accX + (isNS?0:2.7), deckY+6.7, accZ + (isNS?2.7:0)));
+  // mast
+  g.add(box(0.2, 3.6, 0.2, mat(0x3a4552), accX, deckY+8.2, accZ));
+  // funnel
+  let funX=x, funZ=z;
+  if (isNS) funZ = accZ + 6;
+  else funX = accX + 6;
+  g.add(box(isNS?2.2:2.6, 5.0, isNS?2.6:2.2, mat(0x22262b), funX, deckY+4.7, funZ));
+  g.add(box(isNS?2.4:2.85, 0.42, isNS?2.85:2.4, mat(0x111315), funX, deckY+7.0, funZ));
+  g.add(box(isNS?2.40:2.87, 0.72, isNS?2.87:2.40, mat(0xf2a900), funX, deckY+5.3, funZ));
+  // lifeboats
+  if (isNS) {
+    g.add(box(1.0, 0.85, 4.0, mat(0xf28a1e), x+beam*0.48+0.7, deckY+1.2, accZ));
+    g.add(box(1.0, 0.85, 4.0, mat(0xf28a1e), x-beam*0.48-0.7, deckY+1.2, accZ));
+  } else {
+    g.add(box(4.0, 0.85, 1.0, mat(0xf28a1e), accX, deckY+1.2, z+beam*0.48+0.7));
+    g.add(box(4.0, 0.85, 1.0, mat(0xf28a1e), accX, deckY+1.2, z-beam*0.48-0.7));
+  }
+  // containers — bays along length between bow and accommodation
+  const usable = hd*0.68;
+  const rows = Math.max(1, Math.floor(usable/6.2));
+  const cols = Math.max(3, Math.min(4, Math.floor((hw*0.88)/2.55)));
+  const startOff = -hd*0.32;
+  for (let b=0;b<rows;b++){
+    const along = startOff + b*6.15 + 3;
+    if (Math.abs((isNS?accZ:accX) - (isNS?z: x) - along + (isNS?hd*0.5:hw*0.5) -7) < 6) continue;
+    // hatch cover
+    if (isNS) g.add(box(hw*0.88, 0.14, 5.8, mat(0x8e949e), x, deckY+0.18, z - hd*0.5 +12 + along));
+    else g.add(box(5.8, 0.14, hw*0.88, mat(0x8e949e), x - hd*0.5 +12 + along, deckY+0.18, z));
+    let tiers = 3;
+    if (b<1) tiers = 2 + Math.floor(R()*2);
+    else if (b>rows-2) tiers = 2 + Math.floor(R()*1.2);
+    else tiers = 3 + Math.floor(R()*2);
+    for (let c=0;c<cols;c++){
+      const across = (c-(cols-1)/2)*2.55;
+      const cx2 = isNS ? x + across : x - hd*0.5 +12 + along;
+      const cz2 = isNS ? z - hd*0.5 +12 + along : z + across;
+      for (let k=0;k<tiers;k++){
+        const col = HARBOR_CONTAINER_COLORS[Math.floor(R()*HARBOR_CONTAINER_COLORS.length)];
+        g.add(box(isNS?2.38:5.72, 2.38, isNS?5.72:2.38, mat(col), cx2, deckY+0.38+k*2.44+1.19, cz2));
+      }
+    }
+  }
+}
+function buildHarborQuay({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }) {
+  const info = harborInfo(ch.cx, ch.cz); const side = info ? info.side : 'west';
+  const x0 = ch.cx * CHUNK, z0 = ch.cz * CHUNK;
+  // Pad inset so street (16m) stays outside harbor slab — fence at street edge, not mid-street
+  const westInset = harborInfo(ch.cx-1,ch.cz) ? 0 : ((side==='west') ? 0 : PAD_IN);
+  const eastInset = harborInfo(ch.cx+1,ch.cz) ? 0 : ((side==='east') ? 0 : PAD_IN);
+  const southInset = harborInfo(ch.cx,ch.cz-1) ? 0 : ((side==='south') ? 0 : PAD_IN);
+  const northInset = harborInfo(ch.cx,ch.cz+1) ? 0 : ((side==='north') ? 0 : PAD_IN);
+  const pw = 80 - westInset - eastInset, pd = 80 - southInset - northInset;
+  const pox = (westInset - eastInset)/2, poz = (southInset - northInset)/2;
+  padBox(pw, pd, mat(0x9ea0a3), pox, poz);
+  // No internal 7m stripe, no yellow markings, no connecting 16m roads — uniform yard
+  let quayEdgeX = bxo, quayEdgeZ = bzo;
+  const half = CHUNK / 2 - 4;
+  if (side === 'west') {
+    // Quay wall flush with sea — no gap (issue 3). Outer face at coast line
+    quayEdgeX = ch.cx * CHUNK; add(box(2.4, 1.7, 80, HARBOR_QUAY_MAT, quayEdgeX + 1.2, 0.85, bzo)); solid(quayEdgeX + 1.2, bzo, 1.2, 40, 'building');
+    for (let z = -half; z <= half; z += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, quayEdgeX + 0.7, 1.05, bzo + z));
+    for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX + 0.35, 0.7, bzo + z, false));
+    // quay gantry cranes — restored, now alongside ship (not blocking)
+    harborGantryCrane(ch.group, quayEdgeX + 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX + 14, bzo + 14, 30, rng, solid);
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX - 16, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
+  } else if (side === 'east') {
+    quayEdgeX = (ch.cx + 1) * CHUNK; add(box(2.4, 1.7, 80, HARBOR_QUAY_MAT, quayEdgeX - 1.2, 0.85, bzo)); solid(quayEdgeX - 1.2, bzo, 1.2, 40, 'building');
+    for (let z = -half; z <= half; z += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, quayEdgeX - 0.7, 1.05, bzo + z));
+    for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX - 0.35, 0.7, bzo + z, false));
+    harborGantryCrane(ch.group, quayEdgeX - 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX - 14, bzo + 14, 30, rng, solid);
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX + 16, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
+  } else if (side === 'south') {
+    quayEdgeZ = ch.cz * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ + 1.2)); solid(bxo, quayEdgeZ + 1.2, 40, 1.2, 'building');
+    for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ + 0.7));
+    for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ + 0.35, false));
+    harborGantryCrane(ch.group, bxo - 12, quayEdgeZ + 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ + 14, 30, rng, solid);
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ - 16, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
+  } else {
+    quayEdgeZ = (ch.cz + 1) * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ - 1.2)); solid(bxo, quayEdgeZ - 1.2, 40, 1.2, 'building');
+    for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ - 0.7));
+    for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ - 0.35, false));
+    harborGantryCrane(ch.group, bxo - 12, quayEdgeZ - 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ - 14, 30, rng, solid);
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ + 16, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
+  }
+  // small stack behind cranes
+  if (side === 'west') harborContainerStackSolid(ch.group, bxo + 18, bzo, rng, 1, 2, 2, solid);
+  else if (side === 'east') harborContainerStackSolid(ch.group, bxo - 18, bzo, rng, 1, 2, 2, solid);
+  else if (side === 'south') harborContainerStackSolid(ch.group, bxo, bzo + 18, rng, 2, 1, 2, solid);
+  else harborContainerStackSolid(ch.group, bxo, bzo - 18, rng, 2, 1, 2, solid);
+  // No internal yellow/white markings (issue 5) — uniform
+  // Outer fence: inset 8m inside harbor so city street (16m) stays fully outside (fixes lane blocked)
+  // Seaward side (quay) has wall, not fence
+  for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    if (harborInfo(ch.cx+dx, ch.cz+dz)) continue;
+    const seaward = (side==='west'&&dx===-1)||(side==='east'&&dx===1)||(side==='south'&&dz===-1)||(side==='north'&&dz===1);
+    if (seaward) continue;
+    const inlandDir = (side==='west'&&dx===1)||(side==='east'&&dx===-1)||(side==='south'&&dz===1)||(side==='north'&&dz===-1);
+    if(inlandDir){
+      if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'east'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
+      else if(dx===-1){ const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'west'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+      else if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
+      else { const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
+    } else {
+      let fx0,fz0,fx1,fz1;
+      if(dx===1){ fx0=x0+CHUNK-PAVE_OUT; fz0=z0; fx1=x0+CHUNK-PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dx===-1){ fx0=x0+PAVE_OUT; fz0=z0; fx1=x0+PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dz===1){ fx0=x0; fz0=z0+CHUNK-PAVE_OUT; fx1=x0+CHUNK; fz1=z0+CHUNK-PAVE_OUT; }
+      else { fx0=x0; fz0=z0+PAVE_OUT; fx1=x0+CHUNK; fz1=z0+PAVE_OUT; }
+      harborFenceRun(ch,ch.group,add,solid,fx0,fz0,fx1,fz1);
+    }
+  }
+  if (info.along === 0 && info.inland === 0) ch.landmarks = (ch.landmarks||[]).concat([{ x: bxo + 8, z: bzo, name: 'HARBOUR QUAY', prio: 10 }]);
+}
+function buildHarborYard({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }) {
+  const ySide = harborInfo(ch.cx,ch.cz)?.side || 'west';
+  const yWestInset = harborInfo(ch.cx-1,ch.cz) ? 0 : ((ySide==='west')?0:PAD_IN);
+  const yEastInset = harborInfo(ch.cx+1,ch.cz) ? 0 : ((ySide==='east')?0:PAD_IN);
+  const ySouthInset = harborInfo(ch.cx,ch.cz-1) ? 0 : ((ySide==='south')?0:PAD_IN);
+  const yNorthInset = harborInfo(ch.cx,ch.cz+1) ? 0 : ((ySide==='north')?0:PAD_IN);
+  const yPw = 80 - yWestInset - yEastInset, yPd = 80 - ySouthInset - yNorthInset;
+  const yPox = (yWestInset - yEastInset)/2, yPoz = (ySouthInset - yNorthInset)/2;
+  padBox(yPw, yPd, mat(0x8a8d93), yPox, yPoz);
+  harborContainerStackSolid(ch.group, bxo - 16, bzo - 10, rng, 3, 4, 3, solid);
+  harborContainerStackSolid(ch.group, bxo + 14, bzo + 12, rng, 3, 3, 3, solid);
+  harborContainerStackSolid(ch.group, bxo, bzo - 22, rng, 2, 2, 2, solid);
+  harborYardCrane(ch.group, bxo - 10, bzo - 10, solid); harborYardCrane(ch.group, bxo + 10, bzo + 12, solid);
+  add(box(10, 3.5, 6, mat(0xd8dde3), bxo + 18, 2.0, bzo - 18, false)); add(box(8, 2.8, 5, mat(0x2b8a5a), bxo - 20, 1.65, bzo + 20, false));
+  solid(bxo + 18, bzo - 18, 5, 3, 'building'); solid(bxo - 20, bzo + 20, 4, 2.5,'building');
+  const x0 = ch.cx * CHUNK, z0 = ch.cz * CHUNK;
+  const yInfo = harborInfo(ch.cx,ch.cz);
+  for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    if (harborInfo(ch.cx+dx, ch.cz+dz)) continue;
+    const seaward = (yInfo.side==='west'&&dx===-1)||(yInfo.side==='east'&&dx===1)||(yInfo.side==='south'&&dz===-1)||(yInfo.side==='north'&&dz===1);
+    if (seaward) continue;
+    const inlandDir = (yInfo.side==='west'&&dx===1)||(yInfo.side==='east'&&dx===-1)||(yInfo.side==='south'&&dz===1)||(yInfo.side==='north'&&dz===-1);
+    if(inlandDir){
+      if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'east'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
+      else if(dx===-1){ const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'west'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+      else if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
+      else { const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
+    } else {
+      let fx0,fz0,fx1,fz1;
+      if(dx===1){ fx0=x0+CHUNK-PAVE_OUT; fz0=z0; fx1=x0+CHUNK-PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dx===-1){ fx0=x0+PAVE_OUT; fz0=z0; fx1=x0+PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dz===1){ fx0=x0; fz0=z0+CHUNK-PAVE_OUT; fx1=x0+CHUNK; fz1=z0+CHUNK-PAVE_OUT; }
+      else { fx0=x0; fz0=z0+PAVE_OUT; fx1=x0+CHUNK; fz1=z0+PAVE_OUT; }
+      harborFenceRun(ch,ch.group,add,solid,fx0,fz0,fx1,fz1);
+    }
+  }
+  if (yInfo.inland === 1 && yInfo.along === 0) ch.landmarks = (ch.landmarks||[]).concat([{ x: bxo, z: bzo, name: 'PORT WEST', prio: 10 }]);
+}
+function buildHarborWarehouse({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }) {
+  const wSide = harborInfo(ch.cx,ch.cz)?.side || 'west';
+  const wWestInset = harborInfo(ch.cx-1,ch.cz) ? 0 : ((wSide==='west')?0:PAD_IN);
+  const wEastInset = harborInfo(ch.cx+1,ch.cz) ? 0 : ((wSide==='east')?0:PAD_IN);
+  const wSouthInset = harborInfo(ch.cx,ch.cz-1) ? 0 : ((wSide==='south')?0:PAD_IN);
+  const wNorthInset = harborInfo(ch.cx,ch.cz+1) ? 0 : ((wSide==='north')?0:PAD_IN);
+  const wPw = 80 - wWestInset - wEastInset, wPd = 80 - wSouthInset - wNorthInset;
+  const wPox = (wWestInset - wEastInset)/2, wPoz = (wSouthInset - wNorthInset)/2;
+  padBox(wPw, wPd, mat(0x9aa0a8), wPox, wPoz);
+  const shedMat = mat(0xc7cbd1), roofMat = mat(0x8a919a), doorMat = mat(0x3d4149);
+  add(box(36, 6.5, 16, shedMat, bxo - 10, 3.5, bzo - 10)); add(box(36.4, 0.5, 16.4, roofMat, bxo - 10, 6.9, bzo - 10)); solid(bxo - 10, bzo - 10, 18, 8, 'building');
+  for (let x = -26; x <= 6; x += 6) add(box(2.8, 3.2, 0.2, doorMat, bxo + x, 1.7, bzo-2, false));
+  add(box(28, 5.8, 14, shedMat, bxo + 12, 3.15, bzo + 14)); add(box(28.4, 0.5, 14.4, roofMat, bxo + 12, 6.2, bzo + 14)); solid(bxo + 12, bzo + 14, 14, 7, 'building');
+  const truckMat = mat(0x245a8a);
+  for (let i = 0; i < 3; i++) { const tx = bxo - 10 + (i - 1) * 7.5, tz = bzo + 2.2; add(box(3.2, 2.4, 7.5, truckMat, tx, 1.45, tz)); solid(tx, tz, 1.6, 3.8, 'building'); }
+  harborContainerStackSolid(ch.group, bxo - 18, bzo + 22, rng, 1, 2, 2, solid);
+  add(box(8, 2.8, 8, mat(0xe8e8e8), bxo - 18, 1.65, bzo + 18, false)); solid(bxo - 18, bzo+18,4,4,'building');
+  const x0 = ch.cx * CHUNK, z0 = ch.cz * CHUNK;
+  const info = harborInfo(ch.cx, ch.cz);
+  // Outer fence — inset 8m so city street stays clear (fixes lane blocked)
+  // Warehouse (inland 2) has gate logic below, so skip generic there
+  if (info.inland !== 2) for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    if (harborInfo(ch.cx+dx, ch.cz+dz)) continue;
+    const seaward = (info.side==='west'&&dx===-1)||(info.side==='east'&&dx===1)||(info.side==='south'&&dz===-1)||(info.side==='north'&&dz===1);
+    if (seaward) continue;
+    const inlandDir = (info.side==='west'&&dx===1)||(info.side==='east'&&dx===-1)||(info.side==='south'&&dz===1)||(info.side==='north'&&dz===-1);
+    if(inlandDir){
+      if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'east'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
+      else if(dx===-1){ const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+8,fx,z0+CHUNK-8); harborGate(add,solid,ch,prop,gx,z0,'west'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+      else if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
+      else { const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+8,fz,x0+CHUNK-8,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
+    } else {
+      let fx0,fz0,fx1,fz1;
+      if(dx===1){ fx0=x0+CHUNK-PAVE_OUT; fz0=z0; fx1=x0+CHUNK-PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dx===-1){ fx0=x0+PAVE_OUT; fz0=z0; fx1=x0+PAVE_OUT; fz1=z0+CHUNK; }
+      else if(dz===1){ fx0=x0; fz0=z0+CHUNK-PAVE_OUT; fx1=x0+CHUNK; fz1=z0+CHUNK-PAVE_OUT; }
+      else { fx0=x0; fz0=z0+PAVE_OUT; fx1=x0+CHUNK; fz1=z0+PAVE_OUT; }
+      harborFenceRun(ch,ch.group,add,solid,fx0,fz0,fx1,fz1);
+    }
+  }
+  if (info.inland === 2) {
+    if (info.along === 0) {
+      if (info.side === 'east') {
+        const fx = x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET;
+        const gzS=z0, gzN=z0+CHUNK;
+        harborFenceRun(ch, ch.group, add, solid, fx, gzS+8, fx, gzN-8);
+        harborGate(add,solid,ch,prop,gx,gzS,info.side);
+        harborGate(add,solid,ch,prop,gx,gzN,info.side);
+      } else if (info.side === 'west') {
+        const fx = x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET;
+        const gzS=z0, gzN=z0+CHUNK;
+        harborFenceRun(ch, ch.group, add, solid, fx, gzS+8, fx, gzN-8);
+        harborGate(add,solid,ch,prop,gx,gzS,info.side);
+        harborGate(add,solid,ch,prop,gx,gzN,info.side);
+      } else if (info.side === 'north') {
+        const fz=z0+PAVE_OUT, gz2=fz+HARBOR_GATE_INSET, gxW=x0, gxE=x0+CHUNK;
+        harborFenceRun(ch, ch.group, add, solid, gxW+8, fz, gxE-8, fz);
+        harborGate(add,solid,ch,prop,gxW,gz2,info.side);
+        harborGate(add,solid,ch,prop,gxE,gz2,info.side);
+      } else {
+        const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET, gxW=x0, gxE=x0+CHUNK;
+        harborFenceRun(ch, ch.group, add, solid, gxW+8, fz, gxE-8, fz);
+        harborGate(add,solid,ch,prop,gxW,gz,info.side);
+        harborGate(add,solid,ch,prop,gxE,gz,info.side);
+      }
+    } else {
+      if (info.side === 'east') {
+        harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0, x0+PAVE_OUT, z0+CHUNK);
+        if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+CHUNK, z0+PAVE_OUT);
+        else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT, x0+CHUNK, z0+CHUNK-PAVE_OUT);
+      } else if (info.side === 'west') {
+        harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0, x0+CHUNK-PAVE_OUT, z0+CHUNK);
+        if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT);
+        else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0, z0+CHUNK-PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
+      } else if (info.side === 'north') {
+        harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT);
+        if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+PAVE_OUT, z0+CHUNK);
+        else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK);
+      } else {
+        harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
+        if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT);
+        else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
+      }
+    }
+  }
+}
+
 // ---- Car-park occupancy ----
 // Ordinary cars standing in a car park at a given time of day. Shared by the chunk generator and the live
 // parking system in traffic.js so both always agree: a lot never drops below `floorCars` ordinary cars, never
@@ -161,6 +691,11 @@ function closedStreets({ prop, add, tree, x0, z0, cx, cz, solid, ch, group }) {
   // barrier stands across the mouth at each end, so no car drives in. The grass sits on top of the road texture, so it
   // hides the road beneath it. Side order: 0 = west, 1 = east, 2 = south, 3 = north (as in atGradeSide).
   const closed = [0, 1, 2, 3].map(si => si === 0 ? segClosed('z', cx, cz) : si === 1 ? segClosed('z', cx + 1, cz) : si === 2 ? segClosed('x', cx, cz) : segClosed('x', cx, cz + 1));
+  // Harbour internal streets are private - closed for traffic but don't build grass filler inside the compound
+  for (let i = 0; i < 4; i++) {
+    const harborClosed = i === 0 ? (!!harborInfo(cx - 1, cz) && !!harborInfo(cx, cz)) : i === 1 ? (!!harborInfo(cx, cz) && !!harborInfo(cx + 1, cz)) : i === 2 ? (!!harborInfo(cx, cz - 1) && !!harborInfo(cx, cz)) : (!!harborInfo(cx, cz) && !!harborInfo(cx, cz + 1));
+    if (harborClosed) closed[i] = false;
+  }
   // The river (see riverSeg in flyover.js): a closed street on the river row is water, with banks and bridges. It is not
   // grass, and it has no barrier and no construction site.
   const river = [false, false, closed[2] && riverSeg('x', cx, cz), closed[3] && riverSeg('x', cx, cz + 1)];
@@ -361,8 +896,9 @@ function constructionSite({ group, solid, ch, add, x0, site, z0, prop, cx, cz })
   if (site[1]) siteOn('z', x0 + 76, z0 + 30, false, siteSeed(cx, cz, 1));
   if (site[2]) siteOn('x', z0 + 4, x0 + 30, true, siteSeed(cx, cz, 2));
   if (site[3]) siteOn('x', z0 + 76, x0 + 30, false, siteSeed(cx, cz, 3));
-  // Traffic light set at this chunk's corner (every chunk corner = one 4-way intersection, built exactly once)
-  buildIntersection(x0, z0, group, ch);
+  // Traffic light set at this chunk's corner - skip inside harbor private yard (any junction touching harbor)
+  const harborJunc = !!harborInfo(cx, cz) || !!harborInfo(cx - 1, cz) || !!harborInfo(cx, cz - 1) || !!harborInfo(cx - 1, cz - 1);
+  if (!harborJunc) buildIntersection(x0, z0, group, ch);
   // Junction plaza: the chunk that owns the corner (x0, z0) = (cx*CHUNK, cz*CHUNK) builds the plaza for the
   // junction at that corner, if plazaAt(cx, cz) says it should have one. The plaza is a circular island with a
   // curb and a central feature (fountain, statue, or tree grove) — it sits on top of the road texture, and
@@ -680,6 +1216,15 @@ function typeSelection({ x0, z0, bx, bz, rng, cx, cz }) {
   if (CIVIC_TYPES.has(type) && !CIVIC_PINNED.some(([px, pz]) => px === cx && pz === cz) && !civicWins(cx, cz)) {
     for (let k = 1; k <= 8 && CIVIC_TYPES.has(type); k++) type = pickBlockType(districtOf(cx, cz), (t + 0.37 * k) % 1);
     if (CIVIC_TYPES.has(type)) type = 'park';
+  }
+  // Harbor: large multi-block port on the coast — overrides district pick
+  const hb = harborInfo(cx, cz);
+  if (hb) {
+    if (hb.inland === 0) type = 'harbor_quay';
+    else if (hb.inland === 1) type = 'harbor_yard';
+    else type = 'harbor_warehouse';
+    // harbors are never estates / neighbourhoods
+    return { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan: null, estateNow: false };
   }
   return { bxo, bzo, kerbIn, cutClear, t, type, nbRX, nbRZ, nbPlan, estateNow };
 }
@@ -2324,7 +2869,8 @@ function generateChunk(cx, cz, defer = false) {
   const prop = (kind, x, z, rotY = 0, y = 0.15) => {
     if (!onIsland(x, z)) return;                               // the far half of a coast street is the sea's: nothing stands there
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // the river's water and banks: nothing stands in it
-    if (onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) return;   // that strip is carriageway now, not pavement
+    if (harborInfo(Math.floor(x / CHUNK), Math.floor(z / CHUNK)) && kind !== 'barrier') return; // harbor yard: only gate barriers allowed
+    if ((onAtGradeLane(x, z, 0.7) || inGate(x, z, 0.7)) && kind !== 'barrier') return;   // gate barriers are on carriageway by design
     const d = PROP_DEFS[kind], m = own(ch, mergeStandalone(d.make())); m.position.set(x, y + (onWalk(x, z) ? WALK_Y : 0), z); m.rotation.y = rotY; group.add(m);
     const rec = { mesh: m, x, z, r: d.r, drag: d.drag, color: d.color, kind, broken: false, soft: !!d.soft };
     ch.props.push(rec); return rec;
@@ -2342,6 +2888,7 @@ function generateChunk(cx, cz, defer = false) {
   // (`rand` is the stream the tree's kind and turn come from: the block's own, unless the caller keeps one apart)
   const tree = (x, z, y = 0.2, rand = rng) => {
     if (Math.abs(z - RIVER_ROW * CHUNK) < 8.8) return;          // nothing is planted in the river
+    if (harborInfo(Math.floor(x / CHUNK), Math.floor(z / CHUNK))) return; // no trees inside harbor — cement yard only
     if (onAtGradeLane(x, z, 1.6) || inGate(x, z, 1.6)) return;                      // a soil bed would stand in the at-grade lane
     const v = rand() < 0.45 ? 4 + Math.floor(rand() * 2) : Math.floor(rand() * 4), rot = rand() * PI;
     if (!onIsland(x, z)) return;                                 // (after the draws, so the rest of the block keeps its trees)
@@ -2445,6 +2992,12 @@ function generateChunk(cx, cz, defer = false) {
     shopsBlock({ PARKED_COLORS, PARKED_KINDS, add, bx, bxo, bz, bzo, ch, group, nShop, padBox, parkedCar, prop, rng, shopW, solid, tree });
   } else if (type === 'harbour') {
     harbourBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid, ch });
+  } else if (type === 'harbor_quay') {
+    buildHarborQuay({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop });
+  } else if (type === 'harbor_yard') {
+    buildHarborYard({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop });
+  } else if (type === 'harbor_warehouse') {
+    buildHarborWarehouse({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop });
   } else if (type === 'bazaar') {
     bazaarBlock({ add, bx, bz, bxo, bzo, padBox, rng, solid });
   } else if (type === 'factory') {
@@ -2452,37 +3005,32 @@ function generateChunk(cx, cz, defer = false) {
   } else { // industrial
     industrialBlock({ add, bx, bx0, bxo, bz, bz0, bzo, ch, padBox, prop, r, ramp, rng, solid });
   }
-  // Utility poles. A line of poles stands on a pavement 20 m either side of the block's middle, 29.5 m out from its
-  // centre (the paving band is 27.4 to 31.5 m). Two kinds of line:
-  //  - a utility neighbourhood (utilityNbhd) has a line on all four of its sides, and it ends at the neighbourhood's edge;
-  //  - the avenue (x = 0) and the cross street (z = 0) carry a line on the pavement facing them, in every block beside
-  //    them, so the line runs on through the whole city along each main road.
-  // Wires run between poles 40 m apart: inside the block, and across the boundary on to the next block's first pole.
-  const nbLines = !!nbPlan && utilityNbhd(nbRX, nbRZ);
-  const avS = cx === 0 ? -1 : cx === -1 ? 1 : 0;    // the side of this block that faces the avenue (x = 0)
-  const crS = cz === 0 ? -1 : cz === -1 ? 1 : 0;    // the side that faces the cross street (z = 0)
-  const zSides = nbLines ? [-1, 1] : avS ? [avS] : [];   // x-side pavements: their line runs along z
-  const xSides = nbLines ? [-1, 1] : crS ? [crS] : [];   // z-side pavements: their line runs along x
-  const utility = zSides.length > 0 || xSides.length > 0;
-  // The walkway is laid once the block is built, so it can open the estate's entrance (ch.gate, set by suburbBlock).
-  const sw = sidewalkPieces(cx, cz, swStyle, filled, ch.gate || null);
-  const powerRuns = utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides });
-  streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, reserve, rng });
-  safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
+  // Harbor is a private yard - no public street furniture, poles, lights, trees inside it
+  const isHarbor = !!harborInfo(cx, cz);
+  const nbLines = !isHarbor && !!nbPlan && utilityNbhd(nbRX, nbRZ);
+  const avS = !isHarbor && cx === 0 ? -1 : !isHarbor && cx === -1 ? 1 : 0;
+  const crS = !isHarbor && cz === 0 ? -1 : !isHarbor && cz === -1 ? 1 : 0;
+  const zSides = isHarbor ? [] : nbLines ? [-1, 1] : avS ? [avS] : [];
+  const xSides = isHarbor ? [] : nbLines ? [-1, 1] : crS ? [crS] : [];
+  const utility = !isHarbor && (zSides.length > 0 || xSides.length > 0);
+  const sw = isHarbor ? { curb: [], walk: [], grass: [], border: [], kerb: [], bed: [], bedEdge: [], st: { verge: 0, mat: 'grass', tile: 3 } } : sidewalkPieces(cx, cz, swStyle, filled, ch.gate || null);
+  const powerRuns = isHarbor ? [] : utilityPoles({ bx, bz, cx, cz, nbLines, nbRX, nbRZ, prop, utility, xSides, zSides });
+  if (!isHarbor) streetlights({ avS, bx, bz, closed, crS, cutClear, kerbIn, nbLines, prop, reserve, rng });
+  if (!isHarbor) safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedCar, prop, r, rng, safe, x0, z0 });
   const occupied = (x, z, rad) => ch.solids.some(o => o.hx > 0 && Math.abs(x - o.x) < o.hx + rad && Math.abs(z - o.z) < o.hz + rad)
     || ch.keepouts.some(k => Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad)
     || ch.props.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad)
     || reserved.some(pr => Math.hypot(x - pr.x, z - pr.z) < pr.r + rad)
     || inGate(x, z, rad);
-  furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz });
-  dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop });
-  hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz });
-  streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
-  // the kerb's own furniture, last: each has a generator of its own, so the block above is laid out as before
-  meteredParking({ add, bx, bz, ch, closed, cutClear, cx, cz, inGate, kerbIn, occupied, prop, type, x0, z0 });
-  phoneBooths({ bx, bz, ch, closed, cutClear, cx, cz, kerbIn, occupied, prop, type, x0, z0 });
-  sidewalkSurfaces({ sw, swPainted, ch });
-  crossings({ x0, z0, kerbIn, add, cx, cz });
+  if (!isHarbor) furniture({ type, rng, closed, kerbIn, bx, bz, occupied, cutClear, prop, cx, cz });
+  if (!isHarbor) dumpsters({ type, rng, t, bx, r, bz, occupied, cutClear, prop });
+  if (!isHarbor) hedges({ type, rng, t, bx, bz, yardGap, occupied, prop, cx, cz });
+  if (!isHarbor) streetTrees({ type, sw, t, r, bx, bz, occupied, tree, cx, cz });
+  else { ch.trees = []; ch.treeInstances = []; }
+  if (!isHarbor) meteredParking({ add, bx, bz, ch, closed, cutClear, cx, cz, inGate, kerbIn, occupied, prop, type, x0, z0 });
+  if (!isHarbor) phoneBooths({ bx, bz, ch, closed, cutClear, cx, cz, kerbIn, occupied, prop, type, x0, z0 });
+  if (!isHarbor) sidewalkSurfaces({ sw, swPainted, ch });
+  if (!isHarbor) crossings({ x0, z0, kerbIn, add, cx, cz });
   pruneBlockedRoadworks(ch);
   freeStreetProps(ch);
   tramWires({ add, box, mat, ch, poles: tramPoles });   // the span wires, between the poles that survived
@@ -2544,6 +3092,8 @@ const STREAM_MS = 6, PREFETCH_MS = 4, MERGE_MS = 3;
 // ---- the island's coast (js/island.js): a concrete seawall along each side of the island, on the block's own edge ----
 const SEAWALL_TOP = 1.2, SEAWALL_BOTTOM = -0.3;   // SEAWALL_T (js/island.js) thick; it stands on the ground and reaches down into the sea
 function seaWall({ add, solid, x0, z0, cx, cz }) {
+  // Harbor quay builds its own quay wall — skip the generic seawall there
+  if (harborInfo(cx, cz)) return;
   const edge = [];
   if (cx === -ISLAND_R) edge.push([x0 + SEAWALL_T / 2, z0 + 40, SEAWALL_T, CHUNK]);
   if (cx === ISLAND_R - 1) edge.push([x0 + CHUNK - SEAWALL_T / 2, z0 + 40, SEAWALL_T, CHUNK]);
