@@ -392,25 +392,26 @@ function harborContainerShip(g, x, z, len, beam, heading, rng) {
     g.add(box(4.0, 0.85, 1.0, mat(0xf28a1e), accX, deckY+1.2, z+beam*0.48+0.7));
     g.add(box(4.0, 0.85, 1.0, mat(0xf28a1e), accX, deckY+1.2, z-beam*0.48-0.7));
   }
-  // containers — bays along length between bow and accommodation
-  const usable = hd*0.68;
-  const rows = Math.max(1, Math.floor(usable/6.2));
+  // containers — bays along length, evenly spaced from bow to stern (no large gaps)
+  const usable = hd*0.82;
+  const rows = Math.max(1, Math.floor(usable/6.05));
   const cols = Math.max(3, Math.min(4, Math.floor((hw*0.88)/2.55)));
-  const startOff = -hd*0.32;
+  const startOff = -usable/2;
   for (let b=0;b<rows;b++){
-    const along = startOff + b*6.15 + 3;
-    if (Math.abs((isNS?accZ:accX) - (isNS?z: x) - along + (isNS?hd*0.5:hw*0.5) -7) < 6) continue;
-    // hatch cover
-    if (isNS) g.add(box(hw*0.88, 0.14, 5.8, mat(0x8e949e), x, deckY+0.18, z - hd*0.5 +12 + along));
-    else g.add(box(5.8, 0.14, hw*0.88, mat(0x8e949e), x - hd*0.5 +12 + along, deckY+0.18, z));
+    const along = startOff + b*6.05 + 3;
+    // skip only the funnel footprint (2m) instead of 6m gap
+    if (Math.abs((isNS?accZ:accX) - (isNS?z: x) - along + (isNS?hd*0.5:hw*0.5) -7) < 2.5) continue;
+    // hatch cover under containers
+    if (isNS) g.add(box(hw*0.88, 0.14, 5.8, mat(0x8e949e), x, deckY+0.18, z + along));
+    else g.add(box(5.8, 0.14, hw*0.88, mat(0x8e949e), x + along, deckY+0.18, z));
     let tiers = 3;
     if (b<1) tiers = 2 + Math.floor(R()*2);
     else if (b>rows-2) tiers = 2 + Math.floor(R()*1.2);
     else tiers = 3 + Math.floor(R()*2);
     for (let c=0;c<cols;c++){
       const across = (c-(cols-1)/2)*2.55;
-      const cx2 = isNS ? x + across : x - hd*0.5 +12 + along;
-      const cz2 = isNS ? z - hd*0.5 +12 + along : z + across;
+      const cx2 = isNS ? x + across : x + along;
+      const cz2 = isNS ? z + along : z + across;
       for (let k=0;k<tiers;k++){
         const col = HARBOR_CONTAINER_COLORS[Math.floor(R()*HARBOR_CONTAINER_COLORS.length)];
         g.add(box(isNS?2.38:5.72, 2.38, isNS?5.72:2.38, mat(col), cx2, deckY+0.38+k*2.44+1.19, cz2));
@@ -439,29 +440,29 @@ function buildHarborQuay({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }
     for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX + 0.35, 0.7, bzo + z, false));
     // quay gantry cranes — restored, now alongside ship (not blocking)
     harborGantryCrane(ch.group, quayEdgeX + 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX + 14, bzo + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX - 16, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX - 22, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 32, z0, 32, CHUNK, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 32, z0, 32, CHUNK, 'water']]); }
   } else if (side === 'east') {
     quayEdgeX = (ch.cx + 1) * CHUNK; add(box(2.4, 1.7, 80, HARBOR_QUAY_MAT, quayEdgeX - 1.2, 0.85, bzo)); solid(quayEdgeX - 1.2, bzo, 1.2, 40, 'building');
     for (let z = -half; z <= half; z += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, quayEdgeX - 0.7, 1.05, bzo + z));
     for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX - 0.35, 0.7, bzo + z, false));
     harborGantryCrane(ch.group, quayEdgeX - 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX - 14, bzo + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX + 16, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX + 22, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 32, CHUNK, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 32, CHUNK, 'water']]); }
   } else if (side === 'south') {
     quayEdgeZ = ch.cz * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ + 1.2)); solid(bxo, quayEdgeZ + 1.2, 40, 1.2, 'building');
     for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ + 0.7));
     for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ + 0.35, false));
     harborGantryCrane(ch.group, bxo - 12, quayEdgeZ + 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ - 16, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ - 22, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 32, CHUNK, 32, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 32, CHUNK, 32, 'water']]); }
   } else {
     quayEdgeZ = (ch.cz + 1) * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ - 1.2)); solid(bxo, quayEdgeZ - 1.2, 40, 1.2, 'building');
     for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ - 0.7));
     for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ - 0.35, false));
     harborGantryCrane(ch.group, bxo - 12, quayEdgeZ - 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ - 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ + 16, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ + 22, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 32, 'water']]); }
+    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 32, 'water']]); }
   }
   // small stack behind cranes
   if (side === 'west') harborContainerStackSolid(ch.group, bxo + 18, bzo, rng, 1, 2, 2, solid);

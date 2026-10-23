@@ -483,23 +483,23 @@ function drawBase() {
         else if (hb.side === 'east') rect(x0 + CHUNK - 8, z0 + 10, 9, CHUNK - 20, C.water);
         else if (hb.side === 'south') rect(x0 + 10, z0 - 1, CHUNK - 20, 9, C.water);
         else rect(x0 + 10, z0 + CHUNK - 8, CHUNK - 20, 9, C.water);
-        // harbor ship placeholder (west central) — shows even before visited (110m long)
+        // harbor ship placeholder (west central) — shows even before visited (110m long) — offset -22 fully in water
         if(hb.side==='west'&&hb.inland===0&&hb.along===0){
-          rect(x0-22, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-20, z0+CHUNK/2-53, 8, 106, '#d2d6db');
-          for(let i=0;i<8;i++) rect(x0-19, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
-          rect(x0-20, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-19, z0+CHUNK/2-48, 6, 2, '#22262b');
+          rect(x0-28, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-26, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0-25, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+          rect(x0-26, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-25, z0+CHUNK/2-48, 6, 2, '#22262b');
         } else if(hb.side==='east'&&hb.inland===0&&hb.along===0){
-          rect(x0+CHUNK+10, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+12, z0+CHUNK/2-53, 8, 106, '#d2d6db');
-          for(let i=0;i<8;i++) rect(x0+CHUNK+13, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
-          rect(x0+CHUNK+12, z0+CHUNK/2-55, 8, 11, '#e9eef2');
+          rect(x0+CHUNK+16, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+18, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK+19, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+          rect(x0+CHUNK+18, z0+CHUNK/2-55, 8, 11, '#e9eef2');
         } else if(hb.side==='south'&&hb.inland===0&&hb.along===0){
-          rect(x0+CHUNK/2-55, z0-22, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-20, 106, 8, '#d2d6db');
-          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-19, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
-          rect(x0+CHUNK/2-55, z0-20, 11, 8, '#e9eef2');
+          rect(x0+CHUNK/2-55, z0-28, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-26, 106, 8, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-25, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+          rect(x0+CHUNK/2-55, z0-26, 11, 8, '#e9eef2');
         } else if(hb.side==='north'&&hb.inland===0&&hb.along===0){
-          rect(x0+CHUNK/2-55, z0+CHUNK+10, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+12, 106, 8, '#d2d6db');
-          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+13, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
-          rect(x0+CHUNK/2+44, z0+CHUNK+12, 11, 8, '#e9eef2');
+          rect(x0+CHUNK/2-55, z0+CHUNK+16, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+18, 106, 8, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+19, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+          rect(x0+CHUNK/2+44, z0+CHUNK+18, 11, 8, '#e9eef2');
         } else {
           rect(x0 + 18, z0 + 18, 18, 10, '#c94a3a'); rect(x0 + 40, z0 + 32, 16, 10, '#3a7bd5'); rect(x0 + 22, z0 + 50, 20, 8, '#e8d840');
         }
@@ -537,24 +537,24 @@ function drawBase() {
         if (hb.inland === 0) rect(x0 + 14, z0 + CHUNK / 2 - 1, CHUNK - 28, 2, '#e8a00a');
         if (hb.inland === 0 && hb.along === 0) { rect(x0 + 6, z0 + 14, 14, 4, '#f2a90e'); rect(x0 + 6, z0 + 58, 14, 4, '#f2a90e'); rect(x0 - 8, z0 + 6, 8, 68, '#1a3a5a'); }
         if (hb.inland === 1 && hb.along === 0) { rect(x0 + 10, z0 + 14, 12, 3, '#f2a90e'); rect(x0 + 10, z0 + 58, 12, 3, '#f2a90e'); }
-        // harbor container ship on map (central quay) — 110m long, visible even at low zoom
+        // harbor container ship on map (central quay) — 110m long, visible even at low zoom — offset -22 fully in water
         if(hb.inland===0&&hb.along===0){
           if(hb.side==='west'){
-            rect(x0-22, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-20, z0+CHUNK/2-53, 8, 106, '#d2d6db');
-            for(let i=0;i<8;i++) rect(x0-19, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
-            rect(x0-20, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-19, z0+CHUNK/2-48, 6, 2, '#22262b'); rect(x0-19, z0+CHUNK/2-52, 6, 0.6, '#f2a900');
+            rect(x0-28, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-26, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0-25, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+            rect(x0-26, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-25, z0+CHUNK/2-48, 6, 2, '#22262b'); rect(x0-25, z0+CHUNK/2-52, 6, 0.6, '#f2a900');
           } else if(hb.side==='east'){
-            rect(x0+CHUNK+10, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+12, z0+CHUNK/2-53, 8, 106, '#d2d6db');
-            for(let i=0;i<8;i++) rect(x0+CHUNK+13, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
-            rect(x0+CHUNK+12, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0+CHUNK+13, z0+CHUNK/2-48, 6, 2, '#22262b');
+            rect(x0+CHUNK+16, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+18, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK+19, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+            rect(x0+CHUNK+18, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0+CHUNK+19, z0+CHUNK/2-48, 6, 2, '#22262b');
           } else if(hb.side==='south'){
-            rect(x0+CHUNK/2-55, z0-22, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-20, 106, 8, '#d2d6db');
-            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-19, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
-            rect(x0+CHUNK/2-55, z0-20, 11, 8, '#e9eef2'); rect(x0+CHUNK/2-48, z0-19, 2, 6, '#22262b');
+            rect(x0+CHUNK/2-55, z0-28, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-26, 106, 8, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-25, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+            rect(x0+CHUNK/2-55, z0-26, 11, 8, '#e9eef2'); rect(x0+CHUNK/2-48, z0-25, 2, 6, '#22262b');
           } else {
-            rect(x0+CHUNK/2-55, z0+CHUNK+10, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+12, 106, 8, '#d2d6db');
-            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+13, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
-            rect(x0+CHUNK/2+44, z0+CHUNK+12, 11, 8, '#e9eef2'); rect(x0+CHUNK/2+48, z0+CHUNK+13, 2, 6, '#22262b');
+            rect(x0+CHUNK/2-55, z0+CHUNK+16, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+18, 106, 8, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+19, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+            rect(x0+CHUNK/2+44, z0+CHUNK+18, 11, 8, '#e9eef2'); rect(x0+CHUNK/2+48, z0+CHUNK+19, 2, 6, '#22262b');
           }
         }
         if(isWestEastGate){
