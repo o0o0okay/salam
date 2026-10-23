@@ -42,8 +42,16 @@ let spawnT = 6, nextId = 1;
 export function isTramLine(axis, k) {
   return k !== 0 && hash2(k, axis === 'z' ? 77 : 91) % 3 === 0;
 }
+// Harbor: no tram rails inside the 9-block harbor yard
+const HARBOR_TRAM_X0 = -25, HARBOR_TRAM_X1 = -23, HARBOR_TRAM_Z0 = 3, HARBOR_TRAM_Z1 = 5;
+function isHarborTramBlock(cx, cz) { return cx >= HARBOR_TRAM_X0 && cx <= HARBOR_TRAM_X1 && cz >= HARBOR_TRAM_Z0 && cz <= HARBOR_TRAM_Z1; }
+function isHarborTramSeg(axis, jx, jz) {
+  if (axis === 'z') return isHarborTramBlock(jx - 1, jz) && isHarborTramBlock(jx, jz);
+  return isHarborTramBlock(jx, jz - 1) && isHarborTramBlock(jx, jz);
+}
 // Whether the street segment from junction (jx, jz) to its next one along the axis may carry rails.
 export function tramSegment(axis, jx, jz) {
+  if (isHarborTramSeg(axis, jx, jz)) return false;
   if (!isTramLine(axis, axis === 'z' ? jx : jz)) return false;
   if (segClosed(axis, jx, jz) || segFilled(axis, jx, jz)) return false;
   const ex = axis === 'x' ? jx + 1 : jx, ez = axis === 'x' ? jz : jz + 1;

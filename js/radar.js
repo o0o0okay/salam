@@ -28,6 +28,8 @@ import { currentMark, currentRoute, paintGround } from './map.js';
 import { known, mapVersion } from './mapData.js';
 import { FRESH, SEARCH_R, searchCentre } from './police.js';
 import { ships, shipOutline } from './ships.js';
+import { harborInfo } from './harbor.js';
+import { ISLAND_R } from './island.js';
 
 const S = 260, R = 130;                  // the radar's drawing size, in its own units (the canvas has more pixels on a sharp screen)
 const RANGE_MIN = 95, RANGE_MAX = 140;   // metres from the car to the rim: standing, and flat out
@@ -172,6 +174,30 @@ function drawPickups(s) {
     rctx.strokeStyle = '#ffffff'; rctx.lineWidth = 1.4 / s; rctx.stroke();
   }
 }
+// harbor moored container ship (feeder) — drawn like open-sea ships but stationary
+function harborShipAt(hb, out){
+  if(!hb || hb.inland!==0 || hb.along!==0) return null;
+  let x,z,h;
+  if(hb.side==='west'){ x=hb.anchor.cx*CHUNK -16; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
+  else if(hb.side==='east'){ x=(hb.anchor.cx+1)*CHUNK +16; z=hb.anchor.cz*CHUNK+40; h=Math.PI/2; }
+  else if(hb.side==='south'){ x=hb.anchor.cx*CHUNK+40; z=hb.anchor.cz*CHUNK -16; h=0; }
+  else { x=hb.anchor.cx*CHUNK+40; z=(hb.anchor.cz+1)*CHUNK +16; h=0; }
+  return { x, z, h, L:110, B:14, type:'cargo', T:{navy:false} };
+}
+function drawHarborShips(s){
+  // single west harbor at -ISLAND_R,4 — find its hb
+  const hb=harborInfo(-ISLAND_R,4);
+  const a=harborShipAt(hb);
+  if(!a) return;
+  if(Math.hypot(a.x-player.x,a.z-player.z)-a.L/2 > range+4) return;
+  shipOutline(a, _hull);
+  rctx.beginPath(); _hull.forEach(([x,z],i)=>(i?rctx.lineTo(x,z):rctx.moveTo(x,z))); rctx.closePath();
+  rctx.fillStyle='#3a4552'; rctx.fill();
+  rctx.lineJoin='round'; rctx.strokeStyle='rgba(255,255,255,0.95)'; rctx.lineWidth=1.2/s; rctx.stroke();
+  // deck containers subtle
+  rctx.fillStyle='rgba(214,69,69,0.9)';
+  for(let i=0;i<3;i++){ const along=-20+i*12; const cx=a.x+Math.cos(a.h)*along, cz=a.z+Math.sin(a.h)*along; rctx.fillRect(cx-1.5, cz-2, 3,4); }
+}
 // the ships within its reach: each hull's outline at its true size (a pointed bow, a square stern), slate grey with a
 // white edge; the navy's darker
 const _hull = [];
@@ -183,6 +209,7 @@ function drawShips(s) {
     rctx.fillStyle = a.T.navy ? '#454e57' : '#6d7d8e'; rctx.fill();
     rctx.lineJoin = 'round'; rctx.strokeStyle = 'rgba(255,255,255,0.9)'; rctx.lineWidth = 1.2 / s; rctx.stroke();
   }
+  drawHarborShips(s);
 }
 function drawTraffic(s) {
   for (const c of civs) {

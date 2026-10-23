@@ -6,6 +6,7 @@ import { weatherSystem } from './weather.js';
 import { toast } from './ui.js';
 import { startGame, togglePause } from './flow.js';
 import { toggleMap, mapOpen } from './map.js';
+import { clearWanted, restoreWanted } from './rules.js';
 
 const keys = {};
 const touch = { left: false, right: false, brake: false, drift: false, nitro: false };
@@ -40,12 +41,21 @@ export function initInput() {
     if (e.code === 'KeyT' && !e.repeat && game.state === 'playing' && !game.paused && game.wanted < 5) {
       game.debugWanted = game.wanted + 1;
     }
+    // Y = پاک کردن کامل ستاره‌ها برای تست اسکله بدون تعقیب
+    if (e.code === 'KeyY' && !e.repeat && game.state === 'playing') {
+      if (game.wanted === 0) restoreWanted(); else clearWanted();
+    }
+    if (e.code === 'KeyU' && !e.repeat && game.state === 'playing') {
+      restoreWanted();
+    }
     if ((e.code === 'Enter' || e.code === 'Space') && game.state === 'menu') startGame();
     else if (e.code === 'Enter' && game.state === 'over' && game.overShown) startGame();
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
   window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
   bindTouch('bL', 'left'); bindTouch('bR', 'right'); bindTouch('bB', 'brake'); bindTouch('bD', 'drift'); bindTouch('bN', 'nitro');
+  // clear wanted button (HUD) - for testing harbor without chase
+  const cw = $('clearWantedBtn'); if (cw) cw.addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'playing') { if (game.wanted === 0) restoreWanted(); else clearWanted(); } });
   if (window.matchMedia && matchMedia('(pointer: coarse)').matches) { touchMode = true; $('touch').classList.add('on'); }
   window.addEventListener('touchstart', () => { if (!touchMode) { touchMode = true; } $('touch').classList.add('on'); }, { passive: true });
 }
