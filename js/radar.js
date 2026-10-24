@@ -209,7 +209,6 @@ function drawShips(s) {
     rctx.fillStyle = a.T.navy ? '#454e57' : '#6d7d8e'; rctx.fill();
     rctx.lineJoin = 'round'; rctx.strokeStyle = 'rgba(255,255,255,0.9)'; rctx.lineWidth = 1.2 / s; rctx.stroke();
   }
-  drawHarborShips(s);
 }
 function drawTraffic(s) {
   for (const c of civs) {
