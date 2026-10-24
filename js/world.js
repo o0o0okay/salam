@@ -251,13 +251,13 @@ function harborGate(add,solid,ch,prop,x,z,side){
     add(box(0.25,0.04,roadW*0.55, mat(0xe8c62a), x+0.15,0.36,z,false));
     add(box(0.25,0.04,roadW*0.55, mat(0xe8c62a), x-0.15,0.36,z,false));
   }
-  // Fence pillars at gap edges (solid so car cannot clip through)
+  // Fence pillars at gap edges — destructible (fence) so gate is breakable except main booth
   if(isNSFence){
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z-7.5)); solid(x, z-7.5, 0.35,0.35,'building');
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z+7.5)); solid(x, z+7.5, 0.35,0.35,'building');
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z-7.5)); solid(x, z-7.5, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z+7.5)); solid(x, z+7.5, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
   } else {
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x-7.5,1.7,z)); solid(x-7.5, z, 0.35,0.35,'building');
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x+7.5,1.7,z)); solid(x+7.5, z, 0.35,0.35,'building');
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x-7.5,1.7,z)); solid(x-7.5, z, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
+    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x+7.5,1.7,z)); solid(x+7.5, z, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
   }
   // Island platform with yellow-black hazard border (as in reference)
   const platW = isNSFence ? 7.2 : 3.0, platD = isNSFence ? 3.0 : 7.2;
@@ -617,18 +617,24 @@ function buildHarborWarehouse({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, p
     } else {
       if (info.side === 'east') {
         harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT);
+        // gates on west side (inland for east harbor)
+        { const fxW = x0+PAVE_OUT, gxW = fxW+HARBOR_GATE_INSET; harborGate(add,solid,ch,prop,gxW,z0,'west'); harborGate(add,solid,ch,prop,gxW,z0+CHUNK,'west'); }
         if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT);
         else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
       } else if (info.side === 'west') {
         harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
+        // gates on east side (inland for west harbor) — fixes missing gate at outer corners (issue #1)
+        { const fxE = x0+CHUNK-PAVE_OUT, gxE = fxE-HARBOR_GATE_INSET; harborGate(add,solid,ch,prop,gxE,z0,'east'); harborGate(add,solid,ch,prop,gxE,z0+CHUNK,'east'); }
         if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT);
         else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
       } else if (info.side === 'north') {
         harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT);
+        { const fzS = z0+PAVE_OUT, gzS = fzS+HARBOR_GATE_INSET; harborGate(add,solid,ch,prop,x0,gzS,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gzS,'south'); }
         if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT);
         else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
       } else {
         harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
+        { const fzN = z0+CHUNK-PAVE_OUT, gzN = fzN-HARBOR_GATE_INSET; harborGate(add,solid,ch,prop,x0,gzN,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gzN,'north'); }
         if (info.along === -1) harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, z0+PAVE_OUT, x0+PAVE_OUT, z0+CHUNK-PAVE_OUT);
         else if (info.along === 1) harborFenceRun(ch, ch.group, add, solid, x0+CHUNK-PAVE_OUT, z0+PAVE_OUT, x0+CHUNK-PAVE_OUT, z0+CHUNK-PAVE_OUT);
       }

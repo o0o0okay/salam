@@ -479,10 +479,10 @@ function drawBase() {
       if (!k) {
         // unvisited placeholder — so harbor is findable on first open
         rect(x0 + 4, z0 + 4, CHUNK - 8, CHUNK - 8, C.quay);
-        if (hb.side === 'west') rect(x0 - 1, z0 + 10, 9, CHUNK - 20, C.water);
-        else if (hb.side === 'east') rect(x0 + CHUNK - 8, z0 + 10, 9, CHUNK - 20, C.water);
-        else if (hb.side === 'south') rect(x0 + 10, z0 - 1, CHUNK - 20, 9, C.water);
-        else rect(x0 + 10, z0 + CHUNK - 8, CHUNK - 20, 9, C.water);
+        if (hb.side === 'west') rect(x0 - 24, z0 + 10, 24, CHUNK - 20, C.water);
+        else if (hb.side === 'east') rect(x0 + CHUNK, z0 + 10, 24, CHUNK - 20, C.water);
+        else if (hb.side === 'south') rect(x0 + 10, z0 - 24, CHUNK - 20, 24, C.water);
+        else rect(x0 + 10, z0 + CHUNK, CHUNK - 20, 24, C.water);
         // harbor ship placeholder (west central) — shows even before visited (110m long) — offset -14, parallel to quay
         if(hb.side==='west'&&hb.inland===0&&hb.along===0){
           rect(x0-20, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-18, z0+CHUNK/2-53, 8, 106, '#d2d6db');
@@ -512,6 +512,11 @@ function drawBase() {
       // visited harbor
       if (k.type === 'harbor_quay' || k.type === 'harbor_yard' || k.type === 'harbor_warehouse' || k.type === 'harbour') {
         rect(x0 + 4, z0 + 4, CHUNK - 8, CHUNK - 8, C.quay);
+        // water adjacent to quay — so ship is clearly in water, not inside dock (issue #2)
+        if (hb.side === 'west') rect(x0 - 24, z0 + 10, 24, CHUNK - 20, C.water);
+        else if (hb.side === 'east') rect(x0 + CHUNK, z0 + 10, 24, CHUNK - 20, C.water);
+        else if (hb.side === 'south') rect(x0 + 10, z0 - 24, CHUNK - 20, 24, C.water);
+        else rect(x0 + 10, z0 + CHUNK, CHUNK - 20, 24, C.water);
         const isWestEastGate = hb.inland===2 && hb.along===0;
         if (hb.side === 'west') {
           rect(x0, z0+4, 3, CHUNK-8, '#8e8a80'); // seaward west
