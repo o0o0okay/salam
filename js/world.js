@@ -2669,7 +2669,9 @@ function safeBlock({ add, busStop, ch, closed, cutClear, cx, cz, kerbIn, parkedC
       // Nor on a street that reaches the coast: it is a park (segFilled), and on the coast line the inner lane is under
       // the seawall, which would bury the slabs and the cones.
       const coastSide = !segInCore(...[['z', cx, cz], ['z', cx + 1, cz], ['x', cx, cz], ['x', cx, cz + 1]][side]);
-      if (!insideFootprint(midX, midZ, 4) && !coastSide) {
+      const nxH = side === 0 ? cx - 1 : side === 1 ? cx + 1 : cx, nzH = side === 2 ? cz - 1 : side === 3 ? cz + 1 : cz;
+      const harborNear = harborInfo(cx, cz) || harborInfo(nxH, nzH);
+      if (!insideFootprint(midX, midZ, 4) && !coastSide && !harborNear) {
       // The resurfaced lane. This used to be one clean rectangle in warm greys and browns, 5 cm thick and 9 cm
       // proud of the asphalt: in daylight that read as a beige sheet lying on the road, with the lane markings
       // cut off at its edge and nothing to say what it was. A repair is now laid the way a real one is — a few

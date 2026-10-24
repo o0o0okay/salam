@@ -45,6 +45,13 @@ export function initInput() {
     if (e.code === 'KeyY' && !e.repeat && game.state === 'playing') {
       if (game.wanted === 0) restoreWanted(); else clearWanted();
     }
+    // O = توقف زمان برای عکاسی در روشنایی (time freeze — daylight stays)
+    if (e.code === 'KeyO' && !e.repeat) {
+      if (game.state === 'playing' || game.state === 'menu') {
+        game.timeFrozen = !game.timeFrozen;
+        toast(game.timeFrozen ? '⏸ TIME FROZEN — press O to resume' : '▶ TIME RESUMED', 1800);
+      }
+    }
     if (e.code === 'KeyU' && !e.repeat && game.state === 'playing') {
       restoreWanted();
     }

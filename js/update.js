@@ -57,7 +57,7 @@ function snugOn(c, pb) {
 export function update(dt) {
   game.t += dt;
   if (game.paused) return;
-  game.clock += dt;
+  if (!game.timeFrozen) game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
   if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); updateTrams(sdt); warnTram(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
