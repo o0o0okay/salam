@@ -458,29 +458,25 @@ function buildHarborQuay({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }
     for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX + 0.35, 0.7, bzo + z, false));
     // quay gantry cranes — restored, now alongside ship (not blocking)
     harborGantryCrane(ch.group, quayEdgeX + 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX + 14, bzo + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX - 14, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX - 24, z0, 24, CHUNK, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX - 14, bzo, 110, 14, Math.PI/2, rng); }
   } else if (side === 'east') {
     quayEdgeX = (ch.cx + 1) * CHUNK; add(box(2.4, 1.7, 80, HARBOR_QUAY_MAT, quayEdgeX - 1.2, 0.85, bzo)); solid(quayEdgeX - 1.2, bzo, 1.2, 40, 'building');
     for (let z = -half; z <= half; z += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, quayEdgeX - 0.7, 1.05, bzo + z));
     for (let z = -half + 5; z <= half - 5; z += 12) add(box(0.5, 0.9, 0.9, HARBOR_FENDER_MAT, quayEdgeX - 0.35, 0.7, bzo + z, false));
     harborGantryCrane(ch.group, quayEdgeX - 14, bzo - 12, 30, rng, solid); harborGantryCrane(ch.group, quayEdgeX - 14, bzo + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX + 14, bzo, 110, 14, Math.PI/2, rng); ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[quayEdgeX, z0, 24, CHUNK, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, quayEdgeX + 14, bzo, 110, 14, Math.PI/2, rng); }
   } else if (side === 'south') {
     quayEdgeZ = ch.cz * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ + 1.2)); solid(bxo, quayEdgeZ + 1.2, 40, 1.2, 'building');
     for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ + 0.7));
     for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ + 0.35, false));
     harborGantryCrane(ch.group, bxo - 12, quayEdgeZ + 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ + 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ - 14, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ - 24, CHUNK, 24, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ - 14, 110, 14, 0, rng); }
   } else {
     quayEdgeZ = (ch.cz + 1) * CHUNK; add(box(80, 1.7, 2.4, HARBOR_QUAY_MAT, bxo, 0.85, quayEdgeZ - 1.2)); solid(bxo, quayEdgeZ - 1.2, 40, 1.2, 'building');
     for (let x = -half; x <= half; x += 10) add(cyl(0.22, 0.22, 0.55, 6, HARBOR_BOLLARD_MAT, bxo + x, 1.05, quayEdgeZ - 0.7));
     for (let x = -half + 5; x <= half - 5; x += 12) add(box(0.9, 0.9, 0.5, HARBOR_FENDER_MAT, bxo + x, 0.7, quayEdgeZ - 0.35, false));
     harborGantryCrane(ch.group, bxo - 12, quayEdgeZ - 14, 30, rng, solid); harborGantryCrane(ch.group, bxo + 14, quayEdgeZ - 14, 30, rng, solid);
-    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ + 14, 110, 14, 0, rng); ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
-    else { ch.radarWater = (ch.radarWater || []).concat([[x0, quayEdgeZ, CHUNK, 24, 'water']]); }
+    if (info.along === 0) { harborContainerShip(ch.group, bxo, quayEdgeZ + 14, 110, 14, 0, rng); }
   }
   // small stack behind cranes
   if (side === 'west') harborContainerStackSolid(ch.group, bxo + 18, bzo, rng, 1, 2, 2, solid);
