@@ -57,7 +57,7 @@ function snugOn(c, pb) {
 export function update(dt) {
   game.t += dt;
   if (game.paused) return;
-  game.clock += dt;
+  if (!game.timeFrozen) game.clock += dt;
   const menu = game.state === 'menu', playing = game.state === 'playing';
   const sdt = playing || menu ? dt : dt * game.slow;
   if (playing) { game.time += sdt; updateWanted(); updateHiding(sdt); updateTrams(sdt); warnTram(sdt); } else if (!menu) { game.overT += dt; if (!game.overShown && game.overT > 1.1) showOver(); }
@@ -103,11 +103,14 @@ export function update(dt) {
   if (playing) {
     game.spawnT -= sdt;
     if (game.spawnT <= 0) {
+      if (game.wanted === 0) { game.spawnT = 999; }
+      else {
       let active = 0; for (const p of police) if (!p.wrecked) active++;
-      const maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][game.wanted - 1] * DIFF.count));
+      const maxP = Math.max(2, Math.round([3, 5, 7, 9, 12][Math.max(0, game.wanted - 1)] * DIFF.count));
       if (game.tierSpawnPending) { if (spawnPolice(game.tierSpawnPending)) game.tierSpawnPending = 0; }
       else if (active < maxP) spawnPolice();
       game.spawnT = Math.max(1.15, 4.1 - game.wanted * .5 - game.time * 0.012) * DIFF.spawn * rnd(0.8, 1.2);
+      }
     }
     // spike strip deployment
     if (game.wanted >= DIFF.spikeFrom) {

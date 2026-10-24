@@ -214,6 +214,12 @@ export function collideFlyover(c) {
 }
 function breakTree(t, c, vn) {
   t.broken = true; t.solid.hx = t.solid.hz = -999;           // no longer solid (all loops ignore it)
+  if (!t.im || !t.im.instanceMatrix) {
+    const sp2 = Math.hypot(c.vx, c.vz) || 1, dx2 = c.vx / sp2, dz2 = c.vz / sp2;
+    const m2 = new THREE.Mesh(TREE_VARIANTS[t.v], ASSET.treeMat); m2.castShadow = true; m2.position.set(t.x, t.y, t.z); scene.add(m2);
+    fallingTrees.push({ mesh: m2, axis: new THREE.Vector3(dz2, 0, -dx2), yaw: new THREE.Quaternion().setFromAxisAngle(_Y, t.rot), ang: 0, w: 1 + vn * 0.15, life: 3 });
+    return;
+  }
   setTreeMatrix(t, 0.0001); t.im.instanceMatrix.needsUpdate = true;
   const sp = Math.hypot(c.vx, c.vz) || 1, dx = c.vx / sp, dz = c.vz / sp;
   const m = new THREE.Mesh(TREE_VARIANTS[t.v], ASSET.treeMat); m.castShadow = true; m.position.set(t.x, t.y, t.z); scene.add(m);

@@ -545,6 +545,7 @@ export function makePoliceUnit(tier, x, z, h, kind) {
   return p;
 }
 export function spawnPolice(forceTier = 0) {
+  if (!forceTier && game.wanted === 0) return null;
   const level = forceTier || game.wanted, tier = Math.max(1, Math.min(level, Math.random() < .78 ? level : Math.max(1, level - 1))), info = POLICE_TIERS[tier - 1];
   const kindPool = info.kinds || [info.kind];
   for (let a = 0; a < 10; a++) {

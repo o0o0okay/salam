@@ -5,6 +5,7 @@ import { player, police, cars, civs } from './state.js';
 import { CAR_DIMS, GARBAGE_LIVERIES } from './carModels.js';
 import { createCar } from './vehicle.js';
 import { solidAt, nearChunks, plazaIn } from './world.js';
+import { harborInfo } from './harbor.js';
 import { onIsland, CORE } from './island.js';
 import { overlapsAnything } from './collisions.js';
 import { lightGo, lightPhase, isYellow } from './trafficLights.js';
@@ -189,7 +190,7 @@ export function civAI(c, dt) {
     // a random turn only picks an open arm. The junction index is the node in grid units.
     const jxN = ixN / CHUNK, jzN = izN / CHUNK;
     const turnAx = c.axis === 'z' ? 'x' : 'z';
-    const turnOpts = [1, -1].filter(d => armOpen(jxN, jzN, turnAx, d));
+    const turnOpts = [1, -1].filter(d => armOpen(jxN, jzN, turnAx, d) && !harborInfo(jxN + (turnAx==='x'?d:0), jzN + (turnAx==='z'?d:0)));
     if (!armOpen(jxN, jzN, c.axis, c.dir) && turnOpts.length) {
       c.axis = turnAx; c.dir = turnOpts[Math.floor(Math.random() * turnOpts.length)]; c.road = node;
     } else if (Math.random() < 0.4 && !isFlyoverNode(ixN, izN) && !plazaAt(jxN, jzN) && turnOpts.length) {
@@ -409,6 +410,7 @@ export function isJamLane(axis, road, dir) {
 // street, of the player by 55 m, and of anything that stands there). Returns the car or null.
 function placeCiv(axis, road, dir, off, along, cruise, y = 0) {
   const x = axis === 'z' ? road - dir * off : along, z = axis === 'z' ? along : road + dir * off;
+  if (harborInfo(Math.floor(x/CHUNK), Math.floor(z/CHUNK))) return null;
   // keep clear of the wide junctions at grade; a deck car may sit over one (no crossing traffic runs under the deck there)
   if (!y && Math.abs(along - Math.round(along / CHUNK) * CHUNK) < 20) return null;
   if (nearClosedStreet(x, z, 10)) return null;                                  // nor on a street closed for a T junction

@@ -31,6 +31,7 @@
 import { CHUNK, hash2 } from './utils.js';
 import { districtOfNb } from './districts.js';
 import { CORE, segInCore } from './island.js';
+import { harborInfo } from './harbor.js';
 
 export const FLY = {
   span: CHUNK,      // streets sit on multiples of the block size
@@ -558,7 +559,12 @@ function segCandidate(axis, jx, jz) {
 // street that crosses it is a bridge (js/world.js, closedStreets). No neighbourhood or plaza may sit on the river row.
 export const RIVER_ROW = 8;
 export function riverSeg(axis, jx, jz) { return axis === 'x' && jz === RIVER_ROW; }
+function isHarborClosed(axis, jx, jz) {
+  if (axis === 'z') return !!harborInfo(jx - 1, jz) && !!harborInfo(jx, jz);
+  return !!harborInfo(jx, jz - 1) && !!harborInfo(jx, jz);
+}
 export function segClosed(axis, jx, jz) {
+  if (isHarborClosed(axis, jx, jz)) return true;              // harbour compound is private - no through street
   if (!segInCore(axis, jx, jz)) return true;                  // the island's coast: no street reaches the sea (js/island.js)
   if (riverSeg(axis, jx, jz)) return true;
   const key = axis + jx + ',' + jz;
