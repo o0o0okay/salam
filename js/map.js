@@ -596,9 +596,14 @@ function drawBase() {
   }
 
   // 4. the water and bridge decks that are known from the built chunks (the harbour basin, the river crossings)
+  // Harbor quay water (24x68) was baked into map-data and hid the ship — skip it, ship sits directly on sea (user request)
   for (const k of allKnown()) for (const [x, z, w, d, kind] of k.water) {
     if (x > view.cx + half.x || x + w < view.cx - half.x || z > view.cz + half.z || z + d < view.cz - half.z) continue;
-    if (kind === 'water') rect(x, z, w, d, C.water);
+    if (kind === 'water') {
+      // skip harbor quay water that was previously baked (24x68 at -2022) — it hides the ship
+      if (k.type && k.type.startsWith('harbor_')) continue;
+      rect(x, z, w, d, C.water);
+    }
   }
 
   // 5. the streets: a casing, then the minor streets, then the main roads on top
