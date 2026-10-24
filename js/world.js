@@ -611,15 +611,27 @@ function buildHarborWarehouse({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, p
   }
   if (info.inland === 2) {
     if (info.along === 0) {
-      // central warehouse: no gates on main inland side (would be on main street) — fence only (image 1)
+      // central warehouse: gate at center of main entrance street (fixes image 1 — was missing)
       if (info.side === 'east') {
-        const fx = x0+PAVE_OUT; harborFenceRun(ch, ch.group, add, solid, fx, z0+PAVE_OUT, fx, z0+CHUNK-PAVE_OUT);
+        const fx = x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET, gz=z0+CHUNK/2;
+        harborFenceRun(ch, ch.group, add, solid, fx, z0+PAVE_OUT, fx, gz-8);
+        harborFenceRun(ch, ch.group, add, solid, fx, gz+8, fx, z0+CHUNK-PAVE_OUT);
+        harborGate(add,solid,ch,prop,gx,gz,info.side);
       } else if (info.side === 'west') {
-        const fx = x0+CHUNK-PAVE_OUT; harborFenceRun(ch, ch.group, add, solid, fx, z0+PAVE_OUT, fx, z0+CHUNK-PAVE_OUT);
+        const fx = x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET, gz=z0+CHUNK/2;
+        harborFenceRun(ch, ch.group, add, solid, fx, z0+PAVE_OUT, fx, gz-8);
+        harborFenceRun(ch, ch.group, add, solid, fx, gz+8, fx, z0+CHUNK-PAVE_OUT);
+        harborGate(add,solid,ch,prop,gx,gz,info.side);
       } else if (info.side === 'north') {
-        const fz=z0+PAVE_OUT; harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, fz, x0+CHUNK-PAVE_OUT, fz);
+        const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET, gx=x0+CHUNK/2;
+        harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, fz, gx-8, fz);
+        harborFenceRun(ch, ch.group, add, solid, gx+8, fz, x0+CHUNK-PAVE_OUT, fz);
+        harborGate(add,solid,ch,prop,gx,gz,info.side);
       } else {
-        const fz=z0+CHUNK-PAVE_OUT; harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, fz, x0+CHUNK-PAVE_OUT, fz);
+        const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET, gx=x0+CHUNK/2;
+        harborFenceRun(ch, ch.group, add, solid, x0+PAVE_OUT, fz, gx-8, fz);
+        harborFenceRun(ch, ch.group, add, solid, gx+8, fz, x0+CHUNK-PAVE_OUT, fz);
+        harborGate(add,solid,ch,prop,gx,gz,info.side);
       }
     } else {
       if (info.side === 'east') {
