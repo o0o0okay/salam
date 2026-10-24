@@ -23,6 +23,7 @@ const RAIL_G = 0.72;      // half the distance between the two rails, in metres 
 import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE, onIsland } from './island.js';
+import { harborInfo } from './harbor.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
@@ -470,14 +471,109 @@ function drawBase() {
   const [bx0, bx1, bz0, bz1] = tileBlocks || [gx0, gx1, gz0, gz1];
   for (let cx = bx0; cx < bx1; cx++) for (let cz = bz0; cz < bz1; cz++) {
     const x0 = cx * CHUNK, z0 = cz * CHUNK;
-    rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
+    const hb = harborInfo(cx, cz);
     const k = known(ck(cx, cz));
-    if (!k) continue;
-    // a built block is a lawn with a darker edge (the look of the reference); unbuilt blocks stay plain ground
-    rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#7fa857');
-    rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#b9e28a');
-    if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
-    else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
+    if (hb) {
+      // harbor: concrete quay always visible, even before visited
+      rect(x0, z0, CHUNK, CHUNK, '#b8b6ad');
+      if (!k) {
+        // unvisited placeholder — so harbor is findable on first open
+        rect(x0 + 4, z0 + 4, CHUNK - 8, CHUNK - 8, C.quay);
+        // water is sea itself (no extra light-blue overlay) — ship directly on sea, so visible (user request)
+        // harbor ship placeholder (west central) — shows even before visited (110m long) — offset -14, parallel to quay
+        if(hb.side==='west'&&hb.inland===0&&hb.along===0){
+          rect(x0-20, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-18, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0-17, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+          rect(x0-18, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-17, z0+CHUNK/2-48, 6, 2, '#22262b');
+        } else if(hb.side==='east'&&hb.inland===0&&hb.along===0){
+          rect(x0+CHUNK+8, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+10, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK+11, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+          rect(x0+CHUNK+10, z0+CHUNK/2-55, 8, 11, '#e9eef2');
+        } else if(hb.side==='south'&&hb.inland===0&&hb.along===0){
+          rect(x0+CHUNK/2-55, z0-20, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-18, 106, 8, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-17, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+          rect(x0+CHUNK/2-55, z0-18, 11, 8, '#e9eef2');
+        } else if(hb.side==='north'&&hb.inland===0&&hb.along===0){
+          rect(x0+CHUNK/2-55, z0+CHUNK+8, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+10, 106, 8, '#d2d6db');
+          for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+11, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+          rect(x0+CHUNK/2+44, z0+CHUNK+10, 11, 8, '#e9eef2');
+        } else {
+          rect(x0 + 18, z0 + 18, 18, 10, '#c94a3a'); rect(x0 + 40, z0 + 32, 16, 10, '#3a7bd5'); rect(x0 + 22, z0 + 50, 20, 8, '#e8d840');
+        }
+        if (!noLabels && view.s > 0.22) {
+          if (hb.inland === 1 && hb.along === 0) landmark(x0 + 40, z0 + 40, 'PORT WEST');
+          else if (hb.inland === 0 && hb.along === 0) landmark(x0 + 40, z0 + 40, 'QUAY');
+        }
+        continue;
+      }
+      // visited harbor
+      if (k.type === 'harbor_quay' || k.type === 'harbor_yard' || k.type === 'harbor_warehouse' || k.type === 'harbour') {
+        rect(x0 + 4, z0 + 4, CHUNK - 8, CHUNK - 8, C.quay);
+        // no extra water overlay — ship sits directly on sea, visible (user: remove light-blue next to quay)
+        const isWestEastGate = hb.inland===2 && hb.along===0;
+        if (hb.side === 'west') {
+          rect(x0, z0+4, 3, CHUNK-8, '#8e8a80'); // seaward west
+          if(isWestEastGate){ rect(x0+CHUNK-12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); }
+          else rect(x0+CHUNK-12.6, z0+4, 3, CHUNK-8, '#8e8a80');
+          rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80');
+        } else if (hb.side === 'east') {
+          rect(x0+CHUNK-3, z0+4, 3, CHUNK-8, '#8e8a80'); // seaward east
+          if(isWestEastGate){ rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); }
+          else rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80');
+          rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80');
+        } else if (hb.side === 'south') {
+          rect(x0+4, z0, CHUNK-8, 3, '#8e8a80'); // seaward south
+          if(isWestEastGate){ rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); }
+          else rect(x0+4, z0+CHUNK-8, CHUNK-8, 3, '#8e8a80');
+          rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80');
+        } else {
+          rect(x0+4, z0+CHUNK-3, CHUNK-8, 3, '#8e8a80'); // seaward north
+          if(isWestEastGate){ rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); }
+          else rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80');
+          rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80');
+        }
+        if (hb.inland === 0) rect(x0 + 14, z0 + CHUNK / 2 - 1, CHUNK - 28, 2, '#e8a00a');
+        if (hb.inland === 0 && hb.along === 0) { rect(x0 + 6, z0 + 14, 14, 4, '#f2a90e'); rect(x0 + 6, z0 + 58, 14, 4, '#f2a90e'); rect(x0 - 8, z0 + 6, 8, 68, '#1a3a5a'); }
+        if (hb.inland === 1 && hb.along === 0) { rect(x0 + 10, z0 + 14, 12, 3, '#f2a90e'); rect(x0 + 10, z0 + 58, 12, 3, '#f2a90e'); }
+        // harbor container ship on map (central quay) — 110m long, visible even at low zoom — offset -14 parallel to quay in water
+        if(hb.inland===0&&hb.along===0){
+          if(hb.side==='west'){
+            rect(x0-20, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0-18, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0-17, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+            rect(x0-18, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0-17, z0+CHUNK/2-48, 6, 2, '#22262b'); rect(x0-17, z0+CHUNK/2-52, 6, 0.6, '#f2a900');
+          } else if(hb.side==='east'){
+            rect(x0+CHUNK+8, z0+CHUNK/2-55, 12, 110, '#3a4552'); rect(x0+CHUNK+10, z0+CHUNK/2-53, 8, 106, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK+11, z0+CHUNK/2-48+i*12, 6, 6, ['#d64545','#3a7bd5','#f2c230','#2e7d6b','#e8e8e8','#8e44ad'][i%6]);
+            rect(x0+CHUNK+10, z0+CHUNK/2-55, 8, 11, '#e9eef2'); rect(x0+CHUNK+11, z0+CHUNK/2-48, 6, 2, '#22262b');
+          } else if(hb.side==='south'){
+            rect(x0+CHUNK/2-55, z0-20, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0-18, 106, 8, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0-17, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+            rect(x0+CHUNK/2-55, z0-18, 11, 8, '#e9eef2'); rect(x0+CHUNK/2-48, z0-17, 2, 6, '#22262b');
+          } else {
+            rect(x0+CHUNK/2-55, z0+CHUNK+8, 110, 12, '#3a4552'); rect(x0+CHUNK/2-53, z0+CHUNK+10, 106, 8, '#d2d6db');
+            for(let i=0;i<8;i++) rect(x0+CHUNK/2-48+i*12, z0+CHUNK+11, 6, 6, ['#d64545','#3a7bd5','#f2c230'][i%3]);
+            rect(x0+CHUNK/2+44, z0+CHUNK+10, 11, 8, '#e9eef2'); rect(x0+CHUNK/2+48, z0+CHUNK+11, 2, 6, '#22262b');
+          }
+        }
+        if(isWestEastGate){
+          const gx = hb.side==='west'? x0+CHUNK-10 : x0+10;
+          for(const gz of [z0, z0+CHUNK]){ rect(gx-2, gz-6, 4, 3, '#d8dde3'); rect(gx-2, gz+3, 4, 3, '#d8dde3'); }
+        }
+        if (!noLabels && view.s > 0.22 && k.lm) for (const [lx, lz, name] of k.lm) if (name === 'PORT WEST' || name === 'HARBOUR QUAY') landmark(lx, lz, name);
+      } else {
+        rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#7fa857');
+        rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#b9e28a');
+        if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
+        else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
+      }
+    } else {
+      rect(x0, z0, CHUNK, CHUNK, LAND[districtOf(cx, cz)] || LAND.centre);
+      if (!k) continue;
+      rect(x0 + 3, z0 + 3, CHUNK - 6, CHUNK - 6, '#7fa857');
+      rect(x0 + 4.5, z0 + 4.5, CHUNK - 9, CHUNK - 9, '#b9e28a');
+      if (k.type === 'park') rect(x0 + 8, z0 + 8, CHUNK - 16, CHUNK - 16, C.park);
+      else if (k.type === 'harbour') rect(x0 + 40 - 28, z0 + 40 - 28, 56, 56, C.quay);
+    }
     // each building is a raised block; its height is a fixed value for its place, so it does not change between redraws
     for (const [x, z, w, d, roof] of k.blds) {
       const st = Math.abs(Math.round(x * 13 + z * 29)) % 4;          // the style of the building: flat, pitched, L, flat with a unit
@@ -506,7 +602,28 @@ function drawBase() {
   }
 
   // 5. the streets: a casing, then the minor streets, then the main roads on top
-  const st = streetsIn(gx0, gx1, gz0, gz1);
+  let st = streetsIn(gx0, gx1, gz0, gz1);
+  // Harbor compound: hide internal streets (the 9 blocks should read as one yard, not 9 separate blocks)
+  st = st.filter(([x,z,w,d])=>{
+    const isVert = w===16 && d>=80; const isHoriz = d===16 && w>=80; const isJunc = w===16 && d===16;
+    if (isVert) {
+      const i=Math.round((x+8)/CHUNK); const j=Math.floor((z+d/2)/CHUNK);
+      const a=harborInfo(i-1,j), b=harborInfo(i,j);
+      if (a && b && a.anchor===b.anchor) return false;
+    } else if (isHoriz) {
+      const j=Math.round((z+8)/CHUNK); const i=Math.floor((x+w/2)/CHUNK);
+      const a=harborInfo(i,j-1), b=harborInfo(i,j);
+      if (a && b && a.anchor===b.anchor) return false;
+    } else if (isJunc) {
+      const i=Math.round((x+8)/CHUNK), j=Math.round((z+8)/CHUNK);
+      const blocks=[harborInfo(i-1,j-1),harborInfo(i,j-1),harborInfo(i-1,j),harborInfo(i,j)];
+      if (blocks.every(b=>b && b.anchor===blocks[0].anchor)) return false;
+      // also hide if at least 3 of 4 are harbor of same anchor (internal intersection)
+      const same = blocks.filter(b=>b && b.anchor===blocks.find(x=>x)?.anchor).length;
+      if (same>=3) return false;
+    }
+    return true;
+  });
   const pad = Math.max(2.5, 1.6 / view.s);                         // the casing: a thin dark edge round every street
   for (const [x, z, w, d] of st) rrect(x - pad, z - pad, w + 2 * pad, d + 2 * pad, C.casing);
   for (const r of st) if (!isMain(r)) rrect(r[0], r[1], r[2], r[3], C.street);

@@ -90,8 +90,9 @@ export function updateHUD() {
   $('boostFx').style.opacity = String(clamp(player.boost, 0, 1) * 0.9);
   $('flatWarn').style.opacity = player.flatT > 0 ? '1' : '0';
   const pw = $('pinWrap'); pw.classList.toggle('on', game.pin > 0.05); $('pinFill').style.width = clamp(game.pin / DIFF.pin, 0, 1) * 100 + '%';
-  setText('heat', 'WANTED ' + '★'.repeat(game.wanted) + '☆'.repeat(5 - game.wanted));
-  setText('wantedDetail', 'LEVEL ' + game.wanted + ' · ' + POLICE_TIERS[game.wanted - 1].name);
+  const wantedClamped = clamp(game.wanted, 0, 5);
+  setText('heat', 'WANTED ' + '★'.repeat(wantedClamped) + '☆'.repeat(5 - wantedClamped));
+  setText('wantedDetail', wantedClamped === 0 ? 'LEVEL 0 · CLEAR (Y to restore)' : 'LEVEL ' + wantedClamped + ' · ' + POLICE_TIERS[wantedClamped - 1].name);
   const live = game.t - sight.t < 0.6, heliVis = helicopter && helicopter.visible;
   let at, ac;
   if (heliVis && sight.heliOn) { at = '🚁 AIR UNIT TRACKING YOU'; ac = '#ff5a5a'; }
