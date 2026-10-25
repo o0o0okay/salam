@@ -516,31 +516,47 @@ function drawBase() {
           rect(x0, z0+4, 3, CHUNK-8, '#8e8a80'); // seaward west
           if(isWestEastGate){ rect(x0+CHUNK-12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); }
           else rect(x0+CHUNK-12.6, z0+4, 3, CHUNK-8, '#8e8a80');
-          // side walls north/south — outer rows get gates at street intersections
-          if(isOuterNorth){ rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
-          else if(isOuterSouth){ rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
-          else { rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+          // side walls north/south — outer rows get gates; quay seaward corner fence to wall, no gate
+          if(isOuterNorth){
+            if(hb.inland===0){ rect(x0, z0+CHUNK-12.6, CHUNK-PAVE_OUT, 3, '#8e8a80'); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
+            else { rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
+          } else if(isOuterSouth){
+            if(hb.inland===0){ rect(x0, z0+12.6, CHUNK-PAVE_OUT, 3, '#8e8a80'); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+            else { rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+          } else { rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
         } else if (hb.side === 'east') {
           rect(x0+CHUNK-3, z0+4, 3, CHUNK-8, '#8e8a80'); // seaward east
           if(isWestEastGate){ rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); }
           else rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80');
-          if(isOuterNorth){ rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
-          else if(isOuterSouth){ rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
-          else { rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+          if(isOuterNorth){
+            if(hb.inland===0){ rect(x0+PAVE_OUT, z0+CHUNK-12.6, CHUNK-PAVE_OUT, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
+            else { rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); }
+          } else if(isOuterSouth){
+            if(hb.inland===0){ rect(x0+PAVE_OUT, z0+12.6, CHUNK-PAVE_OUT, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+            else { rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
+          } else { rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80'); rect(x0+4, z0+CHUNK-11, CHUNK-8, 3, '#8e8a80'); }
         } else if (hb.side === 'south') {
           rect(x0+4, z0, CHUNK-8, 3, '#8e8a80'); // seaward south
           if(isWestEastGate){ rect(x0+12.6, z0+CHUNK-12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+CHUNK-14, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+CHUNK-14, 16, 14, C.street); rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); }
           else rect(x0+4, z0+CHUNK-8, CHUNK-8, 3, '#8e8a80');
-          if(isOuterEast){ rect(x0+CHUNK-15.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
-          else if(isOuterWest){ rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
-          else { rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          if(isOuterEast){
+            if(hb.inland===0){ rect(x0+CHUNK-12.6, z0, 3, CHUNK-PAVE_OUT, '#8e8a80'); rect(x0+CHUNK-18.6, z0+CHUNK-12.6, 14, 16, C.street); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+            else { rect(x0+CHUNK-15.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          } else if(isOuterWest){
+            if(hb.inland===0){ rect(x0+12.6, z0, 3, CHUNK-PAVE_OUT, '#8e8a80'); rect(x0+2, z0+CHUNK-12.6, 14, 16, C.street); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+            else { rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          } else { rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
         } else {
           rect(x0+4, z0+CHUNK-3, CHUNK-8, 3, '#8e8a80'); // seaward north
           if(isWestEastGate){ rect(x0+12.6, z0+12.6, 64, 3, '#8e8a80'); rect(x0-8, z0+2, 16, 14, C.street); rect(x0+CHUNK-12.6, z0+2, 16, 14, C.street); rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); }
           else rect(x0+4, z0+8, CHUNK-8, 3, '#8e8a80');
-          if(isOuterEast){ rect(x0+CHUNK-15.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
-          else if(isOuterWest){ rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
-          else { rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          if(isOuterEast){
+            if(hb.inland===0){ rect(x0+CHUNK-12.6, z0+PAVE_OUT, 3, CHUNK-PAVE_OUT, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+            else { rect(x0+CHUNK-15.6, z0+8, 3, 64, '#8e8a80'); rect(x0+CHUNK-18.6, z0-8, 14, 16, C.street); rect(x0+CHUNK-18.6, z0+CHUNK-8, 14, 16, C.street); rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          } else if(isOuterWest){
+            if(hb.inland===0){ rect(x0+12.6, z0+PAVE_OUT, 3, CHUNK-PAVE_OUT, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+            else { rect(x0+12.6, z0+8, 3, 64, '#8e8a80'); rect(x0+2, z0-8, 14, 16, C.street); rect(x0+2, z0+CHUNK-8, 14, 16, C.street); rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
+          } else { rect(x0+12.6, z0+4, 3, CHUNK-8, '#8e8a80'); rect(x0+CHUNK-15.6, z0+4, 3, CHUNK-8, '#8e8a80'); }
         }
         if (hb.inland === 0) rect(x0 + 14, z0 + CHUNK / 2 - 1, CHUNK - 28, 2, '#e8a00a');
         if (hb.inland === 0 && hb.along === 0) { rect(x0 + 6, z0 + 14, 14, 4, '#f2a90e'); rect(x0 + 6, z0 + 58, 14, 4, '#f2a90e'); rect(x0 - 8, z0 + 6, 8, 68, '#1a3a5a'); }
@@ -654,6 +670,31 @@ function drawBase() {
       ctx.stroke();
     }
     ctx.restore();
+  }
+  // 5a. harbor gate booths on top of streets (user: gate image under street — draw overlay)
+  for(let cx=gx0; cx<gx1; cx++) for(let cz=gz0; cz<gz1; cz++){
+    const hb=harborInfo(cx,cz); if(!hb) continue;
+    const k=known(ck(cx,cz)); if(!k || !['harbor_quay','harbor_yard','harbor_warehouse','harbour'].includes(k.type)) continue;
+    const x0=cx*CHUNK, z0=cz*CHUNK;
+    const isWestEastGate=hb.inland===2&&hb.along===0;
+    const isOuterNorth=hb.along===1, isOuterSouth=hb.along===-1, isOuterEast=hb.along===1, isOuterWest=hb.along===-1;
+    if(hb.side==='west'){
+      if(isWestEastGate){ rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); }
+      if(isOuterNorth){ if(hb.inland===0){ rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); } else { rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); } }
+      else if(isOuterSouth){ if(hb.inland===0){ rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); } else { rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); } }
+    } else if(hb.side==='east'){
+      if(isWestEastGate){ rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); }
+      if(isOuterNorth){ if(hb.inland===0){ rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); } else { rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); } }
+      else if(isOuterSouth){ if(hb.inland===0){ rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); } else { rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); } }
+    } else if(hb.side==='south'){
+      if(isWestEastGate){ rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); }
+      if(isOuterEast){ if(hb.inland===0){ rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); } else { rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); } }
+      else if(isOuterWest){ if(hb.inland===0){ rect(x0-6, z0+CHUNK-10, 6, 4, '#f1f1f1'); rect(x0-5, z0+CHUNK-9, 4, 2, '#2a3a4a'); } else { rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); } }
+    } else { // north
+      if(isWestEastGate){ rect(x0-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0-5, z0+13.6, 4, 2, '#2a3a4a'); rect(x0+CHUNK-6, z0+12.6, 6, 4, '#f1f1f1'); rect(x0+CHUNK-5, z0+13.6, 4, 2, '#2a3a4a'); }
+      if(isOuterEast){ if(hb.inland===0){ rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); } else { rect(x0+CHUNK-10, z0-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0-5, 2, 4, '#2a3a4a'); rect(x0+CHUNK-10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+CHUNK-9, z0+CHUNK-5, 2, 4, '#2a3a4a'); } }
+      else if(isOuterWest){ if(hb.inland===0){ rect(x0-6, z0-6, 4, 6, '#f1f1f1'); rect(x0-5, z0-5, 2, 4, '#2a3a4a'); } else { rect(x0+10, z0-6, 4, 6, '#f1f1f1'); rect(x0+11, z0-5, 2, 4, '#2a3a4a'); rect(x0+10, z0+CHUNK-6, 4, 6, '#f1f1f1'); rect(x0+11, z0+CHUNK-5, 2, 4, '#2a3a4a'); } }
+    }
   }
   // 5b. the interchanges and the roundabouts: the at-grade lanes beside each flyover, its ramps and deck (over the crossing
   // street), then the roundabouts on the plain junctions

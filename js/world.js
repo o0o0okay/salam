@@ -507,13 +507,30 @@ function buildHarborQuay({ bx, bz, bxo, bzo, ch, rng, solid, add, padBox, prop }
         else { const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT,fz,x0+CHUNK-PAVE_OUT,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
       }
     } else {
-      // side walls — outer along rows get gates at street intersections (user 2 extra north/south gates)
+      // side walls — outer along rows get gates at street intersections (user 2 extra north/south gates) — quay seaward corner fence to quay wall, no gate
       const isOuterSideWall = (side==='west'||side==='east') ? (dz!==0 && info.along===dz) : (dx!==0 && info.along===dx);
       if(isOuterSideWall){
-        if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT,fz,x0+CHUNK-PAVE_OUT,fz); harborGate(add,solid,ch,prop,x0,gz,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
-        else if(dz===-1){ const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT,fz,x0+CHUNK-PAVE_OUT,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
-        else if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+PAVE_OUT,fx,z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0,'east'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
-        else { const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+PAVE_OUT,fx,z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0,'west'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+        if(info.inland===0){
+          // quay seaward: fence to quay wall, only inland-facing gate
+          if(side==='west'){
+            if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0, fz, x0+CHUNK-PAVE_OUT, fz); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
+            else if(dz===-1){ const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0, fz, x0+CHUNK-PAVE_OUT, fz); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
+          } else if(side==='east'){
+            if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT, fz, x0+CHUNK, fz); harborGate(add,solid,ch,prop,x0,gz,'north'); }
+            else if(dz===-1){ const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT, fz, x0+CHUNK, fz); harborGate(add,solid,ch,prop,x0,gz,'south'); }
+          } else if(side==='south'){
+            if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx, z0, fx, z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
+            else if(dx===-1){ const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx, z0, fx, z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+          } else { // north
+            if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx, z0+PAVE_OUT, fx, z0+CHUNK); harborGate(add,solid,ch,prop,gx,z0,'east'); }
+            else if(dx===-1){ const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx, z0+PAVE_OUT, fx, z0+CHUNK); harborGate(add,solid,ch,prop,gx,z0,'west'); }
+          }
+        } else {
+          if(dz===1){ const fz=z0+CHUNK-PAVE_OUT, gz=fz-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT,fz,x0+CHUNK-PAVE_OUT,fz); harborGate(add,solid,ch,prop,x0,gz,'north'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'north'); }
+          else if(dz===-1){ const fz=z0+PAVE_OUT, gz=fz+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,x0+PAVE_OUT,fz,x0+CHUNK-PAVE_OUT,fz); harborGate(add,solid,ch,prop,x0,gz,'south'); harborGate(add,solid,ch,prop,x0+CHUNK,gz,'south'); }
+          else if(dx===1){ const fx=x0+CHUNK-PAVE_OUT, gx=fx-HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+PAVE_OUT,fx,z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0,'east'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'east'); }
+          else { const fx=x0+PAVE_OUT, gx=fx+HARBOR_GATE_INSET; harborFenceRun(ch,ch.group,add,solid,fx,z0+PAVE_OUT,fx,z0+CHUNK-PAVE_OUT); harborGate(add,solid,ch,prop,gx,z0,'west'); harborGate(add,solid,ch,prop,gx,z0+CHUNK,'west'); }
+        }
       } else {
         let fx0,fz0,fx1,fz1;
         if(dx===1){ fx0=x0+CHUNK-PAVE_OUT; fz0=z0+PAVE_OUT; fx1=x0+CHUNK-PAVE_OUT; fz1=z0+CHUNK-PAVE_OUT; }
