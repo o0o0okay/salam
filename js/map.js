@@ -24,6 +24,7 @@ import { AVENUES, AVENUE_W } from './avenues.js';
 import { districtOf } from './districts.js';
 import { ISLAND_R, ISLAND_MIN, ISLAND_MAX, CORE, onIsland } from './island.js';
 import { harborInfo } from './harbor.js';
+import { PAVE_OUT } from './sidewalks.js';
 
 const LAND = { centre: '#c3e08a', old: '#cfe59a', industrial: '#bcd39c', suburb: '#b5dc7f', harbour: '#aad6e0' };
 const C = {
