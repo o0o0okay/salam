@@ -252,13 +252,14 @@ function harborGate(add,solid,ch,prop,x,z,side){
     add(box(0.25,0.04,roadW*0.55, mat(0xe8c62a), x-0.15,0.36,z,false));
   }
   // Fence pillars at gap edges — destructible (fence) so gate is breakable except main booth
-  if(isNSFence){
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z-7.5)); solid(x, z-7.5, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x,1.7,z+7.5)); solid(x, z+7.5, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
-  } else {
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x-7.5,1.7,z)); solid(x-7.5, z, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
-    add(box(0.7,3.4,0.7, mat(0xd8d8d8), x+7.5,1.7,z)); solid(x+7.5, z, 0.35,0.35,'fence'); ch.solids[ch.solids.length-1].fence=true;
-  }
+  const pillarMat = mat(0xd8d8d8);
+  const mkPillar = (px,pz) => {
+    const g = new THREE.Group(); g.add(box(0.7,3.4,0.7, pillarMat, 0,1.7,0,false));
+    const m = own(ch, mergeStandalone(g)); m.position.set(px,0,pz); ch.group.add(m);
+    const pc = {x:px, z:pz, hx:0.35, hz:0.35, mesh:m, broken:false, color:0xd8d8d8};
+    solid(px,pz,0.35,0.35,'fence'); const se = ch.solids[ch.solids.length-1]; se.fence=true; se.fencePiece=pc; pc.solid=se; ch.fencePanels.push(pc);
+  };
+  if(isNSFence){ mkPillar(x, z-7.5); mkPillar(x, z+7.5); } else { mkPillar(x-7.5, z); mkPillar(x+7.5, z); }
   // Island platform with yellow-black hazard border (as in reference)
   const platW = isNSFence ? 7.2 : 3.0, platD = isNSFence ? 3.0 : 7.2;
   add(box(platW,0.22,platD, mat(0xf1f1f1), x,0.26,z,false));
