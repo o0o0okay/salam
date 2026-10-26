@@ -872,11 +872,124 @@ export function buildCar(kind, color, detail = true) {
       inner.add(box(1.38, 0.04, 0.28, mat(0xcfd6de), 0, 1.78, -0.18));
       siren(1.94, -0.18, 0.70);
     } else if (tier === 2) {
-      wheelZ = [-1.55, 1.55]; wheelX = 1.12; frontZ = 2.42; backZ = -2.42;
-      inner.add(box(2.25, 0.55, 4.8, navy, 0, 0.67, 0)); inner.add(box(2.3, 0.3, 2.4, white, 0, 0.72, -0.15));
-      inner.add(box(1.9, 0.55, 1.9, navy, 0, 1.25, -0.15)); inner.add(box(1.92, 0.34, 1.45, glass, 0, 1.28, -0.15));
-      inner.add(box(1.65, 0.35, 1.94, glass, 0, 1.28, -0.15)); inner.add(box(2.18, 0.18, 0.25, dark, 0, 0.52, 2.4));
-      inner.add(box(1.55, 0.14, 0.44, dark, 0, 1.58, -0.15)); siren(1.69, -0.15, 0.5);
+      // Dodge Charger Police Interceptor — MUSCLE INTERCEPTORS (user ref image)
+      wheelZ = [-1.55, 1.55]; wheelX = 1.15; frontZ = 2.48; backZ = -2.48;
+      const chBlack = mat(0x090c13), chWhite = mat(0xf7f7f3), chChrome = mat(0xd8dde3), chRed = mat(0xd11d1d);
+      const chAmber = mat(0xffb01a), chDark = dark;
+      // low wide muscle stance
+      inner.add(box(2.28, 0.54, 4.95, chBlack, 0, 0.65, 0.08)); // main black chassis (hood + rear)
+      inner.add(box(2.34, 0.32, 2.05, chWhite, 0, 0.72, -0.04)); // white doors band
+      // coke-bottle rear hips (black flared quarters)
+      inner.add(box(2.30, 0.38, 1.35, chBlack, 0, 0.68, -1.35));
+      // hood power bulge + vent
+      inner.add(box(1.05, 0.08, 1.15, chBlack, 0, 0.96, 1.25));
+      inner.add(box(0.52, 0.02, 0.65, chDark, 0, 1.01, 1.25)); // center crease
+      // cabin — swept fastback (Charger sloping C-pillar)
+      inner.add(box(1.78, 0.58, 1.82, chWhite, 0, 1.26, -0.28));
+      inner.add(box(1.82, 0.34, 1.40, glass, 0, 1.30, -0.30)); // side glass
+      inner.add(box(1.55, 0.40, 1.90, glass, 0, 1.30, -0.30)); // windscreen/rear
+      inner.add(box(1.30, 0.08, 0.42, chWhite, 0, 1.62, -0.28)); // roof cap white
+      // Dodge crosshair grille + lower intake (Charger fascia)
+      inner.add(box(1.18, 0.22, 0.06, chDark, 0, 0.62, 2.45)); // upper grille black
+      inner.add(box(0.04, 0.22, 0.07, chChrome, 0, 0.62, 2.46)); // vertical crosshair
+      inner.add(box(1.18, 0.04, 0.07, chChrome, 0, 0.62, 2.46)); // horizontal crosshair
+      inner.add(box(1.32, 0.16, 0.08, chDark, 0, 0.42, 2.46)); // lower grille
+      inner.add(box(1.00, 0.04, 0.09, chChrome, 0, 0.42, 2.47)); // lower chrome lip
+      // slim LED headlights (Charger angry eyes)
+      const hl = mat(0xeaf0f7);
+      inner.add(box(0.34, 0.10, 0.06, hl, -0.78, 0.62, 2.45));
+      inner.add(box(0.34, 0.10, 0.06, hl,  0.78, 0.62, 2.45));
+      inner.add(box(0.34, 0.02, 0.07, mat(0xffffff), -0.78, 0.66, 2.46));
+      inner.add(box(0.34, 0.02, 0.07, mat(0xffffff),  0.78, 0.66, 2.46)); // DRL strip
+      // front badge area + POLICE small on pushbar?
+      inner.add(box(1.62, 0.08, 0.06, chDark, 0, 0.48, 2.49)); // front splitter
+      // push bar — Charger style (wider, angled)
+      const push = mat(0x0c1218);
+      inner.add(box(1.52, 0.05, 0.05, push, 0, 0.50, 2.54));
+      inner.add(box(1.46, 0.05, 0.05, push, 0, 0.76, 2.54));
+      for (const sx of [-0.50, 0.50]) inner.add(box(0.05, 0.38, 0.05, push, sx, 0.63, 2.54));
+      // rear — racetrack LED tail (Dodge signature)
+      inner.add(box(1.72, 0.06, 0.04, chRed, 0, 0.62, -2.47)); // racetrack bar across trunk
+      inner.add(box(0.30, 0.16, 0.07, chRed, -0.72, 0.60, -2.49));
+      inner.add(box(0.30, 0.16, 0.07, chRed,  0.72, 0.60, -2.49));
+      inner.add(box(0.22, 0.08, 0.03, mat(0xffeef0), -0.72, 0.50, -2.50));
+      inner.add(box(0.22, 0.08, 0.03, mat(0xffeef0),  0.72, 0.50, -2.50)); // reverse
+      inner.add(box(1.74, 0.14, 0.09, chDark, 0, 0.46, -2.51)); // rear bumper/diffuser
+      inner.add(box(0.14, 0.07, 0.10, chChrome, -0.42, 0.38, -2.53)); // exhaust tips
+      inner.add(box(0.14, 0.07, 0.10, chChrome,  0.42, 0.38, -2.53));
+      // side details — mirror, door handle, fuel
+      for (const z of [0.30, -0.52]) {
+        inner.add(box(0.03, 0.04, 0.15, chChrome, -1.05, 0.80, z));
+        inner.add(box(0.03, 0.04, 0.15, chChrome,  1.05, 0.80, z));
+      }
+      inner.add(box(0.02, 0.06, 0.06, chChrome,  1.04, 0.76, -1.08));
+      inner.add(box(0.16, 0.10, 0.12, chBlack, -1.02, 1.22, 0.52)); // spot mirror housing larger on Charger
+      inner.add(box(0.16, 0.10, 0.12, chBlack,  1.02, 1.22, 0.52));
+      inner.add(cyl(0.04, 0.04, 0.12, 8, chDark, -1.06, 1.22, 0.52));
+      inner.add(cyl(0.04, 0.04, 0.12, 8, chDark,  1.06, 1.22, 0.52));
+      // antenna + shark fin
+      inner.add(box(0.02, 0.45, 0.02, mat(0x0a0a0a), 0.94, 1.08, -1.45));
+      inner.add(box(0.10, 0.06, 0.14, chBlack, 0, 1.67, -0.85)); // shark fin antenna
+      // stripe divider
+      inner.add(box(2.35, 0.02, 2.08, chDark, 0, 0.92, -0.04));
+      // livery lettering — POLICE + shield + DIAL 911 + unit numbers
+      const badgeM = mat(0x1e4e9a), goldM = mat(0xc9a86a), txtM = mat(0x0a0f14), whiteTxt = mat(0xf7f7f3);
+      for (const sx of [-1, 1]) {
+        inner.add(box(0.02, 0.18, 0.14, badgeM, sx * 1.05, 0.90, 0.42));
+        inner.add(box(0.025, 0.02, 0.15, goldM, sx * 1.055, 1.00, 0.42));
+      }
+      const policeGeo2 = busSignGeometry('POLICE', 0.26, 0.03, 0.028);
+      if (policeGeo2) {
+        for (const sx of [-1, 1]) {
+          const m = new THREE.Mesh(policeGeo2, txtM);
+          m.position.set(sx * 1.06, 0.86, -0.12);
+          m.rotation.y = sx * Math.PI / 2;
+          if (sx === -1) m.scale.x = -1;
+          m.castShadow = false; inner.add(m);
+        }
+      }
+      // DIAL 911 small on rear quarter/door (both sides)
+      const dialGeo = busSignGeometry('DIAL 911', 0.10, 0.02, 0.015);
+      if (dialGeo) {
+        for (const sx of [-1, 1]) {
+          const d1 = new THREE.Mesh(dialGeo, txtM);
+          d1.position.set(sx * 1.06, 0.78, -1.08); d1.rotation.y = sx * Math.PI / 2;
+          if (sx === -1) d1.scale.x = -1;
+          inner.add(d1);
+          const d2 = new THREE.Mesh(dialGeo, whiteTxt);
+          d2.position.set(sx * 1.06, 0.66, 1.15); d2.rotation.y = sx * Math.PI / 2;
+          if (sx === -1) d2.scale.x = -1;
+          // front fender U31-like small number
+          inner.add(d2);
+        }
+      }
+      // 332 on C-pillar + rear — tiny
+      const numGeo = busSignGeometry('332', 0.09, 0.02, 0.012);
+      if (numGeo) {
+        for (const sx of [-1, 1]) {
+          const n = new THREE.Mesh(numGeo, whiteTxt);
+          n.position.set(sx * 0.92, 1.30, -0.92); n.rotation.y = sx * Math.PI / 2;
+          if (sx === -1) n.scale.x = -1;
+          n.castShadow = false; inner.add(n);
+        }
+      }
+      // trunk POLICE + DIAL 911
+      const trunkP = busSignGeometry('POLICE', 0.16, 0.02, 0.018);
+      if (trunkP) {
+        const t = new THREE.Mesh(trunkP, whiteTxt);
+        t.position.set(-0.15, 0.60, -2.52); t.rotation.y = Math.PI; t.rotation.x = Math.PI / 2.15;
+        inner.add(t);
+      }
+      const trunkDial = busSignGeometry('DIAL 911', 0.11, 0.02, 0.014);
+      if (trunkDial) {
+        const t2 = new THREE.Mesh(trunkDial, whiteTxt);
+        t2.position.set(0.45, 0.60, -2.52); t2.rotation.y = Math.PI; t2.rotation.x = Math.PI / 2.15;
+        inner.add(t2);
+      }
+      // lightbar — low-profile LED (Charger sits lower than Crown Vic)
+      inner.add(box(1.38, 0.11, 0.30, mat(0xe6eaef), 0, 1.72, -0.22));
+      inner.add(box(1.34, 0.04, 0.26, mat(0xcfd6de), 0, 1.67, -0.22));
+      siren(1.82, -0.22, 0.62);
     } else if (tier === 3) {
       wheelZ = [-1.75, 1.75]; wheelX = 1.25; frontZ = 2.68; backZ = -2.68; lightY = 1.05;
       inner.add(box(2.55, 1.05, 5.3, armor, 0, 0.9, 0)); inner.add(box(2.3, 0.95, 2.55, armor, 0, 1.72, -0.2));
