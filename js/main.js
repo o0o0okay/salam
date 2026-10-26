@@ -10,11 +10,15 @@ import { chunks } from './world.js';
 import { mapDataReady } from './mapData.js';
 import { toast } from './ui.js';
 import { PERF_ON, perfFrame } from './perf.js';
+import { initHome } from './home.js';
 
 // the debug overlay's extra lines (only read when ?debug is on)
 const perfExtra = () => ({ cars: cars.length, chunks: chunks.size, 'quality tier': qLevel, wanted: game.wanted });
 
 $('menuBest').textContent = game.best;
+
+// Home / Garage premium
+initHome();
 
 // Difficulty buttons
 document.querySelectorAll('#diffPick button').forEach(b => b.addEventListener('click', () => { setDiff(b.dataset.d); b.blur(); }));
@@ -27,6 +31,7 @@ $('startBtn').addEventListener('click', () => {
   mapDataReady().then(ok => { if (!ok) toast('Map data missing. Run npm run bake:map in the project folder, then reload.', 12000); });
 }, { once: true });
 $('restartBtn').addEventListener('click', startGame);
+$('homeBtn2')?.addEventListener('click', ()=>{ $('overScreen').classList.add('hide'); $('startScreen').classList.remove('hide'); game.state='menu'; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing' && !game.paused) togglePause(); });
 
 initInput();
