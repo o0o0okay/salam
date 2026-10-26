@@ -81,108 +81,55 @@
   <div class="tbtn" id="bB" style="right:16px">BRAKE</div>
 </div>
 
-<!-- PREMIUM HOME / GARAGE SCREEN -->
+<!-- CARTOON HOME — like reference photo, NOT game graphics -->
 <div class="overlay" id="startScreen">
-  <div class="home-bg"></div>
-  <div class="home-vignette"></div>
-  <div class="home-stripes"></div>
-
-  <!-- Top bar: resources + settings -->
-  <div class="home-top">
+  <div class="home-cartoon-bg"></div>
+  <!-- Top HUD over cartoon bg -->
+  <div class="home-top cartoon-top">
     <div class="home-top-left">
-      <div class="home-logo-mini">ESCAPE<span>ROAD</span></div>
-      <div class="home-diff" id="diffPick">
+      <div class="lvl-badge"><div class="lvl-ico">👮</div><div><b>LV. 22</b><span>PLAYER</span></div></div>
+      <div class="home-diff cartoon-diff" id="diffPick">
         <button data-d="easy">EASY</button>
         <button data-d="normal">NORMAL</button>
         <button data-d="hard">HARD</button>
       </div>
     </div>
     <div class="home-resources">
-      <div class="res-pill res-cash"><i>💵</i><b id="homeCash">45,069</b><s>12,578K</s></div>
-      <div class="res-pill res-gold"><i>⭐</i><b id="homeGold">74,856</b><s>1,859K</s></div>
-      <div class="res-pill res-gem"><i>💎</i><b id="homeGem">12,555</b></div>
-      <button class="home-icon-btn" title="Settings">⚙️</button>
+      <div class="res-pill res-cash"><i>🪙</i><b id="homeCash">12,450</b></div>
+      <div class="res-pill res-gem"><i>💎</i><b id="homeGem">320</b></div>
+      <button class="home-icon-btn">⚙️</button>
     </div>
   </div>
 
-  <!-- Hero badge row -->
-  <div class="home-badge-wrap">
-    <div class="home-badge">
-      <div class="hex-icon"><span>🏆</span></div>
-      <div class="badge-info">
-        <div class="badge-rarity">STREET KING • RARE+</div>
-        <div class="badge-name" id="homeCarName">DRIFT KING</div>
-      </div>
-      <div class="badge-lv"><small>LV</small><b id="homeCarLV">20</b></div>
+  <!-- Garage badge -->
+  <div class="garage-badge"><span>🔧</span><b>GARAGE</b><small>MY RIDE • READY TO UPGRADE</small></div>
+
+  <!-- Center cartoon car stage — image is cartoon, not 3D -->
+  <div class="cartoon-stage" id="heroStage">
+    <img id="homeCarImg" src="images/mockup-home-cartoon.png" alt="garage" style="display:none">
+    <canvas id="homeCarCanvas" width="800" height="420"></canvas>
+    <div class="car-nav cartoon-nav">
+      <button class="nav-arrow" id="carPrev">◀</button>
+      <button class="nav-arrow" id="carNext">▶</button>
     </div>
-    <div class="atk-badge">SPD+<b id="homeATK">48</b></div>
-    <button class="gun-btn" title="Weapons">🎯</button>
+    <div class="car-dots" id="carDots"></div>
+    <!-- 4 lock slots positioned like mockup -->
+    <button class="lock-slot slot-engine" data-slot="engine"><span class="lock-ico">🔒</span><b>ENGINE<br>LOCKED</b></button>
+    <button class="lock-slot slot-tires" data-slot="tires"><span class="lock-ico">🔒</span><b>TIRES<br>LOCKED</b></button>
+    <button class="lock-slot slot-nitro" data-slot="nitro"><span class="lock-ico">🔒</span><b>NITRO<br>LOCKED</b></button>
+    <button class="lock-slot slot-armor" data-slot="armor"><span class="lock-ico">🔒</span><b>ARMOR<br>LOCKED</b></button>
+    <!-- Big yellow LEVEL UP -->
+    <button class="lvlup-btn" id="btnLevelUp">⬆ LEVEL UP</button>
   </div>
 
-  <!-- Center stage: gear slots + car -->
-  <div class="home-center">
-    <div class="gear-col left">
-      <button class="gear-slot add" data-slot="engine"><span>+</span></button>
-      <button class="gear-slot lock" data-slot="turbo"><span>🔒</span></button>
-    </div>
-
-    <div class="hero-stage" id="heroStage">
-      <div class="hero-glow"></div>
-      <div class="hero-platform"></div>
-      <canvas id="homeCarCanvas" width="640" height="360"></canvas>
-      <img id="homeCarImg" alt="car" style="display:none">
-      <div class="car-nav">
-        <button class="nav-arrow" id="carPrev">◀</button>
-        <div class="car-dots" id="carDots"></div>
-        <button class="nav-arrow" id="carNext">▶</button>
-      </div>
-      <div class="car-nameplate"><b id="homeCarModel">CROWN VIC • LV1</b><span id="homeCarDesc">NYPD Interceptor • Patrol</span></div>
-    </div>
-
-    <div class="gear-col right">
-      <button class="gear-slot lock" data-slot="armor"><span>🔒</span></button>
-      <button class="gear-slot lock" data-slot="nitro"><span>🔒</span></button>
-    </div>
+  <!-- Bottom tabs like mockup -->
+  <div class="home-footer cartoon-footer">
+    <button class="cartoon-tab active" data-tab="garage"><span>🔧</span>GARAGE</button>
+    <button class="cartoon-tab" data-tab="shop"><span>🛒</span>SHOP</button>
+    <button class="cartoon-tab" data-tab="tasks"><span>📋</span>TASKS</button>
+    <button class="play-btn cartoon-play" id="startBtn">▶ PLAY</button>
   </div>
-
-  <!-- Stats bar -->
-  <div class="home-stats">
-    <div class="stat-pill"><i>⚡</i><b id="statPower">24</b><small>POWER</small></div>
-    <div class="stat-pill lv"><b>LV</b><strong id="statLV">20</strong><span>MAX 40</span><div class="xpbar"><div class="xpfill" id="xpFill" style="width:62%"></div></div></div>
-    <div class="stat-row">
-      <div class="mini-stat">❤ <b id="statHP">100</b></div>
-      <div class="mini-stat">⚔ <b id="statATK2">88,766</b></div>
-      <div class="mini-stat">🛡 <b id="statDEF">28,745</b></div>
-    </div>
-    <button class="info-btn" title="Info">ⓘ</button>
-  </div>
-
-  <!-- Bottom resources + actions -->
-  <div class="home-bottom">
-    <div class="bottom-res">
-      <div class="bot-res"><i>🪙</i><b id="botCash">45,069</b><small>/12,578K</small></div>
-      <div class="bot-res"><i>🌟</i><b id="botStar">74,856</b><small>/1,859K</small></div>
-    </div>
-    <div class="home-actions">
-      <button class="act-btn ghost" id="btnRemove">REMOVE<br>GEAR</button>
-      <button class="act-btn primary" id="btnLevelUp"><span class="act-ico">⬆⚙</span> LEVEL UP</button>
-      <button class="act-btn ghost" id="btnEquip">EQUIP<br>GEAR</button>
-    </div>
-  </div>
-
-  <!-- Footer nav + START -->
-  <div class="home-footer">
-    <button class="foot-back" id="footBack">↩</button>
-    <div class="foot-tabs">
-      <button class="foot-tab active" data-tab="garage"><i>👑</i><span>GARAGE</span></button>
-      <button class="foot-tab" data-tab="shop"><i>🛒</i><span>SHOP</span></button>
-      <button class="foot-tab" data-tab="tasks"><i>📋</i><span>TASKS</span></button>
-      <button class="foot-tab" data-tab="skills"><i>⚡</i><span>SKILLS</span></button>
-    </div>
-    <button class="play-btn" id="startBtn">▶ START<br><small>DRIVE TO SURVIVE</small></button>
-  </div>
-
-  <div class="home-hint">WASD Steer • SHIFT Nitro • SPACE Drift • Best: <b id="menuBest">0</b></div>
+  <div class="home-hint cartoon-hint">BEST: <b id="menuBest">0</b> • CASH: <b id="botCash">12,450</b></div>
 </div>
 
 <div class="overlay hide" id="overScreen">
