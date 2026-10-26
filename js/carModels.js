@@ -791,9 +791,86 @@ export function buildCar(kind, color, detail = true) {
       inner.add(box(width, 0.2, 0.38, lights.blue, width * .55, y, z, false));
     };
     if (tier === 1) {
-      inner.add(box(2.0, 0.66, 4.3, navy, 0, 0.72, 0)); inner.add(box(2.05, 0.36, 2.2, white, 0, 0.74, -0.05));
-      inner.add(box(1.72, 0.62, 2.1, white, 0, 1.34, -0.25)); inner.add(box(1.76, 0.38, 1.6, glass, 0, 1.38, -0.25));
-      inner.add(box(1.5, 0.4, 2.14, glass, 0, 1.38, -0.25)); inner.add(box(1.3, 0.12, 0.42, dark, 0, 1.71, -0.25)); siren(1.84, -0.25, 0.55);
+      // Crown Victoria Police Interceptor L1 — NYPD-style black/white (user ref image)
+      const crownBlack = mat(0x0b0e14), crownWhite = mat(0xf5f5ef), chrome = mat(0xd6dce3), hlWhite = mat(0xeef2f7);
+      const tailRed = mat(0xcf1e1e), amber = mat(0xffb01a), pushMat = mat(0x0d1117);
+      // keep physics bounds same (CAR_DIMS e1/e2) — visual slightly longer for Crown Vic proportions
+      inner.add(box(2.0, 0.58, 4.45, crownBlack, 0, 0.64, 0.06)); // low chassis black
+      inner.add(box(2.02, 0.42, 1.96, crownWhite, 0, 0.79, 0.02)); // white doors band (mid body)
+      // greenhouse — white roof + pillars (Crown Vic formal roof)
+      inner.add(box(1.52, 0.62, 1.90, crownWhite, 0, 1.36, -0.28));
+      inner.add(box(1.56, 0.42, 1.52, glass, 0, 1.40, -0.28)); // side glass
+      inner.add(box(1.38, 0.44, 2.00, glass, 0, 1.40, -0.28)); // windscreen + rear window (top view)
+      inner.add(box(1.22, 0.10, 0.38, crownWhite, 0, 1.73, -0.28)); // roof cap
+      // chrome grille + Ford oval bar
+      inner.add(box(1.00, 0.20, 0.06, chrome, 0, 0.60, 2.23));
+      inner.add(box(0.88, 0.12, 0.07, dark, 0, 0.60, 2.24));
+      inner.add(box(0.84, 0.03, 0.08, chrome, 0, 0.62, 2.25));
+      // round Ford badge (tiny)
+      inner.add(cyl(0.06, 0.06, 0.02, 10, mat(0x1a3a6b), 0, 0.60, 2.26));
+      // headlights (rectangular) + amber corners
+      inner.add(box(0.30, 0.16, 0.06, hlWhite, -0.72, 0.60, 2.22));
+      inner.add(box(0.30, 0.16, 0.06, hlWhite,  0.72, 0.60, 2.22));
+      inner.add(box(0.08, 0.06, 0.07, amber, -0.92, 0.54, 2.23));
+      inner.add(box(0.08, 0.06, 0.07, amber,  0.92, 0.54, 2.23));
+      // front bumper
+      inner.add(box(1.82, 0.14, 0.12, dark, 0, 0.42, 2.28));
+      inner.add(box(1.78, 0.04, 0.13, chrome, 0, 0.44, 2.29));
+      // push bar / bull bar (NYPD ESU style)
+      inner.add(box(1.44, 0.05, 0.05, pushMat, 0, 0.48, 2.34));
+      inner.add(box(1.40, 0.05, 0.05, pushMat, 0, 0.72, 2.34));
+      for (const sx of [-0.46, 0.46]) inner.add(box(0.05, 0.36, 0.05, pushMat, sx, 0.60, 2.34));
+      // rear bumper + tail lights
+      inner.add(box(1.80, 0.14, 0.10, dark, 0, 0.44, -2.24));
+      inner.add(box(0.28, 0.18, 0.07, tailRed, -0.66, 0.62, -2.27));
+      inner.add(box(0.28, 0.18, 0.07, tailRed,  0.66, 0.62, -2.27));
+      inner.add(box(0.28, 0.10, 0.02, white, -0.66, 0.48, -2.28));
+      inner.add(box(0.28, 0.10, 0.02, white,  0.66, 0.48, -2.28)); // reverse lights
+      inner.add(box(0.32, 0.08, 0.02, crownWhite, 0, 0.52, -2.28)); // plate
+      // door handles + fuel cap + side trim
+      for (const z of [0.34, -0.56]) {
+        inner.add(box(0.03, 0.04, 0.16, chrome, -1.03, 0.84, z));
+        inner.add(box(0.03, 0.04, 0.16, chrome,  1.03, 0.84, z));
+      }
+      inner.add(box(0.02, 0.06, 0.06, chrome,  1.02, 0.78, -1.05)); // fuel door right
+      inner.add(box(2.04, 0.02, 1.96, dark, 0, 0.96, 0.02)); // waist pinstripe
+      // spotlight on driver A-pillar
+      inner.add(box(0.07, 0.07, 0.07, chrome, -0.82, 1.30, 0.55));
+      inner.add(cyl(0.04, 0.04, 0.14, 8, dark, -0.86, 1.30, 0.58));
+      // whip antenna on rear quarter
+      inner.add(box(0.02, 0.50, 0.02, mat(0x0a0a0a), 0.92, 1.10, -1.70));
+      inner.add(cyl(0.015, 0.015, 0.08, 6, mat(0x111111), 0.92, 1.36, -1.70));
+      // NYPD shield + POLICE lettering on doors (pixel letters)
+      const badgeMat = mat(0x1e4e9a), goldMat = mat(0xc9a86a), textMat = mat(0x0a0f14);
+      for (const sx of [-1, 1]) {
+        // shield
+        inner.add(box(0.02, 0.18, 0.14, badgeMat, sx * 1.03, 0.92, 0.52));
+        inner.add(box(0.025, 0.02, 0.15, goldMat, sx * 1.035, 1.02, 0.52));
+      }
+      const policeGeo = busSignGeometry('POLICE', 0.24, 0.03, 0.025);
+      if (policeGeo) {
+        for (const sx of [-1, 1]) {
+          const m = new THREE.Mesh(policeGeo, textMat);
+          m.position.set(sx * 1.04, 0.88, -0.18);
+          m.rotation.y = sx * Math.PI / 2;
+          // keep readable — mirror left side by flipping
+          if (sx === -1) m.scale.x = -1;
+          m.castShadow = false; m.receiveShadow = false;
+          inner.add(m);
+        }
+      }
+      // POLICE on rear trunk (small)
+      const trunkGeo = busSignGeometry('POLICE', 0.14, 0.02, 0.018);
+      if (trunkGeo) {
+        const t = new THREE.Mesh(trunkGeo, crownWhite);
+        t.position.set(0, 0.62, -2.29); t.rotation.x = Math.PI / 2.18; // slightly tilted to follow trunk lid
+        t.rotation.y = Math.PI; t.rotation.z = Math.PI;
+        t.castShadow = false; inner.add(t);
+      }
+      // full-width LED lightbar (Whelen style) — housing + siren LEDs
+      inner.add(box(1.42, 0.12, 0.32, mat(0xe6eaef), 0, 1.84, -0.18));
+      inner.add(box(1.38, 0.04, 0.28, mat(0xcfd6de), 0, 1.78, -0.18));
+      siren(1.94, -0.18, 0.70);
     } else if (tier === 2) {
       wheelZ = [-1.55, 1.55]; wheelX = 1.12; frontZ = 2.42; backZ = -2.42;
       inner.add(box(2.25, 0.55, 4.8, navy, 0, 0.67, 0)); inner.add(box(2.3, 0.3, 2.4, white, 0, 0.72, -0.15));
