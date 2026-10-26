@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ESCAPE ROAD — Low-Poly Police Chase</title>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@500;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
 { "imports": {
@@ -31,7 +31,7 @@
     <div class="lbl" id="clock">☀ 08:00</div>
     <div id="heat" class="display">WANTED ★☆☆☆☆</div>
     <div class="lbl" id="wantedDetail">LEVEL 1 · PATROL SEDANS</div>
-    <button id="clearWantedBtn" title="Clear all police stars (Y) - for testing harbor without chase" style="margin-top:6px;padding:3px 8px;font:11px monospace;background:#1a1a1a;color:#ffd23b;border:1px solid #555;border-radius:4px;cursor:pointer;pointer-events:auto">☆ CLEAR STARS (Y)</button>
+    <button id="clearWantedBtn" title="Clear all police stars (Y)" style="margin-top:6px;padding:3px 8px;font:11px monospace;background:#1a1a1a;color:#ffd23b;border:1px solid #555;border-radius:4px;cursor:pointer;pointer-events:auto">☆ CLEAR STARS (Y)</button>
     <div class="lbl hpLbl">VEHICLE HEALTH</div>
     <div class="bar hpBar"><div id="hpFill"></div></div>
     <div class="mid display" style="color:#7dff7a;margin-top:6px">$<span id="cash">0</span></div>
@@ -80,21 +80,111 @@
   <div class="tbtn sm" id="bD" style="right:92px;bottom:112px">DRIFT</div>
   <div class="tbtn" id="bB" style="right:16px">BRAKE</div>
 </div>
+
+<!-- PREMIUM HOME / GARAGE SCREEN -->
 <div class="overlay" id="startScreen">
-  <h1 class="title">ESCAPE
-<span>ROAD</span></h1>
-  <p class="sub">Every wanted star brings a harder police unit. Survive patrol sedans, muscle interceptors, SWAT roadblocks, armored rammers — and the helicopter spotlight at maximum heat. Watch out for spike strips, grab nitro, and survive the night.</p>
-  <div class="diff" id="diffPick">
-    <button data-d="easy">EASY</button>
-    <button data-d="normal">NORMAL</button>
-    <button data-d="hard">HARD</button>
+  <div class="home-bg"></div>
+  <div class="home-vignette"></div>
+  <div class="home-stripes"></div>
+
+  <!-- Top bar: resources + settings -->
+  <div class="home-top">
+    <div class="home-top-left">
+      <div class="home-logo-mini">ESCAPE<span>ROAD</span></div>
+      <div class="home-diff" id="diffPick">
+        <button data-d="easy">EASY</button>
+        <button data-d="normal">NORMAL</button>
+        <button data-d="hard">HARD</button>
+      </div>
+    </div>
+    <div class="home-resources">
+      <div class="res-pill res-cash"><i>💵</i><b id="homeCash">45,069</b><s>12,578K</s></div>
+      <div class="res-pill res-gold"><i>⭐</i><b id="homeGold">74,856</b><s>1,859K</s></div>
+      <div class="res-pill res-gem"><i>💎</i><b id="homeGem">12,555</b></div>
+      <button class="home-icon-btn" title="Settings">⚙️</button>
+    </div>
   </div>
-  <button class="btn" id="startBtn">PRESS START</button>
-  <div class="keys">
-    <span><b>W</b><b>↑</b> Gas</span><span><b>A</b><b>D</b> / <b>←</b><b>→</b> Steer</span><span><b>S</b><b>↓</b> Brake / Reverse</span><span><b>SPACE</b> Drift</span><span><b>SHIFT</b> Nitro</span><span><b>P</b> Pause</span><span><b>M</b> Map</span><span><b>B</b> Sound</span>
+
+  <!-- Hero badge row -->
+  <div class="home-badge-wrap">
+    <div class="home-badge">
+      <div class="hex-icon"><span>🏆</span></div>
+      <div class="badge-info">
+        <div class="badge-rarity">STREET KING • RARE+</div>
+        <div class="badge-name" id="homeCarName">DRIFT KING</div>
+      </div>
+      <div class="badge-lv"><small>LV</small><b id="homeCarLV">20</b></div>
+    </div>
+    <div class="atk-badge">SPD+<b id="homeATK">48</b></div>
+    <button class="gun-btn" title="Weapons">🎯</button>
   </div>
-  <div class="sub" style="margin-top:12px;font-size:13px">Touch devices: tap Start — gas is automatic. Best: <b id="menuBest">0</b></div>
+
+  <!-- Center stage: gear slots + car -->
+  <div class="home-center">
+    <div class="gear-col left">
+      <button class="gear-slot add" data-slot="engine"><span>+</span></button>
+      <button class="gear-slot lock" data-slot="turbo"><span>🔒</span></button>
+    </div>
+
+    <div class="hero-stage" id="heroStage">
+      <div class="hero-glow"></div>
+      <div class="hero-platform"></div>
+      <canvas id="homeCarCanvas" width="640" height="360"></canvas>
+      <img id="homeCarImg" alt="car" style="display:none">
+      <div class="car-nav">
+        <button class="nav-arrow" id="carPrev">◀</button>
+        <div class="car-dots" id="carDots"></div>
+        <button class="nav-arrow" id="carNext">▶</button>
+      </div>
+      <div class="car-nameplate"><b id="homeCarModel">CROWN VIC • LV1</b><span id="homeCarDesc">NYPD Interceptor • Patrol</span></div>
+    </div>
+
+    <div class="gear-col right">
+      <button class="gear-slot lock" data-slot="armor"><span>🔒</span></button>
+      <button class="gear-slot lock" data-slot="nitro"><span>🔒</span></button>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="home-stats">
+    <div class="stat-pill"><i>⚡</i><b id="statPower">24</b><small>POWER</small></div>
+    <div class="stat-pill lv"><b>LV</b><strong id="statLV">20</strong><span>MAX 40</span><div class="xpbar"><div class="xpfill" id="xpFill" style="width:62%"></div></div></div>
+    <div class="stat-row">
+      <div class="mini-stat">❤ <b id="statHP">100</b></div>
+      <div class="mini-stat">⚔ <b id="statATK2">88,766</b></div>
+      <div class="mini-stat">🛡 <b id="statDEF">28,745</b></div>
+    </div>
+    <button class="info-btn" title="Info">ⓘ</button>
+  </div>
+
+  <!-- Bottom resources + actions -->
+  <div class="home-bottom">
+    <div class="bottom-res">
+      <div class="bot-res"><i>🪙</i><b id="botCash">45,069</b><small>/12,578K</small></div>
+      <div class="bot-res"><i>🌟</i><b id="botStar">74,856</b><small>/1,859K</small></div>
+    </div>
+    <div class="home-actions">
+      <button class="act-btn ghost" id="btnRemove">REMOVE<br>GEAR</button>
+      <button class="act-btn primary" id="btnLevelUp"><span class="act-ico">⬆⚙</span> LEVEL UP</button>
+      <button class="act-btn ghost" id="btnEquip">EQUIP<br>GEAR</button>
+    </div>
+  </div>
+
+  <!-- Footer nav + START -->
+  <div class="home-footer">
+    <button class="foot-back" id="footBack">↩</button>
+    <div class="foot-tabs">
+      <button class="foot-tab active" data-tab="garage"><i>👑</i><span>GARAGE</span></button>
+      <button class="foot-tab" data-tab="shop"><i>🛒</i><span>SHOP</span></button>
+      <button class="foot-tab" data-tab="tasks"><i>📋</i><span>TASKS</span></button>
+      <button class="foot-tab" data-tab="skills"><i>⚡</i><span>SKILLS</span></button>
+    </div>
+    <button class="play-btn" id="startBtn">▶ START<br><small>DRIVE TO SURVIVE</small></button>
+  </div>
+
+  <div class="home-hint">WASD Steer • SHIFT Nitro • SPACE Drift • Best: <b id="menuBest">0</b></div>
 </div>
+
 <div class="overlay hide" id="overScreen">
   <h1 class="title" id="overTitle">BUSTED</h1>
   <div class="sub" id="overSub">The cops got you.</div>
@@ -106,6 +196,7 @@
   </div>
   <div class="newbest hide" id="newBest">★ NEW BEST SCORE ★</div>
   <button class="btn" id="restartBtn">RESTART</button>
+  <button class="btn ghost" id="homeBtn2" style="background:rgba(255,255,255,.15);color:#fff;border:2px solid #fff;box-shadow:none;margin-top:10px;font-size:18px;padding:10px 24px">⌂ HOME</button>
   <div class="sub" style="font-size:12px;margin-top:10px">or press ENTER</div>
 </div>
 <div class="overlay hide" id="pauseScreen"><h1 class="title">PAUSED</h1><div class="sub">Press P to resume</div></div>
