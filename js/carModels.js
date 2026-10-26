@@ -766,20 +766,64 @@ export function buildCar(kind, color, detail = true) {
     inner.add(box(0.5, 0.08, 0.2, lights.blue, 0.3, 1.5, 0.3, false));
 
 
-  // ===== NEW: Police Van (SWAT) =====
+  // ===== Police Van (SWAT Transport) — detailed Transit/Sprinter =====
   } else if (kind === 'policeVan') {
-    wheelZ = [-1.9, 1.9]; wheelX = 1.3; frontZ = 2.85; backZ = -2.85; lightY = 1.05;
-    const navy = mat(0x16233b), armor = mat(0x20242b);
-    inner.add(box(2.6, 1.55, 5.9, navy, 0, 1.15, 0));
-    inner.add(box(2.64, 0.3, 5.95, mat(0xeceeef), 0, 1.9, 0, false));
-    inner.add(box(2.3, 0.5, 1.6, glass, 0, 1.55, 2.7));
-    inner.add(box(0.1, 0.5, 0.9, glass, -1.32, 1.55, 1.2, false));
-    inner.add(box(0.1, 0.5, 0.9, glass, 1.32, 1.55, 1.2, false));
-    inner.add(box(1.8, 0.2, 0.6, armor, 0, 2.25, -0.2, false));
+    wheelZ = [-1.85, 1.85]; wheelX = 1.28; frontZ = 2.82; backZ = -2.82; lightY = 1.08;
+    const vNavy = mat(0x0e1a33), vWhite = mat(0xf2f3f1), vChr = mat(0xd7dde3), vDark = mat(0x141a24), vBlk = mat(0x0b0f14);
+    // main body — tall van
+    inner.add(box(2.52, 1.38, 5.85, vNavy, 0, 1.08, -0.05));
+    inner.add(box(2.56, 0.26, 5.90, vWhite, 0, 1.82, -0.05)); // white roof cap
+    inner.add(box(2.58, 0.04, 5.92, vChr, 0, 1.70, -0.05)); // roof rail
+    // cab — windshield + side windows
+    inner.add(box(2.35, 0.55, 1.35, glass, 0, 1.52, 2.10));
+    inner.add(box(0.08, 0.45, 0.85, glass, -1.28, 1.52, 1.10));
+    inner.add(box(0.08, 0.45, 0.85, glass,  1.28, 1.52, 1.10)); // side cab windows
+    // cargo side window (small, barred)
+    inner.add(box(0.06, 0.42, 0.70, glass, -1.30, 1.45, -0.45));
+    inner.add(box(0.06, 0.42, 0.70, glass,  1.30, 1.45, -0.45));
+    inner.add(box(0.04, 0.04, 0.72, vBlk, -1.31, 1.45, -0.45)); // bar
+    inner.add(box(0.04, 0.04, 0.72, vBlk,  1.31, 1.45, -0.45));
+    // grille + badge
+    inner.add(box(1.15, 0.22, 0.06, vDark, 0, 0.92, 2.88));
+    inner.add(box(1.00, 0.16, 0.07, dark, 0, 0.92, 2.89));
+    inner.add(box(0.22, 0.08, 0.08, vChr, 0, 0.92, 2.90)); // badge
+    // headlights
+    inner.add(box(0.32, 0.14, 0.06, mat(0xeef4ff), -0.88, 0.92, 2.88));
+    inner.add(box(0.32, 0.14, 0.06, mat(0xeef4ff),  0.88, 0.92, 2.88));
+    // bumpers
+    inner.add(box(2.05, 0.16, 0.10, vDark, 0, 0.52, 2.90));
+    inner.add(box(2.05, 0.14, 0.10, vDark, 0, 0.52, -2.88));
+    inner.add(box(0.28, 0.16, 0.06, mat(0xc81e1e), -0.85, 0.92, -2.90));
+    inner.add(box(0.28, 0.16, 0.06, mat(0xc81e1e),  0.85, 0.92, -2.90)); // taillights
+    // sliding door + handles + side step
+    inner.add(box(0.06, 0.85, 1.05, vNavy, -1.28, 1.05, -0.35));
+    inner.add(box(0.06, 0.85, 1.05, vNavy,  1.28, 1.05, -0.35)); // doors outline
+    inner.add(box(0.04, 0.05, 0.18, vChr, -1.31, 1.05, -0.20));
+    inner.add(box(0.04, 0.05, 0.18, vChr,  1.31, 1.05, -0.20));
+    inner.add(box(2.55, 0.06, 5.75, vDark, 0, 0.48, -0.05));
+    // rear double doors
+    inner.add(box(1.10, 1.15, 0.06, vNavy, -0.58, 1.10, -2.90));
+    inner.add(box(1.10, 1.15, 0.06, vNavy,  0.58, 1.10, -2.90));
+    inner.add(box(0.04, 0.85, 0.02, vDark, 0, 1.10, -2.93));
+    inner.add(box(0.06, 0.06, 0.04, vChr, -0.20, 1.10, -2.94));
+    inner.add(box(0.06, 0.06, 0.04, vChr,  0.20, 1.10, -2.94));
+    // roof — AC unit + antenna
+    inner.add(box(1.45, 0.14, 0.65, vBlk, 0, 2.02, -0.40));
+    inner.add(box(0.10, 0.06, 0.14, vChr, 0, 2.10, 0.30)); // antenna base
+    inner.add(box(0.02, 0.40, 0.02, mat(0x0a0a0a), 0.90, 2.05, -1.20));
+    // mirrors
+    for (const sx of [-1,1]) { inner.add(box(0.12, 0.08, 0.08, vBlk, sx*1.32, 1.32, 2.10)); }
+    // livery — POLICE + shield
+    const vB = mat(0x1e4e9a), vG = mat(0xc9a86a), vT = mat(0xe9eef5);
+    for (const sx of [-1,1]) { inner.add(box(0.02,0.20,0.16,vB,sx*1.30,1.12,0.10)); inner.add(box(0.025,0.02,0.17,vG,sx*1.305,1.24,0.10)); }
+    const vPGeo = busSignGeometry('POLICE', 0.26, 0.03, 0.025);
+    if (vPGeo) for(const sx of [-1,1]){ const m=new THREE.Mesh(vPGeo,vT); m.position.set(sx*1.31,1.10,-0.65); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+    // lightbar
+    inner.add(box(1.30, 0.10, 0.28, mat(0xe6eaef), 0, 2.00, 1.55));
     lights.red = new THREE.MeshBasicMaterial({ color: 0xff2020 });
     lights.blue = new THREE.MeshBasicMaterial({ color: 0x2a5cff });
-    inner.add(box(0.85, 0.2, 0.5, lights.red, -0.55, 2.35, -0.2, false));
-    inner.add(box(0.85, 0.2, 0.5, lights.blue, 0.55, 2.35, -0.2, false));
+    inner.add(box(0.62, 0.08, 0.20, lights.red, -0.32, 2.08, 1.55, false));
+    inner.add(box(0.62, 0.08, 0.20, lights.blue, 0.32, 2.08, 1.55, false));
 
 
   } else if (isPoliceKind(kind)) {
@@ -991,24 +1035,182 @@ export function buildCar(kind, color, detail = true) {
       inner.add(box(1.34, 0.04, 0.26, mat(0xcfd6de), 0, 1.67, -0.22));
       siren(1.82, -0.22, 0.62);
     } else if (tier === 3) {
-      wheelZ = [-1.75, 1.75]; wheelX = 1.25; frontZ = 2.68; backZ = -2.68; lightY = 1.05;
-      inner.add(box(2.55, 1.05, 5.3, armor, 0, 0.9, 0)); inner.add(box(2.3, 0.95, 2.55, armor, 0, 1.72, -0.2));
-      inner.add(box(2.34, 0.42, 1.88, glass, 0, 1.75, -0.2)); inner.add(box(2.1, 0.43, 2.6, glass, 0, 1.75, -0.2));
-      inner.add(box(2.7, 0.32, 0.34, dark, 0, 0.65, 2.7)); inner.add(box(2.85, 0.12, 0.18, mat(0xb9c0c7), 0, 0.98, 2.78));
-      inner.add(box(1.7, 0.18, 0.48, dark, 0, 2.22, -0.2)); siren(2.35, -0.2, 0.62);
+      // SWAT Interceptor SUV — Ford Police Interceptor Utility (Explorer) level
+      wheelZ = [-1.68, 1.68]; wheelX = 1.22; frontZ = 2.62; backZ = -2.62; lightY = 1.02;
+      const suvBlk = mat(0x0b0f15), suvWht = mat(0xf6f6f2), suvChr = mat(0xd7dde3), suvGr = mat(0x1c2330);
+      // lower chassis — black with white doors
+      inner.add(box(2.40, 0.72, 5.02, suvBlk, 0, 0.74, 0.04));
+      inner.add(box(2.44, 0.34, 2.18, suvWht, 0, 0.84, 0.08));
+      inner.add(box(2.46, 0.08, 5.08, suvGr, 0, 0.48, 0.04)); // rocker trim
+      // SUV greenhouse — taller, upright, SWAT style
+      inner.add(box(1.92, 0.78, 2.45, suvBlk, 0, 1.52, -0.18));
+      inner.add(box(1.96, 0.38, 1.60, glass, 0, 1.56, -0.18)); // side windows
+      inner.add(box(1.70, 0.42, 2.35, glass, 0, 1.56, -0.18)); // windshield + rear
+      inner.add(box(1.64, 0.06, 0.42, suvWht, 0, 1.96, -0.18)); // roof rails white cap
+      // roof rails + cross bars
+      inner.add(box(0.04, 0.08, 2.05, dark, -0.72, 1.98, -0.18));
+      inner.add(box(0.04, 0.08, 2.05, dark,  0.72, 1.98, -0.18));
+      inner.add(box(1.50, 0.04, 0.04, dark, 0, 2.00, 0.45));
+      inner.add(box(1.50, 0.04, 0.04, dark, 0, 2.00, -0.85));
+      // front fascia — Explorer grille (hex mesh)
+      inner.add(box(1.20, 0.24, 0.06, suvGr, 0, 0.72, 2.58));
+      inner.add(box(1.02, 0.14, 0.07, dark, 0, 0.72, 2.59));
+      inner.add(box(0.06, 0.14, 0.08, suvChr, 0, 0.72, 2.60)); // vertical bar
+      // headlights — sharp LED
+      const hlS = mat(0xeef4ff);
+      inner.add(box(0.32, 0.14, 0.06, hlS, -0.84, 0.72, 2.58));
+      inner.add(box(0.32, 0.14, 0.06, hlS,  0.84, 0.72, 2.58));
+      inner.add(box(0.32, 0.03, 0.07, mat(0xffffff), -0.84, 0.78, 2.59));
+      inner.add(box(0.32, 0.03, 0.07, mat(0xffffff),  0.84, 0.78, 2.59)); // DRL
+      // skid plate + bumper
+      inner.add(box(1.85, 0.14, 0.10, dark, 0, 0.46, 2.64));
+      inner.add(box(1.50, 0.04, 0.11, suvChr, 0, 0.48, 2.65));
+      // push bar — SWAT tubular with center plate
+      const pushS = mat(0x111820);
+      inner.add(box(1.58, 0.05, 0.05, pushS, 0, 0.56, 2.70));
+      inner.add(box(1.50, 0.05, 0.05, pushS, 0, 0.86, 2.70));
+      for (const sx of [-0.52, 0.52]) inner.add(box(0.05, 0.42, 0.05, pushS, sx, 0.71, 2.70));
+      inner.add(box(0.38, 0.14, 0.02, suvBlk, 0, 0.71, 2.72)); // center push plate POLICE
+      // sides — running boards, handles, fuel door
+      inner.add(box(2.40, 0.06, 4.90, dark, 0, 0.44, 0.04));
+      for (const z of [0.45, -0.45]) {
+        inner.add(box(0.03, 0.04, 0.14, suvChr, -1.07, 0.86, z));
+        inner.add(box(0.03, 0.04, 0.14, suvChr,  1.07, 0.86, z));
+      }
+      inner.add(box(0.02, 0.07, 0.07, suvChr, 1.06, 0.78, -1.20));
+      // rear — tailgate, lights, spoiler
+      inner.add(box(0.28, 0.22, 0.07, mat(0xc81e1e), -0.78, 0.92, -2.60));
+      inner.add(box(0.28, 0.22, 0.07, mat(0xc81e1e),  0.78, 0.92, -2.60));
+      inner.add(box(1.35, 0.14, 0.06, dark, 0, 1.18, -2.62)); // rear spoiler
+      inner.add(box(1.60, 0.12, 0.08, dark, 0, 0.54, -2.64)); // rear bumper
+      inner.add(box(0.12, 0.08, 0.09, suvChr, -0.45, 0.48, -2.66)); // exhausts
+      inner.add(box(0.12, 0.08, 0.09, suvChr,  0.45, 0.48, -2.66));
+      // antenna + spotlight mirrors
+      inner.add(box(0.10, 0.06, 0.16, suvBlk, 0, 2.02, -0.75)); // shark fin
+      inner.add(box(0.02, 0.48, 0.02, mat(0x0a0a0a), 0.92, 1.20, -1.40));
+      for (const sx of [-1, 1]) {
+        inner.add(box(0.14, 0.10, 0.10, suvBlk, sx*1.03, 1.32, 0.55));
+        inner.add(cyl(0.04, 0.04, 0.10, 8, dark, sx*1.07, 1.32, 0.55));
+      }
+      // livery — POLICE + shield + DIAL 911
+      const bM = mat(0x1e4e9a), gM = mat(0xc9a86a), tM = mat(0x0a0f14), wM = suvWht;
+      for (const sx of [-1, 1]) {
+        inner.add(box(0.02, 0.18, 0.14, bM, sx*1.06, 0.98, 0.48));
+        inner.add(box(0.025, 0.02, 0.15, gM, sx*1.065, 1.08, 0.48));
+      }
+      const p3Geo = busSignGeometry('POLICE', 0.24, 0.03, 0.025);
+      if (p3Geo) for (const sx of [-1,1]) { const m=new THREE.Mesh(p3Geo,tM); m.position.set(sx*1.07,0.96,-0.06); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      const d3Geo = busSignGeometry('DIAL 911', 0.10, 0.02, 0.015);
+      if (d3Geo) for (const sx of [-1,1]) { const m=new THREE.Mesh(d3Geo,tM); m.position.set(sx*1.07,0.86,-0.95); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      // lightbar — Explorer sits higher
+      inner.add(box(1.40, 0.11, 0.30, mat(0xe6eaef), 0, 2.06, -0.18));
+      inner.add(box(1.36, 0.04, 0.26, mat(0xcfd6de), 0, 2.01, -0.18));
+      siren(2.16, -0.18, 0.66);
     } else if (tier === 4) {
-      wheelZ = [-2.2, 2.2]; wheelX = 1.42; frontZ = 3.25; backZ = -3.25; lightY = 1.1;
-      inner.add(box(2.9, 1.35, 6.4, armor, 0, 1.05, 0)); inner.add(box(2.64, 1.15, 3.05, armor, 0, 2.0, -0.2));
-      inner.add(box(2.68, 0.35, 2.15, glass, 0, 2.1, -0.25));
-      for (const x of [-.75, 0, .75]) inner.add(box(0.38, 0.52, 0.08, glass, x, 2.08, 1.36, false));
-      inner.add(box(3.05, 0.65, 0.38, dark, 0, 0.75, 3.32)); inner.add(box(3.2, 0.13, 0.16, mat(0xd1d7dc), 0, 1.18, 3.52));
-      inner.add(box(2.05, 0.18, 0.55, dark, 0, 2.61, -0.2)); siren(2.74, -0.2, 0.7);
+      // BearCat G3 — heavy Lenco armored truck
+      wheelZ = [-2.05, 2.05]; wheelX = 1.42; frontZ = 3.18; backZ = -3.18; lightY = 1.14;
+      const bcBlk = mat(0x1a212b), bcArmor = mat(0x2b3441), bcChr = mat(0xc9cfd6), bcGr = mat(0x0e131a);
+      // hull — angular MRAP shape
+      inner.add(box(2.85, 0.95, 6.15, bcArmor, 0, 0.88, 0)); // lower hull
+      inner.add(box(2.95, 0.22, 6.25, bcBlk, 0, 0.52, 0)); // V-hull belly
+      inner.add(box(2.50, 0.90, 3.10, bcArmor, 0, 1.72, -0.15)); // crew cabin
+      inner.add(box(2.60, 0.06, 3.15, bcBlk, 0, 1.32, -0.15)); // beltline seam
+      // windshield + tiny armored windows
+      inner.add(box(2.45, 0.32, 1.85, glass, 0, 1.78, 0.95));
+      for (const x of [-0.70, 0, 0.70]) inner.add(box(0.36, 0.44, 0.06, glass, x, 1.78, -0.55));
+      for (const x of [-0.70, 0.70]) inner.add(box(0.36, 0.44, 0.06, glass, x, 1.78, -1.20));
+      // front — ram bumper + grille + headlights in armor recess
+      inner.add(box(2.80, 0.55, 0.28, bcBlk, 0, 0.78, 3.18));
+      inner.add(box(2.90, 0.14, 0.18, bcChr, 0, 1.12, 3.28)); // ram bar chrome
+      inner.add(box(1.20, 0.28, 0.06, bcGr, 0, 0.95, 3.20)); // armored grille
+      inner.add(box(0.08, 0.28, 0.07, bcChr, 0, 0.95, 3.21));
+      inner.add(box(0.36, 0.14, 0.07, mat(0xdce6f0), -1.00, 0.95, 3.20));
+      inner.add(box(0.36, 0.14, 0.07, mat(0xdce6f0),  1.00, 0.95, 3.20)); // headlights recessed
+      // winch + tow hooks
+      inner.add(box(0.28, 0.12, 0.04, mat(0x8a919c), -1.00, 0.62, 3.30));
+      inner.add(box(0.28, 0.12, 0.04, mat(0x8a919c),  1.00, 0.62, 3.30));
+      inner.add(box(0.50, 0.14, 0.20, dark, 0, 0.62, 3.28));
+      // side — armored doors, hinges, steps, fuel
+      for (const z of [0.55, -0.55, -1.45]) {
+        inner.add(box(0.04, 0.50, 0.50, bcBlk, -1.32, 1.20, z));
+        inner.add(box(0.04, 0.50, 0.50, bcBlk,  1.32, 1.20, z));
+      }
+      inner.add(box(2.95, 0.08, 6.05, dark, 0, 0.62, 0)); // side step
+      // roof — turret hatch + searchlight + antennas
+      inner.add(box(1.05, 0.18, 1.05, bcBlk, 0, 2.28, 0.15)); // turret ring
+      inner.add(cyl(0.38, 0.38, 0.06, 10, bcArmor, 0, 2.40, 0.15)); // hatch
+      inner.add(cyl(0.12, 0.14, 0.10, 8, dark, 0, 2.48, 0.15));
+      inner.add(box(0.18, 0.10, 0.18, mat(0xf0f3f7), 0.45, 2.30, -0.90)); // searchlight
+      inner.add(box(0.02, 0.55, 0.02, mat(0x0a0a0a), 0.95, 2.10, -1.40));
+      inner.add(box(0.02, 0.55, 0.02, mat(0x0a0a0a), -0.95, 2.10, -1.40));
+      // rear — double doors + ladder
+      inner.add(box(2.55, 1.05, 0.12, bcArmor, 0, 1.05, -3.20));
+      inner.add(box(0.04, 0.85, 0.08, dark, 0, 1.05, -3.26)); // door seam
+      inner.add(box(0.08, 0.08, 0.04, dark, -0.20, 1.05, -3.27));
+      inner.add(box(0.08, 0.08, 0.04, dark,  0.20, 1.05, -3.27)); // handles
+      inner.add(box(0.04, 0.85, 0.12, bcBlk, -1.05, 1.10, -2.80)); // side ladder
+      for(let i=0;i<4;i++) inner.add(box(0.28,0.04,0.04, dark, -1.08, 0.75+i*0.22, -2.82));
+      // livery — POLICE large + shield on door
+      const b4 = mat(0x1e4e9a), g4 = mat(0xc9a86a), t4 = mat(0xe8ecf1);
+      for (const sx of [-1,1]) { inner.add(box(0.02,0.22,0.18,b4,sx*1.34,1.20,0.10)); inner.add(box(0.025,0.02,0.19,g4,sx*1.345,1.32,0.10)); }
+      const p4Geo = busSignGeometry('POLICE', 0.28, 0.03, 0.03);
+      if (p4Geo) for(const sx of [-1,1]){ const m=new THREE.Mesh(p4Geo,t4); m.position.set(sx*1.36,1.12,-0.35); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      const s4Geo = busSignGeometry('SWAT', 0.14, 0.02, 0.02);
+      if (s4Geo) for(const sx of [-1,1]){ const m=new THREE.Mesh(s4Geo,t4); m.position.set(sx*1.36,1.00,-0.80); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      // lightbar + siren
+      inner.add(box(1.45, 0.12, 0.32, mat(0xe6eaef), 0, 2.38, -0.15));
+      siren(2.50, -0.15, 0.70);
     } else {
-      wheelZ = [-2.65, 0, 2.65]; wheelX = 1.62; frontZ = 3.8; backZ = -3.8; lightY = 1.22;
-      inner.add(box(3.3, 1.65, 7.5, armor, 0, 1.2, 0)); inner.add(box(3.0, 1.35, 3.5, armor, 0, 2.25, -0.2));
-      for (const x of [-1.0, -.35, .35, 1.0]) inner.add(box(0.42, 0.5, 0.1, glass, x, 2.35, 1.48, false));
-      inner.add(box(3.55, 0.82, 0.52, dark, 0, 0.82, 3.9)); inner.add(box(3.8, 0.16, 0.2, mat(0xffc928), 0, 1.3, 4.08));
-      inner.add(box(2.35, 0.2, 0.65, dark, 0, 3.0, -0.2)); siren(3.15, -0.2, 0.85);
+      // JUGGERNAUT — 6x6 heavy APC (Mastiff style)
+      wheelZ = [-2.45, 0, 2.45]; wheelX = 1.60; frontZ = 3.70; backZ = -3.70; lightY = 1.26;
+      const jArmor = mat(0x333c48), jDark = mat(0x1c222c), jChr = mat(0xc8cfd8), jSand = mat(0x9aa0a8);
+      // massive hull — 6 wheels, V-shaped
+      inner.add(box(3.20, 1.15, 7.15, jArmor, 0, 0.98, 0));
+      inner.add(box(3.30, 0.28, 7.30, jDark, 0, 0.52, 0));
+      inner.add(box(2.85, 1.00, 3.40, jArmor, 0, 1.95, -0.10)); // crew citadel
+      inner.add(box(2.95, 0.06, 3.45, jDark, 0, 1.52, -0.10));
+      // windshield — tiny slit + gun ports
+      inner.add(box(2.55, 0.24, 1.45, glass, 0, 2.02, 0.95));
+      for (const x of [-0.95, -0.32, 0.32, 0.95]) inner.add(box(0.38, 0.42, 0.06, glass, x, 2.02, -0.40));
+      for (const x of [-0.95, 0.95]) inner.add(box(0.38, 0.42, 0.06, glass, x, 2.02, -1.00));
+      // dozer blade / plow front — juggernaut signature
+      inner.add(box(3.40, 0.72, 0.42, jDark, 0, 0.72, 3.85));
+      inner.add(box(3.55, 0.14, 0.16, mat(0xffc928), 0, 1.12, 4.02)); // hazard stripe
+      inner.add(box(3.55, 0.14, 0.16, jDark, 0, 0.82, 4.02));
+      // grille behind blade
+      inner.add(box(1.30, 0.28, 0.06, jDark, 0, 0.98, 3.70));
+      // headlights — in armor pods
+      inner.add(box(0.40, 0.16, 0.08, mat(0xe2ecf5), -1.10, 0.98, 3.72));
+      inner.add(box(0.40, 0.16, 0.08, mat(0xe2ecf5),  1.10, 0.98, 3.72));
+      // side armor skirts + tool boxes
+      inner.add(box(3.35, 0.22, 7.05, jDark, 0, 0.62, 0));
+      for (const sx of [-1,1]) {
+        inner.add(box(0.18, 0.28, 0.55, jSand, sx*1.65, 0.95, 0.30));
+        inner.add(box(0.18, 0.28, 0.55, jSand, sx*1.65, 0.95, -0.80));
+        inner.add(box(0.04, 0.48, 0.50, jDark, sx*1.66, 1.20, 0.30));
+        inner.add(box(0.04, 0.48, 0.50, jDark, sx*1.66, 1.20, -0.80));
+      }
+      // roof — dual hatches + CROWS turret + antennas
+      inner.add(box(1.20, 0.18, 1.20, jDark, 0, 2.55, 0.20));
+      inner.add(cyl(0.42,0.42,0.08,12, jArmor, -0.45, 2.68, 0.20));
+      inner.add(cyl(0.42,0.42,0.08,12, jArmor,  0.45, 2.68, 0.20));
+      inner.add(box(0.22, 0.12, 0.32, dark, 0, 2.75, 0.20)); // turret weapon
+      inner.add(cyl(0.06,0.06,0.45,8, dark, 0, 2.75, 0.55));
+      inner.add(box(0.16, 0.12, 0.16, mat(0xe8ecf1), 0.60, 2.60, -0.90)); // spotlight pod
+      for(const sx of [-1,1]) inner.add(box(0.02,0.60,0.02, mat(0x0a0a0a), sx*1.05, 2.30, -1.60));
+      // rear — ramp door
+      inner.add(box(2.90, 1.10, 0.14, jArmor, 0, 1.10, -3.70));
+      inner.add(box(0.04, 0.90, 0.08, jDark, 0, 1.10, -3.77));
+      // livery — huge POLICE + SHIELD
+      const b5 = mat(0x1a3a68), g5 = mat(0xc9a86a), t5 = mat(0xf1f3f5);
+      for(const sx of [-1,1]){ inner.add(box(0.02,0.26,0.22,b5,sx*1.71,1.35,0.20)); inner.add(box(0.025,0.02,0.23,g5,sx*1.715,1.50,0.20)); }
+      const p5Geo = busSignGeometry('POLICE', 0.32, 0.04, 0.03);
+      if (p5Geo) for(const sx of [-1,1]){ const m=new THREE.Mesh(p5Geo,t5); m.position.set(sx*1.73,1.22,-0.40); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      const j5Geo = busSignGeometry('JUGGERNAUT', 0.12, 0.02, 0.015);
+      if (j5Geo) for(const sx of [-1,1]){ const m=new THREE.Mesh(j5Geo,t5); m.position.set(sx*1.73,1.08,-0.95); m.rotation.y=sx*Math.PI/2; if(sx===-1) m.scale.x=-1; inner.add(m); }
+      // lightbar — full width on mastiff
+      inner.add(box(1.70, 0.13, 0.34, mat(0xe6eaef), 0, 2.70, -0.10));
+      siren(2.85, -0.10, 0.82);
     }
 
 
