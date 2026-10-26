@@ -27,7 +27,7 @@ export function setDiff(k) {
 // Police speeds kept below player (48); rubber-band makes up the difference at range
 // `kinds`: visual variants that can spawn within this tier (weighted array — repeat for higher odds)
 export const POLICE_TIERS = [
-  { kind: 'police1', kinds: ['police1', 'police1', 'police1', 'policeUnmarked'], name: 'PATROL SEDANS',
+  { kind: 'police1', kinds: ['police1', 'police1', 'police1'], name: 'PATROL SEDANS',
     maxSpeed: 33, accel: 22, brake: 48, turn: 2.45, grip: 7.5, hp: 55, mass: 1.0, prediction: 0.55, impact: 0.8,
     roles: ['chaser', 'chaser', 'interceptor'] },
   { kind: 'police2', kinds: ['police2', 'police2', 'police2'], name: 'MUSCLE INTERCEPTORS',
