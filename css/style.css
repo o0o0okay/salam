@@ -102,21 +102,22 @@ canvas { display:block; }
 #startScreen { padding:0; overflow:hidden; }
 .home-cartoon-bg {
   position:absolute; inset:0; z-index:-1;
-  background: url('../images/mockup-home-cartoon.png') center/cover no-repeat, 
-    linear-gradient(180deg, #0a3a9a 0%, #1a7bff 50%, #2ec4ff 100%);
+  background:
+    repeating-linear-gradient(115deg, #1e9dff 0 22px, #2ec4ff 22px 44px),
+    linear-gradient(180deg, #0a2a8a 0%, #1a7bff 100%);
 }
 .cartoon-top {
   position:absolute; top:0; left:0; right:0; height:58px; display:flex; align-items:center; justify-content:space-between;
   padding:8px 14px; z-index:2;
 }
 .lvl-badge {
-  display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:14px;
-  background:linear-gradient(180deg,#2a3a6a,#0e1e4a); border:2px solid #fff; color:#fff;
-  box-shadow:0 4px 0 rgba(0,0,0,.3);
+  display:flex; align-items:center; gap:8px; padding:5px 10px 5px 6px; border-radius:14px;
+  background:linear-gradient(180deg,#2a3a6a,#0e1e4a); border:2.5px solid #fff; color:#fff;
+  box-shadow:0 4px 0 rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.25);
 }
-.lvl-badge .lvl-ico { width:32px; height:32px; border-radius:50%; background:linear-gradient(180deg,#ffd23b,#ff9a00); display:flex; align-items:center; justify-content:center; border:2px solid #fff; }
-.lvl-badge b { font-family:'Bungee'; font-size:20px; line-height:1; display:block; }
-.lvl-badge span { font-size:10px; letter-spacing:.08em; color:#ffe14a; font-weight:800; }
+.lvl-badge .lvl-ico { width:34px; height:34px; border-radius:50%; background:linear-gradient(180deg,#ffd23b,#ff9a00); display:flex; align-items:center; justify-content:center; border:2px solid #fff; font-size:16px; }
+.lvl-badge b { font-family:'Bungee'; font-size:18px; line-height:1; display:block; text-shadow:0 1px 0 #000; }
+.lvl-badge span { font-size:9px; letter-spacing:.08em; color:#ffe14a; font-weight:800; }
 .garage-badge {
   position:absolute; top:62px; left:50%; transform:translateX(-50%); z-index:2;
   display:flex; align-items:center; gap:10px; padding:8px 18px; border-radius:999px;
@@ -126,9 +127,9 @@ canvas { display:block; }
 .garage-badge b { font-size:20px; text-shadow:0 2px 0 #7a2e00; }
 .garage-badge small { font-family:'Rubik'; font-size:10px; font-weight:700; opacity:.95; }
 .cartoon-stage {
-  position:absolute; top:118px; left:0; right:0; bottom:90px; display:flex; align-items:center; justify-content:center; z-index:1;
+  position:absolute; top:110px; left:0; right:0; bottom:92px; display:flex; align-items:center; justify-content:center; z-index:1;
 }
-#homeCarCanvas { width:min(720px, 92vw); height:min(420px, 52vh); display:block; filter:drop-shadow(0 20px 24px rgba(0,0,0,.45)); border-radius:18px; }
+#homeCarCanvas { width:min(680px, 90vw); height:min(380px, 46vh); display:block; filter:drop-shadow(0 16px 20px rgba(0,0,0,.35)); }
 .lock-slot {
   position:absolute; width:110px; height:110px; border-radius:16px; border:3px solid #fff;
   background:linear-gradient(180deg,#3a4a8a,#1a233a); box-shadow:0 6px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.25);

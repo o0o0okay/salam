@@ -2,10 +2,10 @@
 import { $ } from './utils.js';
 
 const CARS = [
-  { id:'muscle', label:'STREET KING', sub:'MUSCLE • LV1', img:'images/mockup-home-cartoon.png', filter:'none', price:0, owned:true },
-  { id:'crown', label:'INTERCEPTOR', sub:'CROWN VIC • LV5', img:'images/mockup-home-cartoon.png', filter:'hue-rotate(180deg) brightness(0.95)', price:35000, owned:false },
-  { id:'charger', label:'ROAD BEAST', sub:'CHARGER • LV10', img:'images/mockup-home-cartoon.png', filter:'hue-rotate(90deg) saturate(1.3)', price:75000, owned:false },
-  { id:'suv', label:'IRON GIANT', sub:'BEARCAT • LV20', img:'images/mockup-home-cartoon.png', filter:'hue-rotate(260deg) brightness(0.9)', price:150000, owned:false },
+  { id:'muscle', label:'STREET KING', sub:'MUSCLE • LV1', img:'images/car-teal-cartoon.png', filter:'none', price:0, owned:true },
+  { id:'crown', label:'INTERCEPTOR', sub:'CROWN VIC • LV5', img:'images/car-teal-cartoon.png', filter:'hue-rotate(180deg) saturate(1.2) brightness(1.05)', price:35000, owned:false },
+  { id:'charger', label:'ROAD BEAST', sub:'CHARGER • LV10', img:'images/car-teal-cartoon.png', filter:'hue-rotate(90deg) saturate(1.3)', price:75000, owned:false },
+  { id:'suv', label:'IRON GIANT', sub:'BEARCAT • LV20', img:'images/car-teal-cartoon.png', filter:'hue-rotate(260deg) brightness(0.9)', price:150000, owned:false },
 ];
 
 let idx = 0;
@@ -39,7 +39,6 @@ function setCar(i){
   const c = CARS[idx];
   const canvas = $('homeCarCanvas');
   const img = $('homeCarImg');
-  // Use cartoon image via canvas draw (crop center car)
   if(canvas){
     const ctx = canvas.getContext('2d');
     const carImg = new Image();
@@ -47,21 +46,18 @@ function setCar(i){
     carImg.onload = ()=>{
       const w = canvas.width, h = canvas.height;
       ctx.clearRect(0,0,w,h);
-      // draw full mockup centered and zoomed to show car
-      // mockup is 1024x576 approx, car is center
       ctx.save();
       ctx.filter = c.filter;
-      // crop: show center 70% of mockup
       const iw = carImg.width, ih = carImg.height;
-      const scale = Math.min(w/iw, h/ih) * 1.55;
+      const scale = Math.min(w/iw, h/ih) * 0.92;
       const dw = iw*scale, dh = ih*scale;
-      ctx.drawImage(carImg, (w-dw)/2, (h-dh)/2 + 10, dw, dh);
+      ctx.drawImage(carImg, (w-dw)/2, (h-dh)/2 - 8, dw, dh);
       ctx.restore();
-      // sparkle overlay
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.beginPath(); ctx.arc(w*0.72, h*0.28, 4, 0, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(w*0.18, h*0.72, 3, 0, Math.PI*2); ctx.fill();
+      // subtle shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath(); ctx.ellipse(w/2, h*0.88, dw*0.32, 10, 0, 0, Math.PI*2); ctx.fill();
     };
+    carImg.onerror = ()=>{ if(img){ img.src=c.img; img.style.display='block'; img.style.filter=c.filter; } };
   }
   if(img){ img.src = c.img; img.style.filter = c.filter; }
 }
